@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { CFG, COLORS } from './config.js';
 import { createFarmer, blobShadow } from './models.js';
+import { terrainHeight } from './terrain.js';
 
 const BULLET_POOL = 24;
 const UFO_HIT_R = 2.6;
@@ -35,7 +36,7 @@ export class FarmerManager {
     for (let i = 0; i < spawns.length; i++) {
       const s = spawns[i];
       const group = createFarmer(i % 3);
-      group.position.set(s.x, 0, s.z);
+      group.position.set(s.x, terrainHeight(s.x, s.z), s.z);
       group.rotation.y = Math.random() * Math.PI * 2;
       group.add(blobShadow(0.7));
 
@@ -56,6 +57,7 @@ export class FarmerManager {
         ud: group.userData || {},
         bang,
         home: { x: s.x, z: s.z },
+        groundY: terrainHeight(s.x, s.z),
         patrolR: s.patrolRadius,
         state: 'patrol',
         tx: s.x, tz: s.z,
@@ -193,7 +195,7 @@ export class FarmerManager {
     g.rotation.y += diff * Math.min(1, dt * 6);
 
     // raise + aim the gun (slight elevation toward the ship)
-    const elev = Math.atan2(up.y - 1.4, Math.max(0.001, d));
+    const elev = Math.atan2(up.y - (f.groundY + 1.4), Math.max(0.001, d));
     if (ud.gun) ud.gun.rotation.x += ((-elev * 0.9 + f.recoil) - ud.gun.rotation.x) * Math.min(1, dt * 9);
     const arms = ud.arms;
     if (arms) {
@@ -205,7 +207,7 @@ export class FarmerManager {
       if (legs[0]) legs[0].rotation.x *= Math.exp(-8 * dt);
       if (legs[1]) legs[1].rotation.x *= Math.exp(-8 * dt);
     }
-    g.position.y *= Math.exp(-8 * dt); // settle any run-bounce
+    g.position.y += (f.groundY - g.position.y) * Math.min(1, dt * 8); // settle any run-bounce
 
     f.fireT -= dt;
     if (f.fireT <= 0 && Math.abs(diff) < 0.5) {
@@ -267,7 +269,8 @@ export class FarmerManager {
       if (!b.active) continue;
       b.life -= dt;
       b.mesh.position.addScaledVector(b.vel, dt);
-      if (b.life <= 0 || b.mesh.position.y < 0) {
+      if (b.life <= 0 ||
+          b.mesh.position.y < terrainHeight(b.mesh.position.x, b.mesh.position.z)) {
         b.active = false;
         b.mesh.visible = false;
         continue;
@@ -301,6 +304,14 @@ export class FarmerManager {
     let nx = g.position.x + fx * speed * dt;
     let nz = g.position.z + fz * speed * dt;
 
+    // fences are solid for farmers too — they take the gates
+    if (this.world.crossesFence &&
+        this.world.crossesFence(g.position.x, g.position.z, nx + fx * 0.5, nz + fz * 0.5)) {
+      g.rotation.y += (f.phase % 2 < 1 ? 1 : -1) * dt * 4;
+      if (f.state === 'patrol') this._pickPatrol(f);
+      return;
+    }
+
     const colliders = this.world.colliders;
     for (let i = 0; i < colliders.length; i++) {
       const col = colliders[i];
@@ -320,6 +331,7 @@ export class FarmerManager {
     const lim = CFG.MAP_HALF - 3; // never leave the map
     g.position.x = THREE.MathUtils.clamp(nx, -lim, lim);
     g.position.z = THREE.MathUtils.clamp(nz, -lim, lim);
+    f.groundY = terrainHeight(g.position.x, g.position.z);
   }
 
   _pickPatrol(f) {
@@ -355,7 +367,7 @@ export class FarmerManager {
       if (arms[0]) arms[0].rotation.x = Math.sin(w + Math.PI) * armAmp + armBase;
       if (arms[1]) arms[1].rotation.x = Math.sin(w) * armAmp + armBase;
     }
-    f.group.position.y = Math.abs(Math.sin(w)) * (rate > 10 ? 0.07 : 0.03);
+    f.group.position.y = f.groundY + Math.abs(Math.sin(w)) * (rate > 10 ? 0.07 : 0.03);
     if (ud.head) ud.head.rotation.x = Math.sin(w * 2) * 0.04;
   }
 
@@ -377,7 +389,7 @@ export class FarmerManager {
       if (arms[0]) arms[0].rotation.x *= k;
       if (arms[1]) arms[1].rotation.x *= k;
     }
-    f.group.position.y *= k;
+    f.group.position.y += (f.groundY - f.group.position.y) * Math.min(1, dt * 5);
     if (ud.head) ud.head.rotation.x = Math.sin(this._t * 1.4 + f.phase) * 0.05; // looking about
   }
 

@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { CFG, COLORS, IS_MOBILE } from './config.js';
 import { createUFO, blobShadow } from './models.js';
+import { terrainMaxAround } from './terrain.js';
 
 const SHIP_RADIUS = 2.3;       // collision radius vs world colliders
 const FLIGHT_CLEARANCE = 1.5;  // colliders shorter than (altitude - this) are flown over
@@ -123,6 +124,19 @@ export class UFO {
     this._crashVy = 0;
     this._crashT = 0;
     this._smokeT = 0;
+    this._groundY = 0;       // smoothed terrain height under the ship
+  }
+
+  /** Hard-exit beam mode (round end, menus) — state, sound and visuals. */
+  forceStopBeam() {
+    if (this.beamActive) {
+      this.beamActive = false;
+      this.audio.stopLoop('beam');
+    }
+    this._beamVis = 0;
+    this.beamMesh.visible = false;
+    for (let i = 0; i < this._rings.length; i++) this._rings[i].visible = false;
+    if (this.beamLight) this.beamLight.intensity = 0;
   }
 
   // {x, z} of the beam center on the ground (reused object — no allocation).
@@ -169,7 +183,8 @@ export class UFO {
   }
 
   reset(x, z) {
-    this.group.position.set(x, CFG.UFO_ALTITUDE, z);
+    this._groundY = terrainMaxAround(x, z, 2.5);
+    this.group.position.set(x, this._groundY + CFG.UFO_ALTITUDE, z);
     this.group.rotation.set(0, 0, 0);
     this.group.visible = true;
     this.velocity.set(0, 0, 0);
@@ -306,10 +321,12 @@ export class UFO {
     this.group.position.x = px;
     this.group.position.z = pz;
 
-    // ---- altitude: hover bob + warp rise - hit dip ----
+    // ---- altitude: terrain-following + hover bob + warp rise - hit dip ----
+    const gTarget = terrainMaxAround(px, pz, 3);
+    this._groundY += (gTarget - this._groundY) * Math.min(1, dt * (gTarget > this._groundY ? 7 : 2.5));
     this._warpRise += ((this.warping ? 1.5 : 0) - this._warpRise) * Math.min(1, dt * 3);
     this.group.position.y =
-      CFG.UFO_ALTITUDE + Math.sin(this._t * 1.7) * 0.35 + this._warpRise - this._bobKick;
+      this._groundY + CFG.UFO_ALTITUDE + Math.sin(this._t * 1.7) * 0.35 + this._warpRise - this._bobKick;
 
     // ---- heading (minimap arrow), shortest-arc smoothing ----
     if (speed > 1.2) {
@@ -354,7 +371,7 @@ export class UFO {
     // shadow
     this._shadow.position.x = px;
     this._shadow.position.z = pz;
-    this._shadow.position.y = 0.03;
+    this._shadow.position.y = this._groundY + 0.05;
     const shScale = 1 + this._beamVis * 0.15 - this._warpRise * 0.06;
     this._shadow.scale.set(shScale, 1, shScale);
 
@@ -371,8 +388,8 @@ export class UFO {
 
     this.beamMesh.visible = on;
     if (on) {
-      // reach the ground regardless of bob/tilt (a little extra to bury the tip)
-      this.beamMesh.scale.y = this.group.position.y + 1.5;
+      // reach the terrain regardless of bob/tilt (a little extra to bury the tip)
+      this.beamMesh.scale.y = this.group.position.y - this._groundY + 1.5;
       const pulse = 1 + Math.sin(t * 9) * 0.05;
       this.beamMesh.scale.x = vis * pulse;
       this.beamMesh.scale.z = vis * pulse;
@@ -392,11 +409,11 @@ export class UFO {
       const r = 1 + u * (CFG.BEAM_RADIUS * 1.35 - 1);
       rm.scale.set(r, r, 1);
       rm.material.opacity = vis * (1 - u) * 0.5;
-      rm.position.set(bx, 0.06 + i * 0.013, bz);
+      rm.position.set(bx, this._groundY + 0.1 + i * 0.013, bz);
     }
 
     if (this.beamLight) {
-      this.beamLight.position.set(bx, 2.6, bz);
+      this.beamLight.position.set(bx, this._groundY + 2.6, bz);
       this.beamLight.intensity = vis * (1.6 + Math.sin(t * 31) * 0.35);
     }
   }
@@ -459,15 +476,16 @@ export class UFO {
     }
 
     // shadow tracks the fall
+    const gy = terrainMaxAround(this.group.position.x, this.group.position.z, 2);
     this._shadow.position.x = this.group.position.x;
     this._shadow.position.z = this.group.position.z;
-    this._shadow.position.y = 0.03;
+    this._shadow.position.y = gy + 0.05;
 
     this._updateFlash(dt);
     this.effects.warpStreaks(false, this.group);
 
-    if (this.group.position.y <= 0.6) {
-      this.group.position.y = 0.6;
+    if (this.group.position.y <= gy + 0.6) {
+      this.group.position.y = gy + 0.6;
       this.effects.explosion(this.group.position);
       this.audio.play('explosion', { volume: 1 });
       this.dead = true;

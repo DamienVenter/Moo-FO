@@ -4,10 +4,24 @@
 // warp bars (bottom-left), live minimap (top-right), damage vignette and
 // center announcements. All DOM updates are diffed against cached values so
 // per-frame update() stays cheap.
+//
+// Also owns the always-visible day-cycle clock widget (its OWN root on
+// document.body, z-index above every menu screen, pointer-events none) —
+// driven by updateClock({ phase, name, icon }) every frame.
 
 import { CFG } from './config.js';
 
 const HEALTH_SEGS = 10;
+
+// --- Day-cycle clock ---
+const CLOCK_R = 34;        // px radius of the sun/moon orbit inside the dial
+const CLOCK_STEP = 0.002;  // min phase delta worth touching the DOM for
+const CLOCK_TINTS = {
+  NIGHT: '#7aa2ff',   // soft blue
+  SUNRISE: '#ff9e80', // peachy orange
+  DAY: '#ffd54f',     // gold
+  SUNSET: '#ff8a50',  // deep orange
+};
 
 function el(tag, cls, parent, text) {
   const e = document.createElement(tag);
@@ -21,6 +35,7 @@ export class HUD {
   constructor(world) {
     this._buildDOM();
     this._buildMinimap(world);
+    this._buildClock();
 
     // Cached previous values — update() only touches DOM on change.
     this._prev = {
@@ -119,6 +134,35 @@ export class HUD {
       console.warn('[HUD] world.drawMinimap failed:', err);
     }
     this._mctx.drawImage(this._mapStatic, 0, 0, size, size);
+  }
+
+  /**
+   * Day-cycle clock — a small semicircular arc dial. Lives OUTSIDE the HUD
+   * root (own element on document.body) so it stays visible through menus,
+   * pause and end screens; z-index sits above every overlay, pointer-events
+   * none. Hidden until the first updateClock() call arrives.
+   */
+  _buildClock() {
+    const root = el('div', 'mf-clock mf-clock-idle');
+    root.id = 'mf-clock';
+
+    const dial = el('div', 'mf-clock-dial', root);
+    el('div', 'mf-clock-horizon', dial);
+    this._sunEl = el('div', 'mf-clock-marker mf-clock-sun', dial, '☀️');
+    this._moonEl = el('div', 'mf-clock-marker mf-clock-moon', dial, '🌙');
+
+    const label = el('div', 'mf-clock-name', root);
+    this._clockIconEl = el('span', 'mf-clock-ico', label, '');
+    this._clockNameEl = el('span', 'mf-clock-txt', label, '');
+
+    // Desktop docking: directly below the minimap (wrap = size + 12px chrome,
+    // top 10px, 8px gap). Small screens reposition via media query in CSS.
+    root.style.setProperty('--mf-clock-top', `${10 + this._mapSize + 12 + 8}px`);
+
+    document.body.appendChild(root);
+    this._clockEl = root;
+    this._clockQ = null;     // last phase, quantized to CLOCK_STEP
+    this._clockName = null;  // last phase name
   }
 
   // ======================================================================
@@ -265,6 +309,50 @@ export class HUD {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  /**
+   * Day-cycle clock — called every frame by main.
+   * phase: 0..1 (0 = midnight) · name: 'NIGHT'|'SUNRISE'|'DAY'|'SUNSET' ·
+   * icon: emoji for the current phase. Only touches the DOM when the phase
+   * moved by ≥ CLOCK_STEP (~0.002) or the phase name changed.
+   */
+  updateClock({ phase, name, icon } = {}) {
+    if (typeof phase !== 'number' || !Number.isFinite(phase)) return;
+    const p = ((phase % 1) + 1) % 1;
+    const q = Math.round(p / CLOCK_STEP);
+    if (q === this._clockQ && name === this._clockName) return;
+    this._clockQ = q;
+
+    if (this._clockName === null) this._clockEl.classList.remove('mf-clock-idle');
+
+    // Sun rises at phase 0.25, peaks at 0.5 (noon), sets at 0.75.
+    // Moon mirrors it: rises 0.75, peaks at 0 (midnight), sets 0.25.
+    // Below-horizon markers slide under the dial edge and are clipped away.
+    this._placeMarker(this._sunEl, (((p - 0.25) % 1) + 1) % 1);
+    this._placeMarker(this._moonEl, (p + 0.25) % 1);
+
+    if (name && name !== this._clockName) {
+      this._clockName = name;
+      this._clockNameEl.textContent = name;
+      this._clockIconEl.textContent = icon || '';
+      const tint = CLOCK_TINTS[name] || CLOCK_TINTS.NIGHT;
+      this._clockEl.style.setProperty('--mf-clock-glow', tint);
+      // Shared phase tint — end-screen backdrops (and anything else) read it.
+      document.documentElement.style.setProperty('--mf-phase-glow', tint);
+    }
+  }
+
+  /**
+   * Place a sun/moon marker on the arc. t is the fraction of a full orbit:
+   * 0 = rising on the left horizon, 0.25 = zenith, 0.5 = setting on the
+   * right, (0.5..1) = below the horizon (clipped by the dial).
+   */
+  _placeMarker(node, t) {
+    const a = t * Math.PI * 2;
+    const x = -Math.cos(a) * CLOCK_R;
+    const y = -Math.sin(a) * CLOCK_R; // negative = up
+    node.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
   }
 
   /** Full-screen red vignette flash on damage. */

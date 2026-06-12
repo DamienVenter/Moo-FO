@@ -1,9 +1,11 @@
-// MOO-FO — entry point: renderer, camera, game state machine, scoring, wiring.
+// MOO-FO — entry point: renderer, chase camera, game state machine, scoring,
+// the world clock, and all the wiring.
 
 import * as THREE from 'three';
 import { CFG, COLORS, IS_MOBILE, ENABLE_SHADOWS } from './config.js';
 import { World } from './world.js';
 import { Sky } from './sky.js';
+import { DayCycle } from './daycycle.js';
 import { UFO } from './ufo.js';
 import { CowManager } from './cows.js';
 import { FarmerManager } from './farmers.js';
@@ -30,8 +32,7 @@ const scene = new THREE.Scene();
 
 const BASE_FOV = 52;
 const WARP_FOV = 64;
-const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.5, 900);
-const CAM_OFFSET = new THREE.Vector3(0, 24, 27);
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.5, 1400);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -43,6 +44,7 @@ window.addEventListener('resize', () => {
 // Systems
 // ---------------------------------------------------------------------------
 const audio = new AudioManager();
+const cycle = new DayCycle();
 const world = new World(scene);
 const sky = new Sky(scene);
 const effects = new Effects(scene);
@@ -86,7 +88,8 @@ function onAbduct({ kind, points, pos }) {
   score += gained;
   if (kind !== 'chicken') cowsGrabbed += 1;
 
-  const color = kind === 'golden' ? COLORS.gold : kind === 'chicken' ? 0xffffff : COLORS.uiGreen;
+  const color = kind === 'golden' ? COLORS.gold : kind === 'chicken' ? 0xffffff :
+                kind === 'sheep' ? 0xeae6da : COLORS.uiGreen;
   effects.scorePopup(pos, `+${gained}`, color);
   if (kind === 'golden') hud.announce('GOLDEN COW!', { color: '#ffd54f' });
   if (mult >= 2) {
@@ -127,6 +130,7 @@ function disposeEntities() {
       for (const e of mgr.cows || mgr.farmers || []) {
         if (e.group) scene.remove(e.group);
       }
+      if (mgr._bullets) for (const b of mgr._bullets) scene.remove(b.mesh);
     }
   }
   cows = farmers = null;
@@ -141,6 +145,9 @@ function resetRound() {
   comboTimer = 0;
   shake = 0;
   ufo.reset(0, 40);
+  ufo.heading = Math.PI;       // face north, camera settles behind
+  camYaw = Math.PI;
+  orbitOffset = 0;
   spawnEntities();
 }
 
@@ -155,6 +162,7 @@ const ui = new UI({
   onRestart: () => { ui.hidePause(); ui.hideEnd(); beginRound(); },
   onQuitToMenu: quitToMenu,
   onToggleMute: () => { audio.setMuted(!audio.muted); ui.setMuteUI(audio.muted); },
+  controls,
 });
 
 const hud = new HUD(world);
@@ -169,7 +177,7 @@ async function startGame() {
 async function beginRound() {
   resetRound();
   hud.show();
-  hud.update({ score, timeLeft, health: ufo.health, combo: 0, warpEnergy: ufo.warpEnergy });
+  hud.update({ score, timeLeft, health: ufo.health, combo: 0, warpEnergy: ufo.warpEnergy, cows: 0 });
   state = State.COUNTDOWN;
   await ui.countdown();
   state = State.PLAYING;
@@ -179,6 +187,7 @@ async function beginRound() {
 function togglePause() {
   if (state === State.PLAYING) {
     state = State.PAUSED;
+    ufo.forceStopBeam();
     audio.play('click', { volume: 0.6 });
     ui.showPause(audio.muted);
     controls.setTouchVisible(false);
@@ -195,6 +204,7 @@ function quitToMenu() {
   ui.hideEnd();
   hud.hide();
   controls.setTouchVisible(false);
+  ufo.forceStopBeam();
   state = State.MENU;
   resetRound();
   ui.showStart(getHighscore());
@@ -222,17 +232,22 @@ function finishRound(won) {
   }
 }
 
-// Auto-pause when the tab is hidden.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state === State.PLAYING) togglePause();
 });
 
 // ---------------------------------------------------------------------------
-// Camera
+// Chase camera with manual orbit (Q/E, right stick, mouse drag)
 // ---------------------------------------------------------------------------
 const camTarget = new THREE.Vector3();
 const camPos = new THREE.Vector3();
+let camYaw = Math.PI;        // yaw the camera sits behind
+let orbitOffset = 0;         // player's manual offset from the chase yaw
 let menuAngle = 0;
+
+function wrapAngle(a) {
+  return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+}
 
 function updateCamera(dt) {
   if (state === State.MENU) {
@@ -247,11 +262,31 @@ function updateCamera(dt) {
     return;
   }
 
+  // manual orbit input
+  orbitOffset += controls.orbit * CFG.CAM_ORBIT_SPEED * dt;
+  orbitOffset += controls.consumeDragDelta() * 0.006;
+  orbitOffset = wrapAngle(orbitOffset);
+  const speed = Math.hypot(ufo.velocity.x, ufo.velocity.z);
+  if (controls.orbit === 0 && speed > 6) {
+    orbitOffset *= Math.exp(-dt * 0.9);   // drift back behind the ship while flying
+  }
+
+  // chase: settle behind the flight heading (+ the player's offset)
+  const targetYaw = ufo.heading + orbitOffset;
+  camYaw += wrapAngle(targetYaw - camYaw) * Math.min(1, dt * 2.4);
+
+  const fx = Math.sin(camYaw);
+  const fz = Math.cos(camYaw);
   const p = ufo.group.position;
-  camPos.set(p.x + CAM_OFFSET.x, CAM_OFFSET.y + (state === State.ESCAPE ? p.y * 0.5 : 0), p.z + CAM_OFFSET.z);
+
+  camPos.set(
+    p.x - fx * CFG.CAM_DIST,
+    p.y + CFG.CAM_HEIGHT * 0.82 + (state === State.ESCAPE ? p.y * 0.4 : 0),
+    p.z - fz * CFG.CAM_DIST
+  );
   camera.position.lerp(camPos, 1 - Math.exp(-dt * 5));
 
-  camTarget.lerp(new THREE.Vector3(p.x, p.y * 0.5, p.z - 6), 1 - Math.exp(-dt * 6));
+  camTarget.lerp(new THREE.Vector3(p.x + fx * 5, p.y - 3, p.z + fz * 5), 1 - Math.exp(-dt * 6));
 
   if (shake > 0.001) {
     shake *= Math.exp(-dt * 6);
@@ -266,6 +301,20 @@ function updateCamera(dt) {
   camera.updateProjectionMatrix();
 }
 
+// Rotate joystick/key input into camera space so "up" is always "away".
+// forward = (fx, fz), right = (-fz, fx); world = right·x + forward·(-z).
+const _rotInput = { x: 0, z: 0, beam: false, warp: false };
+function cameraRelativeInput() {
+  const s = controls.state;
+  const fx = Math.sin(camYaw);
+  const fz = Math.cos(camYaw);
+  _rotInput.x = -s.x * fz - s.z * fx;
+  _rotInput.z = s.x * fx - s.z * fz;
+  _rotInput.beam = s.beam;
+  _rotInput.warp = s.warp;
+  return _rotInput;
+}
+
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
@@ -278,26 +327,33 @@ let escapeConfettiDone = false;
 function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.05);
-  if (state === State.PAUSED) { renderer.render(scene, camera); return; }
   elapsed += dt;
 
-  sky.update(dt, elapsed);
-  world.update(dt, elapsed);
+  // The world clock never stops — menus and pause included.
+  cycle.update(dt);
+  hud.updateClock({ phase: cycle.phase, name: cycle.name, icon: cycle.icon });
+  sky.update(dt, elapsed, cycle);
+
+  if (state === State.PAUSED) {
+    renderer.render(scene, camera);
+    return;
+  }
+
+  controls.poll();
+  world.update(dt, elapsed, cycle, ufo.group.position);
   effects.update(dt);
 
   if (state === State.PLAYING) {
-    ufo.update(dt, controls.state);
+    ufo.update(dt, cameraRelativeInput());
     cows.update(dt, ufo);
     farmers.update(dt, ufo);
     effects.warpStreaks(ufo.warping, ufo.group);
 
-    // Combo window
     if (comboTimer > 0) {
       comboTimer -= dt;
       if (comboTimer <= 0) comboCount = 0;
     }
 
-    // Round timer + final-seconds tick
     timeLeft -= dt;
     const sec = Math.ceil(timeLeft);
     if (timeLeft <= CFG.TICK_WARN_TIME && sec !== lastTickSecond && sec > 0) {
@@ -309,6 +365,7 @@ function frame() {
       state = State.ESCAPE;
       escapeConfettiDone = false;
       endDelay = 0;
+      ufo.forceStopBeam();           // hard-exit beam mode: no sound/visual carries over
       hud.announce("TIME'S UP!", {});
     }
 
@@ -323,25 +380,26 @@ function frame() {
       minimapAcc = 0;
       hud.updateMinimap({
         player: { x: ufo.group.position.x, z: ufo.group.position.z, heading: ufo.heading },
-        cows: cows.cows.map((c) => ({ x: c.group.position.x, z: c.group.position.z, kind: c.kind })),
+        cows: cows.cows.filter((c) => c.kind !== 'duck')
+          .map((c) => ({ x: c.group.position.x, z: c.group.position.z, kind: c.kind })),
         farmers: farmers.farmers.map((f) => ({ x: f.group.position.x, z: f.group.position.z })),
       });
     }
   } else if (state === State.MENU) {
-    // Living diorama behind the title screen.
     if (cows) cows.update(dt, ufo);
     ufo.update(dt, NO_INPUT);
   } else if (state === State.CRASHING) {
     ufo.update(dt, NO_INPUT);
+    if (cows) cows.update(dt, ufo);   // anything mid-lift falls free
     if (ufo.dead) {
       endDelay += dt;
       if (endDelay > 1.3) finishRound(false);
     }
   } else if (state === State.ESCAPE) {
-    // Victory: the UFO rockets up into the night sky.
+    if (cows) cows.update(dt, ufo);   // released critters drop while we leave
     ufo.group.position.y += dt * (14 + ufo.group.position.y * 0.6);
     ufo.group.rotation.y += dt * 6;
-    if (!escapeConfettiDone && ufo.group.position.y > 24) {
+    if (!escapeConfettiDone && ufo.group.position.y > 30) {
       escapeConfettiDone = true;
       effects.confettiAt(ufo.group.position.clone());
       audio.play('warp', { volume: 0.8, rate: 1.2 });
@@ -365,6 +423,7 @@ window.__MOOFO = {
   get ufo() { return ufo; },
   get cows() { return cows; },
   get farmers() { return farmers; },
+  get cycle() { return cycle; },
 };
 
 resetRound();

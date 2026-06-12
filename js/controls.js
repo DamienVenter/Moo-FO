@@ -1,20 +1,50 @@
-// MOO-FO — Controls (Agent U)
-// Unified keyboard + touch input. Exposes a single normalized `state`
-// { x:-1..1, z:-1..1, beam:bool, warp:bool } that main.js feeds to the UFO.
+// MOO-FO — Controls
+// Unified keyboard + touch + gamepad input with rebindable keys.
+// Exposes `state` { x:-1..1, z:-1..1, beam:bool, warp:bool } (camera-relative
+// rotation is applied by main), plus `orbit` (-1..1 manual camera input) and
+// mouse-drag orbit deltas. main.js calls poll() once per frame.
 //
-// Conventions (per SPEC): +X = world east (screen right), pressing W/Up means
-// "fly away from camera" = world -Z, S/Down = +Z. Diagonals are normalized so
-// |(x,z)| <= 1. Keyboard and touch are merged additively then clamped.
+// Default keys: WASD/arrows fly, Space beam, Shift warp, Q/E camera.
+// Gamepad (standard mapping): left stick fly, right stick camera,
+// RT/A beam, LB/LT warp, Start pause.
 
 import { IS_MOBILE } from './config.js';
 
 const JOY_RADIUS = 56; // max knob travel in px (dynamic-origin virtual stick)
+const BINDS_KEY = 'moofo-binds';
 
-const MOVE_CODES = new Set([
-  'KeyW', 'KeyA', 'KeyS', 'KeyD',
-  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-  'Space', 'ShiftLeft', 'ShiftRight',
-]);
+const DEFAULT_BINDS = Object.freeze({
+  forward: 'KeyW',
+  back: 'KeyS',
+  left: 'KeyA',
+  right: 'KeyD',
+  beam: 'Space',
+  warp: 'ShiftLeft',
+  camLeft: 'KeyQ',
+  camRight: 'KeyE',
+});
+
+// Arrows always work for movement regardless of binds.
+const ARROWS = { ArrowUp: 'forward', ArrowDown: 'back', ArrowLeft: 'left', ArrowRight: 'right' };
+
+const PAD_DEADZONE = 0.18;
+
+function keyLabel(code) {
+  if (!code) return '—';
+  const special = {
+    Space: 'SPACE', ShiftLeft: 'L-SHIFT', ShiftRight: 'R-SHIFT',
+    ControlLeft: 'L-CTRL', ControlRight: 'R-CTRL', AltLeft: 'L-ALT', AltRight: 'R-ALT',
+    ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+    Enter: 'ENTER', Tab: 'TAB', Backspace: 'BKSP', CapsLock: 'CAPS',
+    Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'",
+    BracketLeft: '[', BracketRight: ']', Backquote: '`', Minus: '-', Equal: '=',
+  };
+  if (special[code]) return special[code];
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return 'NUM ' + code.slice(6);
+  return code.toUpperCase();
+}
 
 function div(cls, parent) {
   const d = document.createElement('div');
@@ -27,40 +57,88 @@ export class Controls {
   constructor({ onPause } = {}) {
     this.onPause = typeof onPause === 'function' ? onPause : () => {};
 
-    /** Normalized, combined keyboard+touch input. Mutated in place. */
+    /** Normalized, combined keyboard+touch+gamepad input. Mutated in place. */
     this.state = { x: 0, z: 0, beam: false, warp: false };
 
-    /** Capability detection: touch events present AND coarse pointer. */
+    /** Manual camera orbit input, -1..1 (keys + right stick). */
+    this.orbit = 0;
+
     this.isTouch = IS_MOBILE || (
       typeof window !== 'undefined' &&
       ('ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0) &&
       !!window.matchMedia?.('(pointer: coarse)').matches
     );
 
-    // --- internal input sources -----------------------------------------
-    this._keys = new Set();        // currently held key codes
-    this._joyId = null;            // pointerId driving the joystick
+    // --- key bindings -----------------------------------------------------
+    this.binds = { ...DEFAULT_BINDS };
+    try {
+      const saved = JSON.parse(localStorage.getItem(BINDS_KEY) || 'null');
+      if (saved) for (const k of Object.keys(DEFAULT_BINDS)) if (saved[k]) this.binds[k] = saved[k];
+    } catch (_) { /* corrupted storage — defaults */ }
+    this._capture = null;     // { action, resolve } while rebinding
+
+    // --- internal input sources -------------------------------------------
+    this._keys = new Set();
+    this._joyId = null;
     this._joyOrigin = { x: 0, y: 0 };
-    this._joyVec = { x: 0, z: 0 }; // -1..1 each, length <= 1
-    this._beamHeld = false;        // touch BEAM button
-    this._warpHeld = false;        // touch WARP button
+    this._joyVec = { x: 0, z: 0 };
+    this._beamHeld = false;
+    this._warpHeld = false;
+
+    // gamepad
+    this.gamepadConnected = false;
+    this._padIndex = null;
+    this._padVec = { x: 0, z: 0 };
+    this._padBeam = false;
+    this._padWarp = false;
+    this._padOrbit = 0;
+    this._padPauseWas = false;
+    this._padConfirmWas = false;
+
+    // mouse-drag camera orbit
+    this._dragId = null;
+    this._dragDelta = 0;      // accumulated px since last consume
 
     this._buildTouchDOM();
     this._bindKeyboard();
     this._bindTouch();
+    this._bindMouseOrbit();
+    this._bindGamepadEvents();
   }
 
   // ======================================================================
   // Public API
   // ======================================================================
 
-  /** Show/hide the mobile control layer (joystick, BEAM/WARP, pause). */
+  get bindLabels() {
+    const out = {};
+    for (const k of Object.keys(this.binds)) out[k] = keyLabel(this.binds[k]);
+    return out;
+  }
+
+  /** Capture the next keydown as the new bind. Resolves label, or null on Esc. */
+  rebind(action) {
+    if (!(action in this.binds)) return Promise.resolve(null);
+    if (this._capture) this._capture.resolve(null);
+    return new Promise((resolve) => {
+      this._capture = { action, resolve };
+    });
+  }
+
+  resetBinds() {
+    this.binds = { ...DEFAULT_BINDS };
+    this._saveBinds();
+  }
+
+  _saveBinds() {
+    try { localStorage.setItem(BINDS_KEY, JSON.stringify(this.binds)); } catch (_) { /* full */ }
+  }
+
   setTouchVisible(visible) {
     this.touchRoot.classList.toggle('mf-hidden', !visible);
     if (!visible) this._releaseAllTouch();
   }
 
-  /** Fire cb exactly once on the next keydown or tap (menus). */
   anyKeyOnce(cb) {
     const done = () => {
       window.removeEventListener('keydown', onKey, true);
@@ -68,7 +146,7 @@ export class Controls {
       cb();
     };
     const onKey = (e) => {
-      if (e.repeat || e.code === 'Escape' || e.code === 'KeyP') return; // don't eat pause
+      if (e.repeat || e.code === 'Escape' || e.code === 'KeyP') return;
       done();
     };
     const onPtr = () => done();
@@ -76,21 +154,94 @@ export class Controls {
     window.addEventListener('pointerdown', onPtr, true);
   }
 
+  /** Mouse-drag camera rotation accumulated since last call (px, + = right). */
+  consumeDragDelta() {
+    const d = this._dragDelta;
+    this._dragDelta = 0;
+    return d;
+  }
+
+  /** Per-frame: poll gamepad + refresh orbit. Call once from the main loop. */
+  poll() {
+    this._pollGamepad();
+    const k = this._keys;
+    const keyOrbit = (k.has(this.binds.camRight) ? 1 : 0) - (k.has(this.binds.camLeft) ? 1 : 0);
+    this.orbit = Math.max(-1, Math.min(1, keyOrbit + this._padOrbit));
+  }
+
   // ======================================================================
-  // DOM
+  // Gamepad
+  // ======================================================================
+
+  _bindGamepadEvents() {
+    window.addEventListener('gamepadconnected', (e) => {
+      this._padIndex = e.gamepad.index;
+      this.gamepadConnected = true;
+    });
+    window.addEventListener('gamepaddisconnected', (e) => {
+      if (e.gamepad.index === this._padIndex) {
+        this._padIndex = null;
+        this.gamepadConnected = false;
+        this._padVec.x = this._padVec.z = 0;
+        this._padBeam = this._padWarp = false;
+        this._padOrbit = 0;
+        this._recompute();
+      }
+    });
+  }
+
+  _pollGamepad() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let pad = this._padIndex !== null ? pads[this._padIndex] : null;
+    if (!pad) {
+      for (const p of pads) if (p && p.connected) { pad = p; this._padIndex = p.index; break; }
+    }
+    this.gamepadConnected = !!pad;
+    if (!pad) return;
+
+    const dz = (v) => (Math.abs(v) < PAD_DEADZONE ? 0 : (v - Math.sign(v) * PAD_DEADZONE) / (1 - PAD_DEADZONE));
+    const nx = dz(pad.axes[0] || 0);
+    const nz = dz(pad.axes[1] || 0);
+    this._padOrbit = dz(pad.axes[2] || 0);
+
+    const btn = (i) => !!(pad.buttons[i] && (pad.buttons[i].pressed || pad.buttons[i].value > 0.5));
+    const beam = btn(7) || btn(0);          // RT or A
+    const warp = btn(4) || btn(6);          // LB or LT
+    const pause = btn(9);                   // Start
+    const confirm = btn(0);                 // A doubles as menu confirm
+
+    if (pause && !this._padPauseWas) this.onPause();
+    this._padPauseWas = pause;
+
+    // A press edge → synthesize Enter so menus confirm with the pad.
+    if (confirm && !this._padConfirmWas) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true }));
+    }
+    this._padConfirmWas = confirm;
+
+    if (nx !== this._padVec.x || nz !== this._padVec.z ||
+        beam !== this._padBeam || warp !== this._padWarp) {
+      this._padVec.x = nx;
+      this._padVec.z = nz;
+      this._padBeam = beam;
+      this._padWarp = warp;
+      this._recompute();
+    }
+  }
+
+  // ======================================================================
+  // DOM (touch layer)
   // ======================================================================
 
   _buildTouchDOM() {
     const root = div('mf-touch mf-hidden');
     root.id = 'mf-touch';
 
-    // Left half: dynamic-origin joystick capture zone.
     this._joyZone = div('mf-joy-zone', root);
     this._joyBase = div('mf-joy-base', this._joyZone);
     this._joyKnob = div('mf-joy-knob', this._joyBase);
     this._joyBase.style.display = 'none';
 
-    // Bottom-right: BEAM + WARP hold buttons.
     const btns = div('mf-touch-btns', root);
     this._btnWarp = document.createElement('button');
     this._btnWarp.type = 'button';
@@ -103,7 +254,6 @@ export class Controls {
     btns.appendChild(this._btnWarp);
     btns.appendChild(this._btnBeam);
 
-    // Top-center pause button.
     this._btnPause = document.createElement('button');
     this._btnPause.type = 'button';
     this._btnPause.className = 'mf-touch-pause';
@@ -114,7 +264,6 @@ export class Controls {
     document.body.appendChild(root);
     this.touchRoot = root;
 
-    // Belt & braces vs. browser gestures (CSS also sets touch-action:none).
     for (const el of [root, this._joyZone, this._btnBeam, this._btnWarp, this._btnPause]) {
       el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
       el.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -125,15 +274,40 @@ export class Controls {
   // Keyboard
   // ======================================================================
 
+  _isGameCode(code) {
+    if (code in ARROWS) return true;
+    for (const k of Object.keys(this.binds)) if (this.binds[k] === code) return true;
+    return false;
+  }
+
   _bindKeyboard() {
     window.addEventListener('keydown', (e) => {
       const code = e.code;
+
+      // rebind capture mode swallows everything except Esc (= cancel)
+      if (this._capture) {
+        e.preventDefault();
+        if (e.repeat) return;
+        const cap = this._capture;
+        this._capture = null;
+        if (code === 'Escape') { cap.resolve(null); return; }
+        // steal the key from any action that already uses it
+        for (const k of Object.keys(this.binds)) {
+          if (k !== cap.action && this.binds[k] === code) this.binds[k] = '';
+        }
+        this.binds[cap.action] = code;
+        this._saveBinds();
+        this._recompute();
+        cap.resolve(keyLabel(code));
+        return;
+      }
+
       if (code === 'Escape' || code === 'KeyP') {
         if (!e.repeat) this.onPause();
         e.preventDefault();
         return;
       }
-      if (MOVE_CODES.has(code)) {
+      if (this._isGameCode(code)) {
         e.preventDefault();
         if (!this._keys.has(code)) {
           this._keys.add(code);
@@ -146,7 +320,6 @@ export class Controls {
       if (this._keys.delete(e.code)) this._recompute();
     });
 
-    // Keys must never stick when focus leaves the game.
     const clearAll = () => {
       if (this._keys.size === 0) return;
       this._keys.clear();
@@ -159,6 +332,27 @@ export class Controls {
   }
 
   // ======================================================================
+  // Mouse-drag camera orbit (desktop)
+  // ======================================================================
+
+  _bindMouseOrbit() {
+    const canvas = document.getElementById('game-canvas');
+    if (!canvas) return;
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      this._dragId = e.pointerId;
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* noop */ }
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== this._dragId) return;
+      this._dragDelta += e.movementX || 0;
+    });
+    const end = (e) => { if (e.pointerId === this._dragId) this._dragId = null; };
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+  }
+
+  // ======================================================================
   // Touch (Pointer Events, per-pointer-id tracking)
   // ======================================================================
 
@@ -166,7 +360,7 @@ export class Controls {
     const zone = this._joyZone;
 
     zone.addEventListener('pointerdown', (e) => {
-      if (this._joyId !== null) return; // one finger drives the stick
+      if (this._joyId !== null) return;
       this._joyId = e.pointerId;
       try { zone.setPointerCapture(e.pointerId); } catch (_) { /* noop */ }
       this._joyOrigin.x = e.clientX;
@@ -191,7 +385,6 @@ export class Controls {
         dy = (dy / len) * JOY_RADIUS;
       }
       this._joyKnob.style.transform = `translate(calc(${dx}px - 50%), calc(${dy}px - 50%))`;
-      // Screen up (dy<0) = away from camera = world -Z. Screen right = +X.
       this._joyVec.x = dx / JOY_RADIUS;
       this._joyVec.z = dy / JOY_RADIUS;
       this._recompute();
@@ -206,8 +399,6 @@ export class Controls {
     zone.addEventListener('pointercancel', joyEnd);
     zone.addEventListener('lostpointercapture', joyEnd);
 
-    // BEAM / WARP hold buttons — each tracks its own pointer id so the
-    // joystick finger and button fingers never interfere.
     this._bindHoldButton(this._btnBeam, (held) => { this._beamHeld = held; });
     this._bindHoldButton(this._btnWarp, (held) => { this._warpHeld = held; });
 
@@ -264,17 +455,21 @@ export class Controls {
 
   _recompute() {
     const k = this._keys;
-    let kx = ((k.has('KeyD') || k.has('ArrowRight')) ? 1 : 0) -
-             ((k.has('KeyA') || k.has('ArrowLeft')) ? 1 : 0);
-    let kz = ((k.has('KeyS') || k.has('ArrowDown')) ? 1 : 0) -
-             ((k.has('KeyW') || k.has('ArrowUp')) ? 1 : 0);
-    if (kx !== 0 && kz !== 0) { // normalize keyboard diagonals
+    const b = this.binds;
+    const held = (action) => {
+      if (b[action] && k.has(b[action])) return true;
+      for (const code of Object.keys(ARROWS)) if (ARROWS[code] === action && k.has(code)) return true;
+      return false;
+    };
+    let kx = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
+    let kz = (held('back') ? 1 : 0) - (held('forward') ? 1 : 0);
+    if (kx !== 0 && kz !== 0) {
       kx *= Math.SQRT1_2;
       kz *= Math.SQRT1_2;
     }
 
-    let x = kx + this._joyVec.x;
-    let z = kz + this._joyVec.z;
+    let x = kx + this._joyVec.x + this._padVec.x;
+    let z = kz + this._joyVec.z + this._padVec.z;
     const len = Math.hypot(x, z);
     if (len > 1) {
       x /= len;
@@ -283,7 +478,7 @@ export class Controls {
 
     this.state.x = x;
     this.state.z = z;
-    this.state.beam = k.has('Space') || this._beamHeld;
-    this.state.warp = k.has('ShiftLeft') || k.has('ShiftRight') || this._warpHeld;
+    this.state.beam = held('beam') || this._beamHeld || this._padBeam;
+    this.state.warp = held('warp') || (b.warp === 'ShiftLeft' && k.has('ShiftRight')) || this._warpHeld || this._padWarp;
   }
 }

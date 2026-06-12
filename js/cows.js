@@ -4,14 +4,16 @@
 
 import * as THREE from 'three';
 import { CFG } from './config.js';
-import { createCow, createChicken, blobShadow } from './models.js';
+import { createCow, createChicken, createSheep, createDuck, blobShadow } from './models.js';
+import { terrainHeight, WATER_LEVEL } from './terrain.js';
 
 const MOOS = ['moo1', 'moo2', 'moo3'];
 const MOO_RANGE = 60;          // only moo when the UFO is this close
 const FALL_GRAVITY = 28;
 const STUN_TIME = 1.0;
-const BEAM_HOLD_SLACK = 1.5;   // × BEAM_RADIUS before a lifted critter slips out
+const JUMP_TIME = 0.7;         // fence-hop duration
 const CELL = 18;               // collider grid cell size
+const WATER_Y = WATER_LEVEL + 0.05;
 
 // ---- tiny spatial hash for static colliders (built once) ----
 function buildGrid(colliders) {
@@ -79,8 +81,47 @@ export class CowManager {
         this._add('chicken', null, p.x, p.z);
       }
     }
+    const sAreas = this.world.sheepSpawnAreas || [];
+    for (let a = 0; a < sAreas.length; a++) {
+      const area = sAreas[a];
+      for (let i = 0; i < area.count; i++) {
+        const p = this._spawnPointIn(area);
+        this._add('sheep', null, p.x, p.z);
+      }
+    }
+    // ducks paddle their ponds — atmosphere only, the beam ignores them
+    const dAreas = this.world.duckAreas || [];
+    const perPond = Math.max(1, Math.floor(CFG.DUCK_COUNT / Math.max(1, dAreas.length)));
+    for (let a = 0; a < dAreas.length; a++) {
+      for (let i = 0; i < perPond; i++) {
+        const area = dAreas[a];
+        const x = area.x + (Math.random() - 0.5) * area.rx;
+        const z = area.z + (Math.random() - 0.5) * area.rz;
+        const d = this._add('duck', null, x, z);
+        d.pond = area;
+      }
+    }
     const g = this.world.goldenCowSpot();
     this._add('golden', 'golden', g.x, g.z);
+  }
+
+  /** Ground every airborne critter instantly (used when leaving a round). */
+  releaseAll() {
+    for (let i = 0; i < this.cows.length; i++) {
+      const c = this.cows[i];
+      if (c.state === 'lift' || c.state === 'fall' || c.state === 'jump') {
+        const g = c.group;
+        c.groundY = c.kind === 'duck' ? WATER_Y : terrainHeight(g.position.x, g.position.z);
+        g.position.y = c.groundY;
+        g.scale.setScalar(1);
+        g.rotation.z = 0;
+        c.vy = 0;
+        c.state = 'wander';
+        this._neutralPose(c);
+        this._pickTarget(c);
+        this._groundShadow(c);
+      }
+    }
   }
 
   update(dt, ufo) {
@@ -118,11 +159,22 @@ export class CowManager {
         this._groundShadow(c);
         continue;
       }
+      if (c.state === 'jump') {
+        this._jump(c, dt);
+        this._groundShadow(c);
+        continue;
+      }
+
+      // ---------- ducks live on the water, on their own rules ----------
+      if (c.kind === 'duck') {
+        this._duck(c, dt, up, ufoAlive);
+        continue;
+      }
 
       const px = g.position.x;
       const pz = g.position.z;
 
-      // ---------- beam capture (from any grounded state) ----------
+      // ---------- beam capture (from any grounded state; ducks excluded above) ----------
       if (beamOn) {
         const dbx = px - bp.x;
         const dbz = pz - bp.z;
@@ -180,6 +232,12 @@ export class CowManager {
               volume: THREE.MathUtils.clamp(0.8 - d / 80, 0.1, 0.7),
               ratejitter: 0.15,
             });
+          } else if (c.kind === 'sheep') {
+            // a sped-up moo reads as a chunky little bleat
+            this.audio.play(MOOS[(Math.random() * 3) | 0], {
+              volume: THREE.MathUtils.clamp(0.6 - d / 90, 0.1, 0.5),
+              rate: 1.55, ratejitter: 0.1,
+            });
           } else {
             this.audio.play(MOOS[(Math.random() * 3) | 0], {
               volume: THREE.MathUtils.clamp(1 - d / 70, 0.15, 0.9),
@@ -195,7 +253,8 @@ export class CowManager {
         const len = Math.sqrt(dU2) || 1;
         let yawT = Math.atan2(dux / len, duz / len); // straight away from the UFO
         if (c.kind === 'chicken') yawT += Math.sin(this._t * 7 + c.phase * 3) * 0.9; // panicked zigzag
-        const sp = (c.kind === 'chicken' ? CFG.CHICKEN_FLEE_SPEED : CFG.COW_FLEE_SPEED) * c.speedMult;
+        const sp = (c.kind === 'chicken' ? CFG.CHICKEN_FLEE_SPEED :
+                    c.kind === 'sheep' ? CFG.SHEEP_FLEE_SPEED : CFG.COW_FLEE_SPEED) * c.speedMult;
         this._step(c, yawT, sp, dt);
         this._animWalk(c, dt, 1.7);
         if (c.kind === 'chicken') this._flapWings(c, 28, 0.55);
@@ -222,7 +281,8 @@ export class CowManager {
             this._pickTarget(c);
           }
         } else {
-          const sp = (c.kind === 'chicken' ? CFG.CHICKEN_SPEED : CFG.COW_SPEED) * c.speedMult;
+          const sp = (c.kind === 'chicken' ? CFG.CHICKEN_SPEED :
+                      c.kind === 'sheep' ? CFG.SHEEP_SPEED : CFG.COW_SPEED) * c.speedMult;
           this._step(c, Math.atan2(dx, dz), sp, dt);
           this._animWalk(c, dt, 0.8);
           if (c.kind === 'chicken') this._flapWings(c, 6, 0.12);
@@ -252,16 +312,23 @@ export class CowManager {
   }
 
   _add(kind, variant, x, z) {
-    const group = kind === 'chicken' ? createChicken() : createCow(variant);
-    group.position.set(x, 0, z);
+    const group =
+      kind === 'chicken' ? createChicken() :
+      kind === 'sheep' ? createSheep() :
+      kind === 'duck' ? createDuck() : createCow(variant);
+    const gy = kind === 'duck' ? WATER_Y : terrainHeight(x, z);
+    group.position.set(x, gy, z);
     group.rotation.y = Math.random() * Math.PI * 2;
-    const shadow = blobShadow(kind === 'chicken' ? 0.4 : 1.0);
+    const shadow = blobShadow(kind === 'chicken' || kind === 'duck' ? 0.4 : 1.0);
     if (shadow.material) shadow.material = shadow.material.clone();
+    if (kind === 'duck') shadow.visible = false;
     group.add(shadow);
     this.scene.add(group);
     const c = {
-      kind,                          // 'cow' | 'golden' | 'chicken'
+      kind,                          // 'cow' | 'golden' | 'chicken' | 'sheep' | 'duck'
       group,
+      groundY: gy,
+      jumpCd: 0,
       ud: group.userData || {},
       shadow,
       shadowOp: shadow.material ? shadow.material.opacity : 0.3,
@@ -305,10 +372,17 @@ export class CowManager {
       c.vy = 0;
       return false;
     }
+
+    const ship = ufo.group.position;
+    const hFrac = THREE.MathUtils.clamp(
+      (g.position.y - c.groundY) / Math.max(1, ship.y - c.groundY), 0, 1);
+
+    // The beam is a cone: the higher the critter, the narrower the hold.
+    // Outrun it (or let it pass the ship) and the critter drops — no free rides.
     const dbx = g.position.x - bp.x;
     const dbz = g.position.z - bp.z;
-    const slack = CFG.BEAM_RADIUS * BEAM_HOLD_SLACK;
-    if (dbx * dbx + dbz * dbz > slack * slack) { // slipped out of a fast-moving beam
+    const allowed = THREE.MathUtils.lerp(CFG.BEAM_DROP_RADIUS, CFG.CONSUME_DIST + 0.6, hFrac);
+    if (dbx * dbx + dbz * dbz > allowed * allowed || g.position.y > ship.y + 0.5) {
       c.state = 'fall';
       c.vy = 0;
       return false;
@@ -319,9 +393,6 @@ export class CowManager {
     g.position.x += (bp.x - g.position.x) * pull;
     g.position.z += (bp.z - g.position.z) * pull;
     g.position.y += CFG.BEAM_LIFT_SPEED * dt;
-
-    const ship = ufo.group.position;
-    const hFrac = Math.min(1, g.position.y / Math.max(1, ship.y));
     c.spin = 2 + hFrac * 9; // spin faster as they rise
     g.rotation.y += c.spin * dt;
     g.rotation.z = Math.sin(this._t * 5 + c.phase) * 0.12;
@@ -348,7 +419,8 @@ export class CowManager {
     );
     const points =
       kind === 'golden' ? CFG.SCORE_GOLDEN :
-      kind === 'chicken' ? CFG.SCORE_CHICKEN : CFG.SCORE_COW;
+      kind === 'chicken' ? CFG.SCORE_CHICKEN :
+      kind === 'sheep' ? CFG.SCORE_SHEEP : CFG.SCORE_COW;
     const pos = { x: g.position.x, y: g.position.y, z: g.position.z };
     this.scene.remove(g);
     this.cows[i] = this.cows[this.cows.length - 1];
@@ -373,8 +445,9 @@ export class CowManager {
     g.rotation.y += c.spin * dt;
     c.spin *= Math.exp(-2 * dt);
     g.scale.setScalar(Math.min(1, g.scale.x + dt * 1.5));
-    if (g.position.y <= 0) {
-      g.position.y = 0;
+    c.groundY = terrainHeight(g.position.x, g.position.z);
+    if (g.position.y <= c.groundY) {
+      g.position.y = c.groundY;
       this.effects.dustPuff(g.position);
       g.scale.set(1.12, 0.82, 1.12); // landing squash, eased out during stun
       g.rotation.z = 0;
@@ -387,11 +460,13 @@ export class CowManager {
 
   // ============================== locomotion ==============================
 
-  // Turn toward yaw, advance, steer off water, slide off colliders, stay in bounds.
+  // Turn toward yaw, advance, steer off water, slide off colliders,
+  // respect fences (cows may rarely hop one in a panic), stay in bounds.
   _step(c, targetYaw, speed, dt) {
     const g = c.group;
     const diff = wrapAngle(targetYaw - g.rotation.y);
     g.rotation.y += diff * Math.min(1, dt * (c.kind === 'chicken' ? 10 : 6));
+    if (c.jumpCd > 0) c.jumpCd -= dt;
 
     const fx = Math.sin(g.rotation.y);
     const fz = Math.cos(g.rotation.y);
@@ -405,6 +480,20 @@ export class CowManager {
 
     let nx = g.position.x + fx * speed * dt;
     let nz = g.position.z + fz * speed * dt;
+
+    // fences are solid — except for the rare panicked cow that hops one
+    if (this.world.crossesFence &&
+        this.world.crossesFence(g.position.x, g.position.z, nx + fx * 0.6, nz + fz * 0.6)) {
+      if (c.kind === 'cow' && c.state === 'flee' && c.jumpCd <= 0 &&
+          Math.random() < CFG.FENCE_JUMP_CHANCE) {
+        this._startJump(c, fx, fz);
+        return;
+      }
+      c.jumpCd = Math.max(c.jumpCd, 0.8);
+      g.rotation.y += (c.phase % 2 < 1 ? 1 : -1) * dt * 4; // turn along the fence
+      if (c.state === 'wander') this._pickTarget(c);
+      return;
+    }
 
     const list = gridAt(this._grid, nx, nz);
     if (list) {
@@ -426,6 +515,102 @@ export class CowManager {
     const lim = CFG.MAP_HALF - 3;
     g.position.x = THREE.MathUtils.clamp(nx, -lim, lim);
     g.position.z = THREE.MathUtils.clamp(nz, -lim, lim);
+    c.groundY = terrainHeight(g.position.x, g.position.z);
+    if (c.kind !== 'chicken') g.position.y = c.groundY;   // chickens bounce in _animWalk
+  }
+
+  _startJump(c, fx, fz) {
+    const g = c.group;
+    c.state = 'jump';
+    c.st = 0;
+    c.jx0 = g.position.x;
+    c.jz0 = g.position.z;
+    c.jx1 = g.position.x + fx * 4.2;
+    c.jz1 = g.position.z + fz * 4.2;
+    c.jy0 = c.groundY;
+    c.jy1 = terrainHeight(c.jx1, c.jz1);
+    c.jumpCd = 3;
+    this.audio.play(MOOS[(Math.random() * 3) | 0], { volume: 0.55, rate: 1.3, ratejitter: 0.06 });
+  }
+
+  _jump(c, dt) {
+    const g = c.group;
+    c.st += dt / JUMP_TIME;
+    const t = Math.min(1, c.st);
+    g.position.x = c.jx0 + (c.jx1 - c.jx0) * t;
+    g.position.z = c.jz0 + (c.jz1 - c.jz0) * t;
+    g.position.y = c.jy0 + (c.jy1 - c.jy0) * t + Math.sin(t * Math.PI) * 1.7;
+    // forelegs tuck, hind legs kick
+    const L = c.ud.legs;
+    if (L) {
+      const k = Math.sin(t * Math.PI);
+      if (L[0]) L[0].rotation.x = -0.9 * k;
+      if (L[1]) L[1].rotation.x = -0.9 * k;
+      if (L[2]) L[2].rotation.x = 0.8 * k;
+      if (L[3]) L[3].rotation.x = 0.8 * k;
+    }
+    if (t >= 1) {
+      c.groundY = c.jy1;
+      g.position.y = c.jy1;
+      this.effects.dustPuff(g.position);
+      c.state = 'flee';
+      c.calm = 0;
+      this._neutralPose(c);
+    }
+  }
+
+  // Ducks paddle their pond, scatter from the UFO, and never leave the water.
+  _duck(c, dt, up, ufoAlive) {
+    const g = c.group;
+    const pond = c.pond;
+    const dux = g.position.x - up.x;
+    const duz = g.position.z - up.z;
+    const scared = ufoAlive && dux * dux + duz * duz < CFG.FLEE_RADIUS * CFG.FLEE_RADIUS;
+
+    let yawT;
+    let sp;
+    if (scared) {
+      yawT = Math.atan2(dux, duz) + Math.sin(this._t * 6 + c.phase * 2) * 0.5;
+      sp = 4.5;
+      this._flapWings(c, 26, 0.6);
+      c.mooT -= dt * 3;
+    } else {
+      const dx = c.tx - g.position.x;
+      const dz = c.tz - g.position.z;
+      if (dx * dx + dz * dz < 0.5) {
+        c.tx = pond.x + (Math.random() - 0.5) * 2 * pond.rx;
+        c.tz = pond.z + (Math.random() - 0.5) * 2 * pond.rz;
+      }
+      yawT = Math.atan2(c.tx - g.position.x, c.tz - g.position.z);
+      sp = 1.1;
+      this._flapWings(c, 3, 0.06);
+    }
+    if (c.mooT <= 0) {
+      c.mooT = 5 + Math.random() * 10;
+      const d = Math.hypot(dux, duz);
+      if (d < 50) this.audio.play('chicken', { volume: 0.4, rate: 0.68, ratejitter: 0.1 });
+    } else {
+      c.mooT -= dt;
+    }
+
+    const diff = wrapAngle(yawT - g.rotation.y);
+    g.rotation.y += diff * Math.min(1, dt * 5);
+    let nx = g.position.x + Math.sin(g.rotation.y) * sp * dt;
+    let nz = g.position.z + Math.cos(g.rotation.y) * sp * dt;
+    // stay inside the pond ellipse
+    const ex = (nx - pond.x) / pond.rx;
+    const ez = (nz - pond.z) / pond.rz;
+    const e = ex * ex + ez * ez;
+    if (e > 1) {
+      const k = 1 / Math.sqrt(e);
+      nx = pond.x + (nx - pond.x) * k;
+      nz = pond.z + (nz - pond.z) * k;
+      g.rotation.y += dt * 3;
+    }
+    g.position.x = nx;
+    g.position.z = nz;
+    g.position.y = WATER_Y + Math.sin(this._t * 2.2 + c.phase) * 0.04;
+    if (c.ud.head) c.ud.head.rotation.x = Math.sin(this._t * 1.5 + c.phase) * 0.2 + (scared ? 0.25 : 0);
   }
 
   _pickTarget(c) {
@@ -440,6 +625,7 @@ export class CowManager {
       if (this.world.isWater(x, z)) continue;
       if (this.world.isWater((g.position.x + x) / 2, (g.position.z + z) / 2)) continue;
       if (this._insideCollider(x, z)) continue;
+      if (this.world.crossesFence && this.world.crossesFence(g.position.x, g.position.z, x, z)) continue;
       c.tx = x;
       c.tz = z;
       c.walkT = 0;
@@ -474,7 +660,7 @@ export class CowManager {
     const ud = c.ud;
     if (c.kind === 'chicken') {
       if (ud.head) ud.head.rotation.x += (Math.sin(w * 2.2) * 0.25 - ud.head.rotation.x) * Math.min(1, dt * 8);
-      c.group.position.y = Math.abs(Math.sin(w * 1.7)) * 0.08; // bouncy strut
+      c.group.position.y = c.groundY + Math.abs(Math.sin(w * 1.7)) * 0.08; // bouncy strut
       return;
     }
     const amp = 0.3 + intensity * 0.32;
@@ -494,7 +680,7 @@ export class CowManager {
     const k = Math.min(1, dt * 4);
     if (c.kind === 'chicken') {
       if (ud.head) ud.head.rotation.x += ((0.5 + Math.sin(this._t * 9 + c.phase) * 0.25) - ud.head.rotation.x) * Math.min(1, dt * 10); // peck peck
-      c.group.position.y += (0 - c.group.position.y) * k;
+      c.group.position.y += (c.groundY - c.group.position.y) * k;
       return;
     }
     if (ud.head) ud.head.rotation.x += (0.55 - ud.head.rotation.x) * k; // head down, munching
@@ -548,15 +734,16 @@ export class CowManager {
     }
   }
 
-  // Keep the blob shadow pinned to the ground under an airborne critter,
+  // Keep the blob shadow pinned to the terrain under an airborne critter,
   // fading with height (shadow is a child, so divide out the group scale).
   _groundShadow(c) {
     const g = c.group;
     const s = Math.max(0.001, g.scale.y);
-    c.shadow.position.y = (0.04 - g.position.y) / s;
+    const height = g.position.y - c.groundY;
+    c.shadow.position.y = (c.groundY + 0.04 - g.position.y) / s;
     if (c.shadow.material) {
       c.shadow.material.opacity =
-        c.shadowOp * THREE.MathUtils.clamp(1 - g.position.y / 13, 0, 1);
+        c.shadowOp * THREE.MathUtils.clamp(1 - height / 13, 0, 1);
     }
   }
 }

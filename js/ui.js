@@ -1,9 +1,22 @@
 // MOO-FO — UI screens (Agent U)
-// Title / countdown / pause / game-over / win screens. All DOM is built here
-// and appended to document.body. Screens are keyboard navigable (Enter/Space
-// confirms the primary action, Tab cycles real <button>s) and touch friendly.
+// Title / countdown / pause (+ settings & key binds) / game-over / win
+// screens. All DOM is built here and appended to document.body. Screens are
+// keyboard navigable (Enter/Space confirms the primary action, Tab cycles
+// real <button>s) and touch friendly.
 
 import { CFG, IS_MOBILE } from './config.js';
+
+// Rebindable actions (order = row order), label per the controls contract.
+const BIND_ACTIONS = [
+  ['forward', 'Fly forward'],
+  ['back', 'Fly back'],
+  ['left', 'Fly left'],
+  ['right', 'Fly right'],
+  ['beam', 'Tractor beam'],
+  ['warp', 'Warp speed'],
+  ['camLeft', 'Camera left'],
+  ['camRight', 'Camera right'],
+];
 
 function el(tag, cls, parent, text) {
   const e = document.createElement(tag);
@@ -57,7 +70,7 @@ function starShadows(count, maxX, maxY) {
 }
 
 export class UI {
-  constructor({ onStart, onResume, onRestart, onQuitToMenu, onToggleMute } = {}) {
+  constructor({ onStart, onResume, onRestart, onQuitToMenu, onToggleMute, controls } = {}) {
     this.cb = {
       onStart: onStart || (() => {}),
       onResume: onResume || (() => {}),
@@ -65,12 +78,18 @@ export class UI {
       onQuitToMenu: onQuitToMenu || (() => {}),
       onToggleMute: onToggleMute || (() => {}),
     };
+    // Controls instance (binds / bindLabels / rebind / resetBinds /
+    // gamepadConnected). Optional & duck-typed so the UI degrades gracefully
+    // if it isn't wired up yet.
+    this.controls = controls || null;
 
     this._startVisible = false;
     this._pauseVisible = false;
     this._endVisible = false;
     this._startArmed = false; // guards double-starts
     this._muted = false;
+    this._pauseView = 'root'; // 'root' | 'settings'
+    this._capturing = false;  // true while a key-rebind capture is active
 
     this._buildStart();
     this._buildCountdown();
@@ -87,18 +106,26 @@ export class UI {
     const s = el('div', 'mf-screen mf-start mf-hidden');
     s.id = 'mf-start';
 
-    // Starfield backdrop (semi-transparent so the 3D scene shows through).
+    // Starfield backdrop: three parallax-drifting layers (semi-transparent so
+    // the 3D scene shows through) + occasional CSS shooting stars. The same
+    // layers become hyperspace streaks on exit.
     const stars = el('div', 'mf-stars', s);
     const layerA = el('div', 'mf-stars-layer mf-stars-a', stars);
     const layerB = el('div', 'mf-stars-layer mf-stars-b', stars);
+    const layerC = el('div', 'mf-stars-layer mf-stars-c', stars);
     layerA.style.boxShadow = starShadows(90, 2000, 1400);
-    layerB.style.boxShadow = starShadows(50, 2000, 1400);
+    layerB.style.boxShadow = starShadows(55, 2000, 1400);
+    layerC.style.boxShadow = starShadows(36, 2000, 1400);
+    el('div', 'mf-shooting-star', stars);
+    el('div', 'mf-shooting-star mf-shooting-star-b', stars);
 
     const panel = el('div', 'mf-start-panel', s);
 
-    // CSS-art scene: UFO bobbing over a cow caught in a looping beam.
+    // CSS-art scene: the UFO sweeps in from off-screen on a curve, settles
+    // into its bob, then switches on the beam that loops the cow.
     const scene = el('div', 'mf-title-scene', panel);
-    const ufo = el('div', 'mf-ufo-art', scene);
+    const ufoFly = el('div', 'mf-ufo-fly', scene); // entrance-sweep wrapper
+    const ufo = el('div', 'mf-ufo-art', ufoFly);
     el('div', 'mf-ufo-dome', ufo);
     const body = el('div', 'mf-ufo-body', ufo);
     for (let i = 0; i < 3; i++) {
@@ -129,31 +156,17 @@ export class UI {
       span.style.setProperty('--i', i);
     });
 
-    el('div', 'mf-tagline', panel, 'ABDUCT ALL THE COWS');
+    // Tagline, revealed by a beam-of-light wipe sweeping across it.
+    // (Controls now live in Settings — no instruction clutter here.)
+    const tagWrap = el('div', 'mf-tagline-wrap', panel);
+    el('div', 'mf-tagline', tagWrap, 'ABDUCT ALL THE COWS');
+    el('div', 'mf-tagline-beam', tagWrap);
+
     this._bestEl = el('div', 'mf-best mf-hidden', panel);
 
     this._startBtn = button('mf-btn-primary mf-btn-start', panel, 'START', () => this._pressStart());
 
-    // Adaptive controls help.
-    const help = el('div', 'mf-help', panel);
-    if (IS_MOBILE) {
-      const row = el('div', 'mf-help-row', help);
-      el('span', 'mf-help-item', row, '☝️ drag left side to fly');
-      el('span', 'mf-help-item', row, '🛸 hold BEAM to abduct');
-      el('span', 'mf-help-item', row, '⚡ hold WARP for speed');
-    } else {
-      const row = el('div', 'mf-help-row', help);
-      const item = (keys, label) => {
-        const it = el('span', 'mf-help-item', row);
-        keys.forEach((k) => el('kbd', 'mf-kbd', it, k));
-        el('span', 'mf-help-txt', it, label);
-      };
-      item(['W', 'A', 'S', 'D'], 'fly');
-      item(['␣'], 'beam');
-      item(['⇧'], 'warp');
-      item(['ESC'], 'pause');
-    }
-
+    el('div', 'mf-hyper-flash', s); // hyperspace white flash (exit only)
     el('div', 'mf-vignette-static', s);
 
     document.body.appendChild(s);
@@ -177,7 +190,10 @@ export class UI {
     this._startBtn.focus({ preventScroll: true });
   }
 
-  /** Exit animation (logo flies up, panel drops); resolves when done. */
+  /**
+   * Hyperspace exit: stars stretch into streaks, the logo + panel whoosh out
+   * toward the camera, then a quick white flash. Resolves when done (~900ms).
+   */
   hideStart() {
     if (!this._startVisible) return Promise.resolve();
     this._startVisible = false;
@@ -187,7 +203,7 @@ export class UI {
         this._startEl.classList.add('mf-hidden');
         this._startEl.classList.remove('mf-exit', 'mf-anim');
         resolve();
-      }, 700);
+      }, 900);
     });
   }
 
@@ -243,25 +259,154 @@ export class UI {
     const s = el('div', 'mf-screen mf-pause mf-hidden');
     s.id = 'mf-pause';
     const panel = el('div', 'mf-panel mf-pause-panel', s);
-    el('h2', 'mf-panel-title', panel, 'PAUSED');
 
-    const col = el('div', 'mf-btn-col', panel);
+    // --- root view: RESUME / RESTART / SETTINGS / QUIT TO MENU ---
+    const root = el('div', 'mf-pview mf-pview-root', panel);
+    el('h2', 'mf-panel-title', root, 'PAUSED');
+    const col = el('div', 'mf-btn-col', root);
     this._resumeBtn = button('mf-btn-primary', col, 'RESUME', () => this.cb.onResume());
     button('', col, 'RESTART', () => this.cb.onRestart());
-    this._muteBtn = button('mf-btn-mute', col, '🔊 SOUND ON', () => this.cb.onToggleMute());
+    button('', col, 'SETTINGS', () => this._setPauseView('settings'));
     button('mf-btn-quiet', col, 'QUIT TO MENU', () => this.cb.onQuitToMenu());
+    this._pauseRootView = root;
 
-    const recap = el('div', 'mf-recap', panel);
-    recap.textContent = IS_MOBILE
-      ? '☝️ drag = fly · 🛸 BEAM = abduct · ⚡ WARP = speed'
-      : 'WASD/arrows fly · SPACE beam · SHIFT warp · ESC resume';
+    // --- settings sub-view (slides in over the root view) ---
+    const settings = el('div', 'mf-pview mf-pview-settings mf-view-off', panel);
+    this._settingsView = settings;
+    this._buildSettings(settings);
 
     document.body.appendChild(s);
     this._pauseEl = s;
   }
 
+  _buildSettings(view) {
+    const head = el('div', 'mf-set-head', view);
+    this._backBtn = button('mf-btn-back', head, '◀ BACK', () => this._setPauseView('root'));
+    el('h2', 'mf-panel-title mf-set-title', head, 'SETTINGS');
+
+    // SOUND toggle row (state mirrored via setMuteUI, as before).
+    const soundRow = el('div', 'mf-set-row', view);
+    el('div', 'mf-set-label', soundRow, 'SOUND');
+    this._muteBtn = button('mf-btn-toggle mf-btn-mute', soundRow, '🔊 ON',
+      () => this.cb.onToggleMute());
+
+    // On touch devices the recap matters most → it goes above the key binds
+    // (which still render — hardware keyboards exist).
+    const binds = this._buildBindsSection();
+    const recap = this._buildRecapSection();
+    if (IS_MOBILE) { view.appendChild(recap); view.appendChild(binds); }
+    else { view.appendChild(binds); view.appendChild(recap); }
+
+    // While a rebind capture is active, swallow every other click in here.
+    view.addEventListener('click', (e) => {
+      if (this._capturing) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+  }
+
+  _buildBindsSection() {
+    const sec = el('div', 'mf-set-section mf-binds');
+    el('div', 'mf-set-heading', sec, 'KEY BINDS');
+    this._bindHint = el('div', 'mf-bind-hint', sec, 'press a key · ESC cancels');
+    this._bindChips = {};
+    for (const [action, label] of BIND_ACTIONS) {
+      const row = el('div', 'mf-set-row mf-bind-row', sec);
+      el('div', 'mf-set-label', row, label);
+      this._bindChips[action] = button('mf-keycap', row, '—',
+        () => this._beginRebind(action));
+    }
+    this._resetBindsBtn = button('mf-btn-quiet mf-btn-resetbinds', sec,
+      'RESET TO DEFAULTS', () => {
+        if (this._capturing || !this.controls) return;
+        try { this.controls.resetBinds?.(); }
+        catch (err) { console.warn('[UI] resetBinds failed:', err); }
+        this._refreshBinds();
+      });
+    this._bindsSection = sec;
+    return sec;
+  }
+
+  _buildRecapSection() {
+    const sec = el('div', 'mf-set-section');
+    el('div', 'mf-set-heading', sec, 'OTHER CONTROLS');
+    const touch = el('div', 'mf-recap-row', sec);
+    el('span', 'mf-recap-ico', touch, '☝️');
+    el('span', 'mf-recap-txt', touch, 'left side: joystick / hold BEAM / hold WARP');
+    this._gamepadRow = el('div', 'mf-recap-row mf-hidden', sec);
+    el('span', 'mf-recap-ico', this._gamepadRow, '🎮');
+    el('span', 'mf-recap-txt', this._gamepadRow,
+      'left stick fly · right stick camera · RT beam · LB warp · Start pause');
+    return sec;
+  }
+
+  /** Slide between the pause root view and the settings sub-view. */
+  _setPauseView(name) {
+    if (this._capturing || name === this._pauseView) return;
+    this._pauseView = name;
+    if (name === 'settings') {
+      this._refreshBinds();
+      this._refreshGamepadRow();
+      this._pauseRootView.classList.add('mf-view-off');
+      this._pauseRootView.classList.remove('mf-slide-in-l');
+      this._settingsView.classList.remove('mf-view-off');
+      this._settingsView.classList.add('mf-slide-in-r');
+      this._backBtn.focus({ preventScroll: true });
+    } else {
+      this._settingsView.classList.add('mf-view-off');
+      this._settingsView.classList.remove('mf-slide-in-r');
+      this._pauseRootView.classList.remove('mf-view-off');
+      this._pauseRootView.classList.add('mf-slide-in-l');
+      this._resumeBtn.focus({ preventScroll: true });
+    }
+  }
+
+  /** Refresh every key-cap chip — a rebind may have stolen another action's key. */
+  _refreshBinds() {
+    const ctl = this.controls;
+    const usable = !!(ctl && (ctl.bindLabels || ctl.binds));
+    this._bindsSection.classList.toggle('mf-hidden', !usable);
+    if (!usable) return;
+    const labels = ctl.bindLabels || {};
+    for (const action of Object.keys(this._bindChips)) {
+      const label = labels[action] ?? ctl.binds?.[action] ?? '—';
+      const chip = this._bindChips[action];
+      if (chip.textContent !== label) chip.textContent = label;
+    }
+  }
+
+  _refreshGamepadRow() {
+    this._gamepadRow.classList.toggle('mf-hidden', !this.controls?.gamepadConnected);
+  }
+
+  /** Chip tapped → capture mode ('…' + hint), await controls.rebind(action). */
+  async _beginRebind(action) {
+    if (this._capturing) return;
+    const ctl = this.controls;
+    if (!ctl || typeof ctl.rebind !== 'function') return;
+    const chip = this._bindChips[action];
+    this._capturing = true;
+    this._settingsView.classList.add('mf-capturing');
+    chip.classList.add('mf-capture');
+    chip.textContent = '…';
+    this._bindHint.classList.add('mf-show');
+    try {
+      await ctl.rebind(action); // resolves new label, or null if cancelled (Esc)
+    } catch (err) {
+      console.warn('[UI] rebind failed:', err);
+    }
+    this._capturing = false;
+    this._settingsView.classList.remove('mf-capturing');
+    chip.classList.remove('mf-capture');
+    this._bindHint.classList.remove('mf-show');
+    this._refreshBinds();
+  }
+
   showPause(muted) {
     this.setMuteUI(!!muted);
+    // Always reopen on the root view, with no stale slide animation.
+    this._pauseView = 'root';
+    this._pauseRootView.classList.remove('mf-view-off', 'mf-slide-in-l');
+    this._settingsView.classList.add('mf-view-off');
+    this._settingsView.classList.remove('mf-slide-in-r');
     this._pauseEl.classList.remove('mf-hidden');
     this._pauseVisible = true;
     this._resumeBtn.focus({ preventScroll: true });
@@ -275,8 +420,9 @@ export class UI {
   setMuteUI(muted) {
     this._muted = !!muted;
     if (this._muteBtn) {
-      this._muteBtn.textContent = this._muted ? '🔇 SOUND OFF' : '🔊 SOUND ON';
+      this._muteBtn.textContent = this._muted ? '🔇 OFF' : '🔊 ON';
       this._muteBtn.classList.toggle('mf-muted', this._muted);
+      this._muteBtn.setAttribute('aria-pressed', String(!this._muted));
     }
   }
 
@@ -396,6 +542,10 @@ export class UI {
         e.preventDefault();
         this._pressStart();
       } else if (this._pauseVisible) {
+        // A rebind capture owns the keyboard entirely.
+        if (this._capturing) return;
+        // In the settings sub-view, buttons handle their own Enter/Space.
+        if (this._pauseView !== 'root') return;
         // Let a focused secondary button receive its own Enter/Space.
         if (document.activeElement && document.activeElement.closest('#mf-pause') &&
             document.activeElement !== this._resumeBtn && e.code !== 'Space') return;
