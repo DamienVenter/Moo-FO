@@ -1,0 +1,562 @@
+// MOO-FO — js/cows.js (Agent G)
+// Cows, chickens and the golden cow: wander/graze/flee state machine,
+// beam abduction (lift → consume / drop → stun), golden respawn.
+
+import * as THREE from 'three';
+import { CFG } from './config.js';
+import { createCow, createChicken, blobShadow } from './models.js';
+
+const MOOS = ['moo1', 'moo2', 'moo3'];
+const MOO_RANGE = 60;          // only moo when the UFO is this close
+const FALL_GRAVITY = 28;
+const STUN_TIME = 1.0;
+const BEAM_HOLD_SLACK = 1.5;   // × BEAM_RADIUS before a lifted critter slips out
+const CELL = 18;               // collider grid cell size
+
+// ---- tiny spatial hash for static colliders (built once) ----
+function buildGrid(colliders) {
+  const map = new Map();
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    const pad = c.r + 3.5;
+    const x0 = Math.floor((c.x - pad) / CELL);
+    const x1 = Math.floor((c.x + pad) / CELL);
+    const z0 = Math.floor((c.z - pad) / CELL);
+    const z1 = Math.floor((c.z + pad) / CELL);
+    for (let gx = x0; gx <= x1; gx++) {
+      for (let gz = z0; gz <= z1; gz++) {
+        const key = gx * 100000 + gz;
+        let arr = map.get(key);
+        if (!arr) { arr = []; map.set(key, arr); }
+        arr.push(c);
+      }
+    }
+  }
+  return map;
+}
+
+function gridAt(map, x, z) {
+  return map.get(Math.floor(x / CELL) * 100000 + Math.floor(z / CELL)) || null;
+}
+
+function wrapAngle(a) {
+  return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+}
+
+export class CowManager {
+  constructor(scene, world, effects, audio, { onAbduct } = {}) {
+    this.scene = scene;
+    this.world = world;
+    this.effects = effects;
+    this.audio = audio;
+    this.onAbduct = onAbduct;
+
+    this.cows = []; // live critters: { group, kind, ... } — read by the minimap
+    this._grid = buildGrid(world.colliders);
+    this._goldenT = -1;
+    this._t = 0;
+    this._pt = { x: 0, z: 0 }; // reusable spawn-point result
+  }
+
+  populate() {
+    for (let i = 0; i < this.cows.length; i++) this.scene.remove(this.cows[i].group);
+    this.cows.length = 0;
+    this._goldenT = -1;
+
+    const areas = this.world.cowSpawnAreas;
+    for (let a = 0; a < areas.length; a++) {
+      const area = areas[a];
+      for (let i = 0; i < area.count; i++) {
+        const p = this._spawnPointIn(area);
+        this._add('cow', Math.random() < 0.62 ? 'holstein' : 'brown', p.x, p.z);
+      }
+    }
+    const cAreas = this.world.chickenSpawnAreas;
+    for (let a = 0; a < cAreas.length; a++) {
+      const area = cAreas[a];
+      for (let i = 0; i < area.count; i++) {
+        const p = this._spawnPointIn(area);
+        this._add('chicken', null, p.x, p.z);
+      }
+    }
+    const g = this.world.goldenCowSpot();
+    this._add('golden', 'golden', g.x, g.z);
+  }
+
+  update(dt, ufo) {
+    this._t += dt;
+    const up = ufo.group.position;
+    const ufoAlive = !ufo.dead && !ufo.crashing;
+    const beamOn = ufoAlive && ufo.beamActive;
+    const bp = ufo.beamWorldPos();
+
+    // golden cow respawn
+    if (this._goldenT > 0) {
+      this._goldenT -= dt;
+      if (this._goldenT <= 0) {
+        const s = this.world.goldenCowSpot();
+        this._add('golden', 'golden', s.x, s.z);
+      }
+    }
+
+    const fleeR2 = CFG.FLEE_RADIUS * CFG.FLEE_RADIUS;
+    const beamFearR2 = (CFG.FLEE_RADIUS * 1.1) * (CFG.FLEE_RADIUS * 1.1);
+    const beamR2 = CFG.BEAM_RADIUS * CFG.BEAM_RADIUS;
+
+    for (let i = this.cows.length - 1; i >= 0; i--) {
+      const c = this.cows[i];
+      const g = c.group;
+
+      // ---------- airborne states ----------
+      if (c.state === 'lift') {
+        if (this._lift(c, dt, ufo, beamOn, bp)) this._consume(c, i);
+        else this._groundShadow(c);
+        continue;
+      }
+      if (c.state === 'fall') {
+        this._fall(c, dt, beamOn, bp);
+        this._groundShadow(c);
+        continue;
+      }
+
+      const px = g.position.x;
+      const pz = g.position.z;
+
+      // ---------- beam capture (from any grounded state) ----------
+      if (beamOn) {
+        const dbx = px - bp.x;
+        const dbz = pz - bp.z;
+        if (dbx * dbx + dbz * dbz < beamR2) {
+          this._startLift(c, up);
+          this._groundShadow(c);
+          continue;
+        }
+      }
+
+      // ---------- stun (just dropped) ----------
+      if (c.state === 'stun') {
+        c.st -= dt;
+        const k = Math.max(0, c.st / STUN_TIME);
+        g.rotation.z = Math.sin(this._t * 16 + c.phase) * 0.09 * k;
+        // un-squash
+        g.scale.x += (1 - g.scale.x) * Math.min(1, dt * 6);
+        g.scale.y += (1 - g.scale.y) * Math.min(1, dt * 6);
+        g.scale.z = g.scale.x;
+        if (c.st <= 0) {
+          g.rotation.z = 0;
+          g.scale.setScalar(1);
+          c.state = 'wander';
+          this._pickTarget(c);
+        }
+        this._groundShadow(c);
+        continue;
+      }
+
+      // ---------- fear ----------
+      const dux = px - up.x;
+      const duz = pz - up.z;
+      const dU2 = dux * dux + duz * duz;
+      let scared = ufoAlive && dU2 < fleeR2;
+      if (!scared && beamOn) {
+        const dbx = px - bp.x;
+        const dbz = pz - bp.z;
+        scared = dbx * dbx + dbz * dbz < beamFearR2;
+      }
+      if (scared) {
+        c.state = 'flee';
+        c.calm = 0;
+      } else {
+        c.calm += dt;
+      }
+
+      // ---------- occasional moos / clucks (volume by distance to UFO) ----------
+      c.mooT -= dt;
+      if (c.mooT <= 0) {
+        c.mooT = (c.kind === 'chicken' ? 4 : 6) + Math.random() * 13;
+        const d = Math.sqrt(dU2);
+        if (d < MOO_RANGE) {
+          if (c.kind === 'chicken') {
+            this.audio.play('chicken', {
+              volume: THREE.MathUtils.clamp(0.8 - d / 80, 0.1, 0.7),
+              ratejitter: 0.15,
+            });
+          } else {
+            this.audio.play(MOOS[(Math.random() * 3) | 0], {
+              volume: THREE.MathUtils.clamp(1 - d / 70, 0.15, 0.9),
+              ratejitter: 0.07,
+              rate: c.kind === 'golden' ? 1.12 : 1,
+            });
+          }
+        }
+      }
+
+      // ---------- grounded behaviors ----------
+      if (c.state === 'flee') {
+        const len = Math.sqrt(dU2) || 1;
+        let yawT = Math.atan2(dux / len, duz / len); // straight away from the UFO
+        if (c.kind === 'chicken') yawT += Math.sin(this._t * 7 + c.phase * 3) * 0.9; // panicked zigzag
+        const sp = (c.kind === 'chicken' ? CFG.CHICKEN_FLEE_SPEED : CFG.COW_FLEE_SPEED) * c.speedMult;
+        this._step(c, yawT, sp, dt);
+        this._animWalk(c, dt, 1.7);
+        if (c.kind === 'chicken') this._flapWings(c, 28, 0.55);
+        if (c.calm > 0.9) {
+          c.state = 'wander';
+          this._pickTarget(c);
+        }
+      } else if (c.state === 'graze') {
+        c.st -= dt;
+        this._animGraze(c, dt);
+        if (c.st <= 0) {
+          c.state = 'wander';
+          this._pickTarget(c);
+        }
+      } else { // wander
+        const dx = c.tx - px;
+        const dz = c.tz - pz;
+        c.walkT += dt;
+        if (dx * dx + dz * dz < 0.7 || c.walkT > 12) {
+          if (Math.random() < 0.45) {
+            c.state = 'graze';
+            c.st = 1.6 + Math.random() * 2.8;
+          } else {
+            this._pickTarget(c);
+          }
+        } else {
+          const sp = (c.kind === 'chicken' ? CFG.CHICKEN_SPEED : CFG.COW_SPEED) * c.speedMult;
+          this._step(c, Math.atan2(dx, dz), sp, dt);
+          this._animWalk(c, dt, 0.8);
+          if (c.kind === 'chicken') this._flapWings(c, 6, 0.12);
+        }
+      }
+      this._groundShadow(c);
+    }
+  }
+
+  // ============================== spawning ==============================
+
+  _spawnPointIn(area) {
+    for (let k = 0; k < 12; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * area.r;
+      const x = area.x + Math.cos(a) * r;
+      const z = area.z + Math.sin(a) * r;
+      if (this.world.isWater(x, z)) continue;
+      if (this._insideCollider(x, z)) continue;
+      this._pt.x = x;
+      this._pt.z = z;
+      return this._pt;
+    }
+    this._pt.x = area.x;
+    this._pt.z = area.z;
+    return this._pt;
+  }
+
+  _add(kind, variant, x, z) {
+    const group = kind === 'chicken' ? createChicken() : createCow(variant);
+    group.position.set(x, 0, z);
+    group.rotation.y = Math.random() * Math.PI * 2;
+    const shadow = blobShadow(kind === 'chicken' ? 0.4 : 1.0);
+    if (shadow.material) shadow.material = shadow.material.clone();
+    group.add(shadow);
+    this.scene.add(group);
+    const c = {
+      kind,                          // 'cow' | 'golden' | 'chicken'
+      group,
+      ud: group.userData || {},
+      shadow,
+      shadowOp: shadow.material ? shadow.material.opacity : 0.3,
+      state: 'wander',
+      st: 0,                         // state timer (graze/stun)
+      tx: x, tz: z,                  // wander target
+      walkT: 0,
+      phase: Math.random() * 10,     // personality offset
+      walk: Math.random() * 10,      // gait phase
+      mooT: 2 + Math.random() * 14,
+      vy: 0,
+      spin: 0,
+      calm: 10,
+      speedMult: kind === 'golden' ? CFG.GOLDEN_SPEED_MULT : 1,
+    };
+    this._pickTarget(c);
+    this.cows.push(c);
+    return c;
+  }
+
+  // ============================== abduction ==============================
+
+  _startLift(c, up) {
+    c.state = 'lift';
+    c.spin = 2;
+    c.vy = 0;
+    // startled noise on grab
+    const d = Math.hypot(c.group.position.x - up.x, c.group.position.z - up.z);
+    if (c.kind === 'chicken') {
+      this.audio.play('chicken', { volume: 0.6, rate: 1.2, ratejitter: 0.12 });
+    } else if (d < MOO_RANGE) {
+      this.audio.play(MOOS[(Math.random() * 3) | 0], { volume: 0.7, rate: 1.18, ratejitter: 0.08 });
+    }
+  }
+
+  // returns true when consumed
+  _lift(c, dt, ufo, beamOn, bp) {
+    const g = c.group;
+    if (!beamOn) {
+      c.state = 'fall';
+      c.vy = 0;
+      return false;
+    }
+    const dbx = g.position.x - bp.x;
+    const dbz = g.position.z - bp.z;
+    const slack = CFG.BEAM_RADIUS * BEAM_HOLD_SLACK;
+    if (dbx * dbx + dbz * dbz > slack * slack) { // slipped out of a fast-moving beam
+      c.state = 'fall';
+      c.vy = 0;
+      return false;
+    }
+
+    // pulled to the beam axis while rising
+    const pull = Math.min(1, dt * 4);
+    g.position.x += (bp.x - g.position.x) * pull;
+    g.position.z += (bp.z - g.position.z) * pull;
+    g.position.y += CFG.BEAM_LIFT_SPEED * dt;
+
+    const ship = ufo.group.position;
+    const hFrac = Math.min(1, g.position.y / Math.max(1, ship.y));
+    c.spin = 2 + hFrac * 9; // spin faster as they rise
+    g.rotation.y += c.spin * dt;
+    g.rotation.z = Math.sin(this._t * 5 + c.phase) * 0.12;
+
+    this._flail(c, dt);
+
+    // shrink into the ship over the last ~2 units
+    const dx = g.position.x - ship.x;
+    const dy = g.position.y + 0.7 - ship.y;
+    const dz = g.position.z - ship.z;
+    const d3 = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    g.scale.setScalar(THREE.MathUtils.clamp((d3 - 0.5) / 2.0, 0.16, 1));
+
+    return d3 < CFG.CONSUME_DIST;
+  }
+
+  _consume(c, i) {
+    const g = c.group;
+    this.effects.abductPoof(g.position);
+    const kind = c.kind;
+    this.audio.play(
+      kind === 'golden' ? 'golden' : kind === 'chicken' ? 'chicken' : 'abduct',
+      { volume: 0.9 }
+    );
+    const points =
+      kind === 'golden' ? CFG.SCORE_GOLDEN :
+      kind === 'chicken' ? CFG.SCORE_CHICKEN : CFG.SCORE_COW;
+    const pos = { x: g.position.x, y: g.position.y, z: g.position.z };
+    this.scene.remove(g);
+    this.cows[i] = this.cows[this.cows.length - 1];
+    this.cows.pop();
+    if (kind === 'golden') this._goldenT = CFG.GOLDEN_RESPAWN;
+    if (this.onAbduct) this.onAbduct({ kind, points, pos });
+  }
+
+  _fall(c, dt, beamOn, bp) {
+    const g = c.group;
+    // the beam can re-catch a falling critter
+    if (beamOn) {
+      const dbx = g.position.x - bp.x;
+      const dbz = g.position.z - bp.z;
+      if (dbx * dbx + dbz * dbz < CFG.BEAM_RADIUS * CFG.BEAM_RADIUS) {
+        c.state = 'lift';
+        return;
+      }
+    }
+    c.vy -= FALL_GRAVITY * dt;
+    g.position.y += c.vy * dt;
+    g.rotation.y += c.spin * dt;
+    c.spin *= Math.exp(-2 * dt);
+    g.scale.setScalar(Math.min(1, g.scale.x + dt * 1.5));
+    if (g.position.y <= 0) {
+      g.position.y = 0;
+      this.effects.dustPuff(g.position);
+      g.scale.set(1.12, 0.82, 1.12); // landing squash, eased out during stun
+      g.rotation.z = 0;
+      c.vy = 0;
+      c.state = 'stun';
+      c.st = STUN_TIME;
+      this._neutralPose(c);
+    }
+  }
+
+  // ============================== locomotion ==============================
+
+  // Turn toward yaw, advance, steer off water, slide off colliders, stay in bounds.
+  _step(c, targetYaw, speed, dt) {
+    const g = c.group;
+    const diff = wrapAngle(targetYaw - g.rotation.y);
+    g.rotation.y += diff * Math.min(1, dt * (c.kind === 'chicken' ? 10 : 6));
+
+    const fx = Math.sin(g.rotation.y);
+    const fz = Math.cos(g.rotation.y);
+
+    // probe ahead for water — never walk in
+    if (this.world.isWater(g.position.x + fx * 1.8, g.position.z + fz * 1.8)) {
+      g.rotation.y += (c.phase % 2 < 1 ? 1 : -1) * dt * 3.5;
+      if (c.state === 'wander') this._pickTarget(c);
+      return;
+    }
+
+    let nx = g.position.x + fx * speed * dt;
+    let nz = g.position.z + fz * speed * dt;
+
+    const list = gridAt(this._grid, nx, nz);
+    if (list) {
+      for (let k = 0; k < list.length; k++) {
+        const col = list[k];
+        const ddx = nx - col.x;
+        const ddz = nz - col.z;
+        const rr = col.r + 0.8;
+        const dd2 = ddx * ddx + ddz * ddz;
+        if (dd2 < rr * rr && dd2 > 1e-6) {
+          const dd = Math.sqrt(dd2);
+          nx = col.x + (ddx / dd) * rr;
+          nz = col.z + (ddz / dd) * rr;
+          g.rotation.y += dt * 2.5; // nudge along the obstacle
+        }
+      }
+    }
+
+    const lim = CFG.MAP_HALF - 3;
+    g.position.x = THREE.MathUtils.clamp(nx, -lim, lim);
+    g.position.z = THREE.MathUtils.clamp(nz, -lim, lim);
+  }
+
+  _pickTarget(c) {
+    const g = c.group;
+    const lim = CFG.MAP_HALF - 6;
+    for (let k = 0; k < 8; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 5 + Math.random() * 10;
+      const x = g.position.x + Math.sin(a) * r;
+      const z = g.position.z + Math.cos(a) * r;
+      if (x < -lim || x > lim || z < -lim || z > lim) continue;
+      if (this.world.isWater(x, z)) continue;
+      if (this.world.isWater((g.position.x + x) / 2, (g.position.z + z) / 2)) continue;
+      if (this._insideCollider(x, z)) continue;
+      c.tx = x;
+      c.tz = z;
+      c.walkT = 0;
+      return;
+    }
+    // nowhere nice to go — chill here a moment
+    c.tx = g.position.x;
+    c.tz = g.position.z;
+    c.walkT = 0;
+    c.state = 'graze';
+    c.st = 1 + Math.random();
+  }
+
+  _insideCollider(x, z) {
+    const list = gridAt(this._grid, x, z);
+    if (!list) return false;
+    for (let k = 0; k < list.length; k++) {
+      const col = list[k];
+      const dx = x - col.x;
+      const dz = z - col.z;
+      const rr = col.r + 0.9;
+      if (dx * dx + dz * dz < rr * rr) return true;
+    }
+    return false;
+  }
+
+  // ============================== animation ==============================
+
+  _animWalk(c, dt, intensity) {
+    c.walk += dt * (4.5 + intensity * 6.5);
+    const w = c.walk + c.phase;
+    const ud = c.ud;
+    if (c.kind === 'chicken') {
+      if (ud.head) ud.head.rotation.x += (Math.sin(w * 2.2) * 0.25 - ud.head.rotation.x) * Math.min(1, dt * 8);
+      c.group.position.y = Math.abs(Math.sin(w * 1.7)) * 0.08; // bouncy strut
+      return;
+    }
+    const amp = 0.3 + intensity * 0.32;
+    const L = ud.legs;
+    if (L) { // diagonal gait with a little personality drift per leg
+      if (L[0]) L[0].rotation.x = Math.sin(w) * amp;
+      if (L[1]) L[1].rotation.x = Math.sin(w + Math.PI) * amp * 1.06;
+      if (L[2]) L[2].rotation.x = Math.sin(w + Math.PI * 1.12) * amp;
+      if (L[3]) L[3].rotation.x = Math.sin(w + 0.14) * amp * 0.94;
+    }
+    if (ud.head) ud.head.rotation.x += ((-0.05 + Math.sin(w * 2) * 0.07) - ud.head.rotation.x) * Math.min(1, dt * 7);
+    if (ud.tail) ud.tail.rotation.y = Math.sin(w * 0.6 + c.phase) * 0.3;
+  }
+
+  _animGraze(c, dt) {
+    const ud = c.ud;
+    const k = Math.min(1, dt * 4);
+    if (c.kind === 'chicken') {
+      if (ud.head) ud.head.rotation.x += ((0.5 + Math.sin(this._t * 9 + c.phase) * 0.25) - ud.head.rotation.x) * Math.min(1, dt * 10); // peck peck
+      c.group.position.y += (0 - c.group.position.y) * k;
+      return;
+    }
+    if (ud.head) ud.head.rotation.x += (0.55 - ud.head.rotation.x) * k; // head down, munching
+    const L = c.ud.legs;
+    if (L) {
+      for (let i = 0; i < 4; i++) {
+        if (L[i]) L[i].rotation.x *= Math.exp(-6 * dt);
+      }
+    }
+    if (ud.tail) ud.tail.rotation.y = Math.sin(this._t * 2.2 + c.phase) * 0.4; // happy tail flicks
+  }
+
+  _flail(c, dt) {
+    const ud = c.ud;
+    const w = this._t * 15 + c.phase;
+    if (c.kind === 'chicken') {
+      this._flapWings(c, 30, 0.7);
+      if (ud.head) ud.head.rotation.x = Math.sin(w) * 0.3;
+      return;
+    }
+    const L = ud.legs;
+    if (L) {
+      for (let i = 0; i < 4; i++) {
+        if (L[i]) L[i].rotation.x = Math.sin(w + i * 1.9) * 0.75;
+      }
+    }
+    if (ud.head) ud.head.rotation.x = Math.sin(w * 0.6) * 0.25 - 0.15;
+    if (ud.tail) ud.tail.rotation.y = Math.sin(w * 1.4) * 0.6;
+  }
+
+  _flapWings(c, rate, amp) {
+    const W = c.ud.wings;
+    if (!W) return;
+    const f = Math.sin(this._t * rate + c.phase) * amp;
+    if (W[0]) W[0].rotation.z = 0.25 + f;
+    if (W[1]) W[1].rotation.z = -0.25 - f;
+  }
+
+  _neutralPose(c) {
+    const ud = c.ud;
+    const L = ud.legs;
+    if (L) {
+      for (let i = 0; i < 4; i++) {
+        if (L[i]) L[i].rotation.x = 0;
+      }
+    }
+    const W = ud.wings;
+    if (W) {
+      if (W[0]) W[0].rotation.z = 0;
+      if (W[1]) W[1].rotation.z = 0;
+    }
+  }
+
+  // Keep the blob shadow pinned to the ground under an airborne critter,
+  // fading with height (shadow is a child, so divide out the group scale).
+  _groundShadow(c) {
+    const g = c.group;
+    const s = Math.max(0.001, g.scale.y);
+    c.shadow.position.y = (0.04 - g.position.y) / s;
+    if (c.shadow.material) {
+      c.shadow.material.opacity =
+        c.shadowOp * THREE.MathUtils.clamp(1 - g.position.y / 13, 0, 1);
+    }
+  }
+}

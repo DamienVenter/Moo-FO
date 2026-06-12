@@ -357,6 +357,16 @@ function frame() {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
+// Debug/testing hook (read-only-ish; not part of the public surface).
+window.__MOOFO = {
+  get state() { return state; },
+  get score() { return score; },
+  get timeLeft() { return timeLeft; },
+  get ufo() { return ufo; },
+  get cows() { return cows; },
+  get farmers() { return farmers; },
+};
+
 resetRound();
 ui.showStart(getHighscore());
 ui.setMuteUI(audio.muted);
