@@ -16,6 +16,8 @@
   --mf-text: #eef6ff;
   --mf-font: 'Rubik', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mf-radius: 18px;
+  /* Day-cycle tint — hud.updateClock() repoints this every phase change. */
+  --mf-phase-glow: #7aa2ff;
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
@@ -432,6 +434,85 @@ button {
   border-radius: 12px;
 }
 
+/* --------------------------------------------------------------------------
+   Day-cycle clock — semicircular arc dial; sun/moon markers orbit the arc.
+   OWN fixed root on <body> (not inside .mf-hud) so it survives hud.hide()
+   and floats ABOVE every menu screen (start = 70). Never interactive.
+   -------------------------------------------------------------------------- */
+
+.mf-clock {
+  position: fixed;
+  top: calc(var(--mf-clock-top, 200px) + var(--sat)); /* set by HUD: below minimap */
+  right: calc(12px + var(--sar));
+  z-index: 80;
+  width: 92px;
+  pointer-events: none;
+  text-align: center;
+  font-family: var(--mf-font);
+  transition: opacity 0.45s ease;
+}
+
+.mf-clock-idle { opacity: 0; } /* until the first updateClock() arrives */
+
+.mf-clock-dial {
+  position: relative;
+  width: 88px;
+  height: 48px;
+  margin: 0 auto;
+  overflow: hidden;                 /* clips below-horizon markers → rise/set */
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-bottom: none;
+  border-radius: 88px 88px 0 0;
+  background: linear-gradient(180deg, rgba(10, 14, 34, 0.12) 0%, rgba(10, 14, 34, 0.55) 100%);
+  box-shadow:
+    0 0 16px -3px var(--mf-clock-glow, var(--mf-phase-glow)),
+    inset 0 -10px 14px -10px var(--mf-clock-glow, var(--mf-phase-glow));
+  transition: box-shadow 0.8s ease;
+}
+
+.mf-clock-horizon {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.mf-clock-marker {
+  position: absolute;
+  left: calc(50% - 9px);
+  bottom: -9px;                      /* center sits ON the horizon line */
+  width: 18px;
+  height: 18px;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+  will-change: transform;            /* JS-driven translate along the arc */
+}
+
+.mf-clock-name {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: lowercase;
+  font-variant: small-caps;          /* phase name in small caps */
+  color: var(--mf-clock-glow, var(--mf-phase-glow));
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.65),
+    0 0 9px var(--mf-clock-glow, var(--mf-phase-glow));
+  transition: color 0.8s ease, text-shadow 0.8s ease;
+}
+
+.mf-clock-ico { font-size: 11px; line-height: 1; }
+
 /* --- announcements --- */
 
 .mf-announce-layer {
@@ -630,7 +711,7 @@ button {
   overflow: hidden;
 }
 
-.mf-start.mf-exit { animation: mf-screen-fade 0.7s ease-in forwards; }
+/* exit choreography lives below ("HYPERSPACE EXIT") */
 
 .mf-vignette-static {
   position: absolute;
@@ -651,8 +732,43 @@ button {
   background: transparent;
 }
 
-.mf-stars-a { animation: mf-twinkle 2.6s ease-in-out infinite alternate; }
-.mf-stars-b { animation: mf-twinkle 3.7s ease-in-out 1.2s infinite alternate; }
+/* Three layers twinkle AND drift at different speeds → parallax depth. */
+.mf-stars-a {
+  animation:
+    mf-twinkle 2.6s ease-in-out infinite alternate,
+    mf-drift 90s linear infinite alternate;
+}
+.mf-stars-b {
+  animation:
+    mf-twinkle 3.7s ease-in-out 1.2s infinite alternate,
+    mf-drift 55s linear infinite alternate-reverse;
+}
+.mf-stars-c {
+  animation:
+    mf-twinkle 3.1s ease-in-out 0.6s infinite alternate,
+    mf-drift 34s linear infinite alternate;
+}
+
+/* occasional shooting star streaking down-right */
+.mf-shooting-star {
+  position: absolute;
+  top: 12%;
+  left: -10%;
+  width: 110px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95));
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+  transform: rotate(16deg);
+  opacity: 0;
+  animation: mf-shoot 9s linear 2s infinite;
+}
+
+.mf-shooting-star-b {
+  top: 34%;
+  animation-duration: 13s;
+  animation-delay: 7.5s;
+}
 
 .mf-start-panel {
   position: relative;
@@ -672,6 +788,17 @@ button {
   width: 230px;
   height: 185px;
   margin-bottom: -8px;
+}
+
+/* entrance-sweep wrapper: handles the off-screen curve, leaving the bob
+   animation untouched on .mf-ufo-art inside it */
+.mf-ufo-fly {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 64px;
+  z-index: 2;
 }
 
 .mf-ufo-art {
@@ -736,8 +863,8 @@ button {
   clip-path: polygon(37% 0, 63% 0, 100% 100%, 0% 100%);
   background: linear-gradient(180deg,
     rgba(154, 247, 176, 0.85) 0%, rgba(154, 247, 176, 0.25) 60%, rgba(154, 247, 176, 0.02) 100%);
-  animation: mf-cone-pulse 2.4s ease-in-out infinite;
   z-index: 0;
+  /* switched on (with delay) by .mf-anim below, once the UFO has settled */
 }
 
 .mf-beam-rider {
@@ -745,7 +872,6 @@ button {
   left: 50%;
   bottom: 4px;
   z-index: 1;
-  animation: mf-beam-rise 2.4s ease-in infinite;
 }
 
 /* --- CSS-art cow --- */
@@ -871,6 +997,7 @@ button {
 
 .mf-logo-ch {
   display: inline-block;
+  transform-origin: 50% 100%; /* squash & stretch from the baseline */
   color: #fff;
   text-shadow:
     0 5px 0 #1c2350,
@@ -894,11 +1021,30 @@ button {
     0 0 26px rgba(255, 213, 79, 0.8);
 }
 
-.mf-start .mf-logo-ch { opacity: 0; transform: scale(0); }
+.mf-start .mf-logo-ch { opacity: 0; transform: translateY(-110px) scale(0.8); }
 
+/* staggered drop-bounce with squash & stretch on landing */
 .mf-start.mf-anim .mf-logo-ch {
-  animation: mf-letter-boing 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  animation-delay: calc(var(--i) * 90ms);
+  animation: mf-letter-drop 0.72s cubic-bezier(0.3, 0.6, 0.4, 1) both;
+  animation-delay: calc(0.1s + var(--i) * 95ms);
+}
+
+.mf-tagline-wrap { position: relative; }
+
+/* the sweeping light bar that "reveals" the tagline */
+.mf-tagline-beam {
+  position: absolute;
+  top: -34%;
+  bottom: -34%;
+  left: -14%;
+  width: 30px;
+  opacity: 0;
+  transform: skewX(-18deg);
+  border-radius: 6px;
+  background: linear-gradient(90deg,
+    transparent, rgba(154, 247, 176, 0.9), transparent);
+  box-shadow: 0 0 18px rgba(154, 247, 176, 0.7);
+  pointer-events: none;
 }
 
 .mf-tagline {
@@ -932,51 +1078,63 @@ button {
   text-indent: 0.18em;
 }
 
+/* --- entrance choreography ---------------------------------------------
+   letters drop-bounce 0.1–0.8s · UFO sweeps in 0.45–1.75s · beam switches
+   on at 1.8s · beam-wipe reveals the tagline 1.55–2.45s · best/start rise */
+
 .mf-start .mf-tagline,
 .mf-start .mf-best,
 .mf-start .mf-btn-start,
-.mf-start .mf-help,
-.mf-start .mf-title-scene { opacity: 0; }
+.mf-start .mf-ufo-fly,
+.mf-start .mf-beam-cone,
+.mf-start .mf-beam-rider { opacity: 0; }
 
-.mf-start.mf-anim .mf-title-scene { animation: mf-rise 0.5s ease-out 0.1s both; }
-.mf-start.mf-anim .mf-tagline    { animation: mf-rise 0.5s ease-out 0.62s both; }
-.mf-start.mf-anim .mf-best       { animation: mf-rise 0.5s ease-out 0.74s both; }
+.mf-start.mf-anim .mf-ufo-fly {
+  animation: mf-ufo-sweep 1.3s cubic-bezier(0.3, 0.7, 0.3, 1) 0.45s both;
+}
+.mf-start.mf-anim .mf-beam-cone  { animation: mf-cone-pulse 2.4s ease-in-out 1.8s infinite; }
+.mf-start.mf-anim .mf-beam-rider { animation: mf-beam-rise 2.4s ease-in 1.8s infinite; }
+.mf-start.mf-anim .mf-tagline {
+  animation: mf-tagline-reveal 0.9s ease-in-out 1.55s both;
+}
+.mf-start.mf-anim .mf-tagline-beam {
+  animation: mf-beam-wipe 0.9s ease-in-out 1.55s both;
+}
+.mf-start.mf-anim .mf-best { animation: mf-rise 0.5s ease-out 1.9s both; }
 .mf-start.mf-anim .mf-btn-start {
   animation:
-    mf-rise 0.5s ease-out 0.86s both,
-    mf-pulse 1.7s ease-in-out 1.5s infinite;
-}
-.mf-start.mf-anim .mf-help { animation: mf-rise 0.5s ease-out 1s both; }
-
-/* exit choreography: logo up, everything else drops, screen fades */
-.mf-start.mf-exit .mf-logo { animation: mf-fly-up 0.55s cubic-bezier(0.5, -0.3, 0.8, 0.5) forwards; }
-.mf-start.mf-exit .mf-title-scene,
-.mf-start.mf-exit .mf-tagline,
-.mf-start.mf-exit .mf-best,
-.mf-start.mf-exit .mf-btn-start,
-.mf-start.mf-exit .mf-help { animation: mf-drop-out 0.55s ease-in forwards; }
-
-.mf-help { margin-top: 12px; }
-
-.mf-help-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px 22px;
+    mf-rise 0.5s ease-out 2.05s both,
+    mf-pulse 1.7s ease-in-out 2.8s infinite;
 }
 
-.mf-help-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: rgba(238, 246, 255, 0.85);
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+/* --- HYPERSPACE EXIT (~900ms total, hideStart() resolves then) ----------
+   stars stretch into streaks · panel whooshes out toward the camera ·
+   quick white flash · backdrop fades */
+
+.mf-start.mf-exit { animation: mf-screen-fade 0.3s ease-in 0.6s forwards; }
+
+.mf-start.mf-exit .mf-stars-layer {
+  transform-origin: 50vw 50vh;
+  animation: mf-hyper-stars 0.85s cubic-bezier(0.7, 0, 1, 0.55) forwards;
+}
+.mf-start.mf-exit .mf-stars-b { animation-duration: 0.7s; }
+.mf-start.mf-exit .mf-stars-c { animation-duration: 0.58s; }
+.mf-start.mf-exit .mf-shooting-star { animation: none; opacity: 0; }
+
+.mf-start.mf-exit .mf-start-panel {
+  animation: mf-whoosh 0.55s cubic-bezier(0.55, -0.2, 0.85, 0.4) forwards;
 }
 
-.mf-help-txt { margin-left: 5px; text-transform: uppercase; }
+.mf-hyper-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mf-start.mf-exit .mf-hyper-flash { animation: mf-hyper-flash 0.9s linear forwards; }
 
 /* ==========================================================================
    COUNTDOWN
@@ -1025,19 +1183,175 @@ button {
   }
 }
 
-.mf-recap {
-  margin-top: 18px;
+.mf-pause-panel { width: min(480px, 94vw); overflow-x: hidden; }
+
+/* --- pause views (root ⇄ settings slide) --- */
+
+.mf-pview.mf-view-off { display: none; }
+
+.mf-slide-in-r { animation: mf-slide-in-r 0.28s cubic-bezier(0.25, 1, 0.4, 1) both; }
+.mf-slide-in-l { animation: mf-slide-in-l 0.28s cubic-bezier(0.25, 1, 0.4, 1) both; }
+
+/* --- settings --- */
+
+.mf-set-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.mf-btn-back {
+  min-height: 44px;
+  min-width: 0;
+  padding: 6px 16px;
+  font-size: 14px;
+  border-radius: 12px;
+}
+
+.mf-set-title {
+  flex: 1;
+  margin: 0;
+  font-size: 26px;
+  text-align: center;
+}
+
+.mf-set-heading {
+  margin: 18px 0 2px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  text-align: left;
+  color: var(--mf-purple);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+.mf-set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;             /* comfy touch targets everywhere */
+  padding: 4px 2px;
+  border-bottom: 2px dashed rgba(255, 255, 255, 0.1);
+  text-align: left;
+}
+
+.mf-set-label {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(238, 246, 255, 0.85);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+.mf-btn-toggle {
+  min-height: 44px;
+  min-width: 92px;
+  padding: 8px 18px;
+  font-size: 15px;
+  border-radius: 12px;
+}
+
+/* --- key-cap chips --- */
+
+.mf-keycap {
+  min-height: 44px;
+  min-width: 68px;
+  padding: 6px 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-bottom-width: 5px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 0.05em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+
+.mf-keycap:hover {
+  border-color: var(--mf-green);
+  background: rgba(124, 252, 154, 0.12);
+  transform: translateY(-1px);
+}
+
+.mf-keycap:focus-visible {
+  outline: 3px dashed var(--mf-purple);
+  outline-offset: 3px;
+}
+
+.mf-keycap.mf-capture {
+  border-color: var(--mf-gold);
+  color: var(--mf-gold);
+  background: rgba(255, 213, 79, 0.12);
+  animation: mf-pulse 0.9s ease-in-out infinite;
+}
+
+/* while capturing, every other control in the panel goes quiet */
+.mf-capturing .mf-keycap:not(.mf-capture),
+.mf-capturing .mf-btn:not(.mf-capture) { opacity: 0.4; pointer-events: none; }
+.mf-capturing .mf-keycap.mf-capture { pointer-events: none; }
+
+.mf-bind-hint {
+  height: 18px;                  /* constant height — no layout jump */
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-align: left;
+  color: var(--mf-gold);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.mf-bind-hint.mf-show { opacity: 1; }
+
+.mf-btn-resetbinds {
+  width: 100%;
+  margin-top: 14px;
+  min-height: 48px;
+  font-size: 15px;
+}
+
+/* --- "other controls" recap rows --- */
+
+.mf-recap-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 2px;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  color: rgba(238, 246, 255, 0.65);
+  letter-spacing: 0.04em;
+  text-align: left;
+  color: rgba(238, 246, 255, 0.72);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
 }
+
+.mf-recap-ico { font-size: 15px; line-height: 1.2; }
+.mf-recap-txt { line-height: 1.45; }
 
 /* ==========================================================================
    END SCREENS
    ========================================================================== */
 
 .mf-end { z-index: 60; }
+
+/* Day-phase tint: --mf-phase-glow is repointed by hud.updateClock(), so the
+   end-screen backdrop inherits the live sky mood (blue/orange/gold). */
+.mf-end::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 8%,
+    var(--mf-phase-glow) 0%, transparent 62%);
+  opacity: 0.18;
+}
 
 .mf-theme-over {
   background: radial-gradient(ellipse at 50% 60%,
@@ -1269,10 +1583,76 @@ button {
   to   { opacity: 0.35; }
 }
 
-@keyframes mf-letter-boing {
-  0%   { opacity: 0; transform: scale(0) rotate(-12deg); }
-  60%  { opacity: 1; transform: scale(1.22) rotate(4deg); }
-  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+/* drop in stretched-thin, squash flat on impact, rebound, settle */
+@keyframes mf-letter-drop {
+  0%   { opacity: 0; transform: translateY(-110px) scale(0.72, 1.42); }
+  42%  { opacity: 1; transform: translateY(0) scale(0.78, 1.3); }
+  56%  { transform: translateY(5px) scale(1.34, 0.6); }
+  73%  { transform: translateY(-13px) scale(0.92, 1.12); }
+  86%  { transform: translateY(2px) scale(1.07, 0.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1, 1); }
+}
+
+/* UFO entrance: in from off-screen left on a curve, overshoot, settle */
+@keyframes mf-ufo-sweep {
+  0%   { opacity: 0; transform: translate(-60vw, -24vh) rotate(-15deg); }
+  12%  { opacity: 1; }
+  48%  { transform: translate(13vw, -6vh) rotate(9deg); }
+  74%  { transform: translate(-4vw, 2vh) rotate(-5deg); }
+  100% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
+}
+
+/* tagline reveal: clip wipes open left→right under the beam bar */
+@keyframes mf-tagline-reveal {
+  0%   { opacity: 1; clip-path: inset(-25% 100% -25% 0); }
+  100% { opacity: 1; clip-path: inset(-25% 0 -25% 0); }
+}
+
+@keyframes mf-beam-wipe {
+  0%   { left: -14%; opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { left: 102%; opacity: 0; }
+}
+
+@keyframes mf-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-60px, -24px, 0); }
+}
+
+@keyframes mf-shoot {
+  0%   { opacity: 0; transform: translate3d(0, 0, 0) rotate(16deg); }
+  1%   { opacity: 1; }
+  8%   { opacity: 0; transform: translate3d(72vw, 21vw, 0) rotate(16deg); }
+  100% { opacity: 0; transform: translate3d(72vw, 21vw, 0) rotate(16deg); }
+}
+
+/* hyperspace: stars race outward from screen center into streaks */
+@keyframes mf-hyper-stars {
+  0%   { transform: scale(1); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: scale(14); opacity: 0; }
+}
+
+@keyframes mf-whoosh {
+  0%   { transform: scale(1) translateY(0); opacity: 1; }
+  100% { transform: scale(2.3) translateY(-9vh); opacity: 0; }
+}
+
+@keyframes mf-hyper-flash {
+  0%, 60% { opacity: 0; }
+  72%     { opacity: 0.95; }
+  100%    { opacity: 0; }
+}
+
+@keyframes mf-slide-in-r {
+  from { opacity: 0; transform: translateX(46px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes mf-slide-in-l {
+  from { opacity: 0; transform: translateX(-46px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes mf-rise {
@@ -1283,14 +1663,6 @@ button {
 @keyframes mf-pulse {
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.06); }
-}
-
-@keyframes mf-fly-up {
-  to { transform: translateY(-70vh) scale(0.8); opacity: 0; }
-}
-
-@keyframes mf-drop-out {
-  to { transform: translateY(60vh); opacity: 0; }
 }
 
 @keyframes mf-screen-fade {
@@ -1385,6 +1757,14 @@ button {
   .mf-panel { padding: 20px 18px 24px; }
   .mf-hold-btn { width: 86px; height: 86px; }
   .mf-hold-warp { width: 72px; height: 72px; margin-bottom: 78px; }
+  /* day-cycle clock docks top-left under the score block */
+  .mf-clock {
+    top: calc(94px + var(--sat));
+    left: calc(14px + var(--sal));
+    right: auto;
+  }
+  .mf-set-row { gap: 8px; }
+  .mf-set-label { font-size: 13px; }
 }
 
 /* short landscape phones: compress the title stack so it always fits */
@@ -1393,7 +1773,6 @@ button {
   .mf-logo { font-size: clamp(44px, 11vh, 72px); }
   .mf-btn-start { margin-top: 2px; padding: 11px 40px; font-size: 21px; }
   .mf-start-panel { gap: 6px; }
-  .mf-help { margin-top: 4px; }
   .mf-panel { padding: 14px 18px 18px; }
   .mf-panel-title { font-size: 26px; }
   .mf-btn { min-height: 48px; padding: 8px 22px; font-size: 16px; }
@@ -1409,8 +1788,12 @@ button {
   .mf-beam-rider,
   .mf-beam-cone,
   .mf-stars-layer,
+  .mf-shooting-star,
   .mf-warp-shimmer,
   .mf-ribbon,
+  .mf-keycap.mf-capture,
   .mf-start.mf-anim .mf-btn-start,
+  .mf-start.mf-anim .mf-beam-cone,
+  .mf-start.mf-anim .mf-beam-rider,
   .mf-timer.mf-warn { animation-iteration-count: 1; }
 }
