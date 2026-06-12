@@ -315,7 +315,7 @@ function frame() {
     hud.update({
       score, timeLeft, health: ufo.health,
       combo: comboTimer > 0 ? Math.min(comboCount, CFG.COMBO_MAX) : 0,
-      warpEnergy: ufo.warpEnergy,
+      warpEnergy: ufo.warpEnergy, cows: cowsGrabbed,
     });
 
     minimapAcc += dt;
