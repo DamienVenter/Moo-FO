@@ -64,3 +64,17 @@ The user's own future list, plus everything else that would fit the game.
 - Gamepad support
 - Level editor: place fences/barns/cows, share via URL seed
 - Twitch mode: chat votes to spawn farmers or golden cows
+
+## Round 2 ideas (post-v2)
+- **Cow tiers by terrain**: mountain cows worth double (harder to reach behind peaks)
+- **River logs/boats** drifting that ducks ride; beam a boat for chaos points
+- **Mud puddles** after rain that slow farmers and stain cows (dirty cow = grumpy moo)
+- **Hang-glider farmer** at high elevation; **rowboat farmer** patrolling the lake
+- **Beam-tug-of-war**: a second hidden UFO occasionally tries to steal your lifted cow
+- **Day-phase scoring modifiers**: night = stealth bonus (farmers see you later), noon = danger pay (+25% points, +25% aggro)
+- **Cow social AI**: herds re-cluster after panic, calves follow mothers, beam a mother and the calf chases your shadow
+- **Photo-sensitive fireflies** that swarm the beam at night and supercharge it briefly (wider radius)
+- **Weather fronts** visible on the minimap drifting across the map
+- **Terrain deformation**: warp boost low over a field flattens crop circles — your signature, persists per session
+- **Replay ghost**: race your previous best run shown as a translucent ghost UFO
+- **Owl/bat photography side-quests**: hover near wildlife without scaring it for bonus "research" currency
