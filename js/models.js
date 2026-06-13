@@ -1056,69 +1056,89 @@ export function createBarn() {
   // Stone foundation strip.
   box(g, 12.3, 0.55, 10.3, mat(COLORS.stone, false, 'stone'), 0, 0.27, 0);
 
-  // Walls: lower + gambrel mid + upper stories (stepped under the roof).
-  box(g, 12, 4.6, 10, red, 0, 2.55, 0);
-  box(g, 9.2, 2.4, 10, red, 0, 5.85, 0);
-  box(g, 4.0, 1.0, 10, red, 0, 7.55, 0);
+  // Walls: lower box + gambrel-profile gable fill (stepped, inset 0.02
+  // from the foundation/roof planes to avoid z-fighting).
+  box(g, 12, 4.3, 10, red, 0, 2.7, 0);                 // main wall (eave at 4.85)
+  box(g, 8.0, 2.15, 9.96, red, 0, 5.93, 0);            // mid gable fill (to knuckle)
+  box(g, 4.0, 1.5, 9.96, red, 0, 7.75, 0);             // upper gable fill (to ridge)
 
-  // Gambrel roof panels (steep lower, shallow upper) + ridge cap.
+  // Gambrel roof: steep LOWER panels (eave→knuckle) + shallow UPPER
+  // panels (knuckle→ridge) that meet cleanly under a single ridge cap.
+  // Profile per side: eave(6,4.85) → knuckle(4.0,7.0) → ridge(0,8.5).
   for (const s of [-1, 1]) {
-    const lower = box(g, 3.0, 0.18, 10.8, roof, s * 5.4, 5.9, 0);
-    lower.rotation.z = -s * 0.99;
-    const upper = box(g, 5.1, 0.18, 10.8, roof, s * 2.3, 8.05, 0);
-    upper.rotation.z = -s * 0.382;
+    const lower = box(g, 2.95, 0.16, 10.8, roof, s * 5.0, 5.93, 0);
+    lower.rotation.z = -s * 0.821;
+    const upper = box(g, 4.3, 0.16, 10.8, roof, s * 2.0, 7.75, 0);
+    upper.rotation.z = -s * 0.359;
   }
-  box(g, 0.6, 0.3, 11.0, mat(0x553b32), 0, 9.05, 0);   // ridge cap
+  box(g, 0.55, 0.3, 11.0, mat(0x553b32), 0, 8.55, 0);  // ridge cap
 
-  // White trim: corner boards + eave bands all round.
+  // White trim: corner boards + eave bands + raking gable trim.
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      box(g, 0.35, 4.6, 0.35, trim, sx * 5.95, 2.55, sz * 4.95);
+      box(g, 0.33, 4.3, 0.33, trim, sx * 5.97, 2.7, sz * 4.97);
     }
   }
-  box(g, 12.3, 0.28, 0.28, trim, 0, 4.88, 5.0);
-  box(g, 12.3, 0.28, 0.28, trim, 0, 4.88, -5.0);
-  box(g, 0.28, 0.28, 10.3, trim, 6.0, 4.88, 0);
-  box(g, 0.28, 0.28, 10.3, trim, -6.0, 4.88, 0);
+  box(g, 12.4, 0.26, 0.26, trim, 0, 4.86, 5.01);       // eave bands (front/back)
+  box(g, 12.4, 0.26, 0.26, trim, 0, 4.86, -5.01);
+  box(g, 0.26, 0.26, 10.4, trim, 6.02, 4.86, 0);       // eave bands (sides)
+  box(g, 0.26, 0.26, 10.4, trim, -6.02, 4.86, 0);
 
-  // Big X-braced SLIDING door: track, rollers, panel, braces, handles.
-  box(g, 5.2, 0.2, 0.3, dark, 0.4, 4.45, 5.12);                       // track bar
-  box(g, 0.22, 0.3, 0.18, mat(0x55606a), -1.0, 4.32, 5.2);            // roller L
-  box(g, 0.22, 0.3, 0.18, mat(0x55606a), 1.0, 4.32, 5.2);             // roller R
-  box(g, 3.4, 3.7, 0.14, mat(COLORS.woodDark, false, 'door'), 0, 2.4, 5.12);
-  box(g, 3.4, 0.18, 0.06, trim, 0, 4.16, 5.21);                       // top board
-  box(g, 3.4, 0.18, 0.06, trim, 0, 0.64, 5.21);                       // bottom board
+  // Big X-braced SLIDING door, flush on its overhead track. Door panel
+  // top (y=4.25) tucks just under the track; rollers bridge the gap.
+  box(g, 5.0, 0.16, 0.22, dark, 0, 4.5, 5.07);                        // track bar
+  box(g, 0.22, 0.28, 0.16, mat(0x55606a), -1.0, 4.36, 5.14);          // roller L
+  box(g, 0.22, 0.28, 0.16, mat(0x55606a), 1.0, 4.36, 5.14);           // roller R
+  const doorPanel = box(g, 3.4, 3.6, 0.12, mat(COLORS.woodDark, false, 'door'), 0, 2.4, 5.07);
+  void doorPanel;
+  box(g, 3.5, 0.16, 0.06, trim, 0, 4.18, 5.14);                       // top rail
+  box(g, 3.5, 0.16, 0.06, trim, 0, 0.66, 5.14);                       // bottom rail
+  box(g, 0.16, 3.6, 0.06, trim, -1.66, 2.4, 5.14);                    // door stiles
+  box(g, 0.16, 3.6, 0.06, trim, 1.66, 2.4, 5.14);
   for (const d of [-1, 1]) {                                           // the big X
-    const brace = box(g, 0.2, 4.6, 0.06, trim, 0, 2.4, 5.2);
-    brace.rotation.z = d * 0.74;
+    const brace = box(g, 0.18, 4.3, 0.05, trim, 0, 2.4, 5.15);
+    brace.rotation.z = d * 0.72;
   }
-  box(g, 0.12, 0.5, 0.1, mat(0x55606a), -1.45, 2.3, 5.22);            // handle
-  box(g, 0.12, 0.5, 0.1, mat(0x55606a), 1.45, 2.3, 5.22);             // handle
+  box(g, 0.1, 0.46, 0.09, mat(0x55606a), -0.3, 2.3, 5.16);            // pull handles
+  box(g, 0.1, 0.46, 0.09, mat(0x55606a), 0.3, 2.3, 5.16);
 
-  // Hayloft door + hoist beam, hanging rope and pulley.
-  box(g, 1.9, 1.9, 0.15, trim, 0, 6.35, 5.02);
-  box(g, 1.45, 1.45, 0.16, mat(0x4a3327, false, 'door'), 0, 6.35, 5.06);
-  box(g, 1.1, 0.32, 0.36, mat(COLORS.straw), 0, 5.65, 5.22);          // spilled hay
-  box(g, 0.22, 0.22, 1.5, mat(COLORS.woodDark), 0, 7.75, 5.4);        // hoist beam
-  box(g, 0.05, 0.95, 0.05, dark, 0, 7.2, 6.05);                       // rope
-  box(g, 0.18, 0.16, 0.18, mat(0x55606a), 0, 6.66, 6.05);             // pulley block
-  box(g, 0.08, 0.12, 0.08, mat(0x37474f), 0, 6.54, 6.05);             // hook
+  // Hayloft opening + hoist beam, hanging rope and pulley, hay spilling out.
+  box(g, 1.9, 1.9, 0.12, trim, 0, 6.35, 5.0);                         // frame
+  box(g, 1.5, 1.5, 0.1, mat(0x2a1f18), 0, 6.35, 5.04);               // dark opening
+  box(g, 1.2, 0.5, 0.5, mat(COLORS.straw), 0, 5.75, 5.2);            // loft hay (in opening)
+  box(g, 0.9, 0.34, 0.42, mat(0xd9b24a), 0, 6.05, 5.28);            // more hay
+  box(g, 0.22, 0.22, 1.5, mat(COLORS.woodDark), 0, 7.5, 5.4);        // hoist beam
+  box(g, 0.05, 0.85, 0.05, dark, 0, 7.0, 6.05);                      // rope
+  box(g, 0.18, 0.16, 0.18, mat(0x55606a), 0, 6.5, 6.05);             // pulley block
+  box(g, 0.08, 0.12, 0.08, mat(0x37474f), 0, 6.38, 6.05);            // hook
 
-  // Two small framed windows flanking the sliding door.
+  // Two small framed windows flanking the sliding door (inset panes).
   for (const s of [-1, 1]) {
-    box(g, 1.0, 1.0, 0.14, trim, s * 3.9, 2.9, 5.02);
-    box(g, 0.74, 0.74, 0.15, mat(0x2c3550), s * 3.9, 2.9, 5.06);
-    box(g, 1.15, 0.12, 0.22, trim, s * 3.9, 2.34, 5.06);              // sill
+    box(g, 1.0, 1.0, 0.12, trim, s * 3.9, 2.9, 5.0);
+    box(g, 0.72, 0.72, 0.06, mat(0x2c3550), s * 3.9, 2.9, 5.05);
+    box(g, 0.08, 0.72, 0.07, trim, s * 3.9, 2.9, 5.07);              // mullion V
+    box(g, 0.72, 0.08, 0.07, trim, s * 3.9, 2.9, 5.07);             // mullion H
+    box(g, 1.15, 0.12, 0.2, trim, s * 3.9, 2.34, 5.04);             // sill
   }
 
-  // Weather vane: post, N–S arrow, rooster silhouette.
-  box(g, 0.07, 0.85, 0.07, dark, 0, 9.6, 0);
-  box(g, 0.9, 0.05, 0.05, dark, 0, 9.85, 0);                          // arrow shaft
-  box(g, 0.14, 0.12, 0.05, dark, 0.48, 9.85, 0);                      // arrow head
-  box(g, 0.1, 0.16, 0.05, dark, -0.44, 9.85, 0);                      // arrow tail fin
-  box(g, 0.05, 0.24, 0.2, dark, 0, 10.08, 0);                         // rooster body
-  box(g, 0.05, 0.12, 0.09, dark, 0, 10.16, 0.13);                     // rooster head
-  box(g, 0.05, 0.1, 0.05, mat(0xe53935), 0, 10.26, 0.13);             // comb
+  // Cupola on the ridge: louvred box + little hipped roof, weather vane on top.
+  box(g, 1.0, 0.9, 1.0, red, 0, 9.15, 0);                            // cupola body
+  for (const s of [-1, 1]) {                                          // louvre slats (front)
+    box(g, 0.84, 0.12, 0.06, trim, 0, 9.0 + s * 0.22, 0.5);
+    box(g, 0.06, 0.84, 0.84, trim, s * 0.5, 9.15, 0);               // side louvre faces
+  }
+  box(g, 0.84, 0.12, 0.06, trim, 0, 9.15, 0.5);
+  for (const s of [-1, 1]) {                                          // cupola hip roof
+    const r = box(g, 0.85, 0.1, 1.2, mat(0x553b32), s * 0.3, 9.78, 0);
+    r.rotation.z = -s * 0.5;
+  }
+  box(g, 0.07, 0.7, 0.07, dark, 0, 10.1, 0);                         // vane post
+  box(g, 0.9, 0.05, 0.05, dark, 0, 10.42, 0);                        // arrow shaft
+  box(g, 0.14, 0.12, 0.05, dark, 0.48, 10.42, 0);                    // arrow head
+  box(g, 0.1, 0.16, 0.05, dark, -0.44, 10.42, 0);                    // arrow tail fin
+  box(g, 0.05, 0.24, 0.2, dark, 0, 10.65, 0);                        // rooster body
+  box(g, 0.05, 0.12, 0.09, dark, 0, 10.73, 0.13);                    // rooster head
+  box(g, 0.05, 0.1, 0.05, mat(0xe53935), 0, 10.83, 0.13);           // comb
 
   return g;
 }
@@ -1141,22 +1161,28 @@ export function createFarmhouse() {
   const shutterM = mat(0x3f6e58);
   const glow = emat(0xffd98c, 0xff9d3c, 0.9);
 
-  // Main walls + stepped gable fill (stays under the roof planes).
+  // Main walls + stepped gable fill (kept under the roof planes; fill is
+  // inset 0.02 so it never z-fights the wall or roof).
   box(g, 10, 4.6, 7, wall, 0, 2.3, 0);
-  box(g, 10, 1.05, 3.6, wall, 0, 5.1, 0);
-  box(g, 10, 0.8, 1.2, wall, 0, 5.9, 0);
+  box(g, 9.96, 1.0, 3.5, wall, 0, 5.1, 0);             // gable fill mid
+  box(g, 9.96, 0.95, 1.3, wall, 0, 5.95, 0);           // gable fill upper (to ridge)
 
-  // Gable roof + ridge cap.
+  // Gable roof: ridge along X at y=6.5, eaves at (z=±3.5, y=4.6). Slope
+  // run 3.5, rise 1.9 → angle atan(1.9/3.5)=0.497. Slabs sized to give a
+  // clean even overhang on all four edges; matching ridge cap on top.
+  const rAng = Math.atan2(1.9, 3.5);                   // ≈ 0.497
+  const slabLen = Math.hypot(3.5, 1.9) + 0.55;         // slope length + eave overhang
   for (const s of [-1, 1]) {
-    const slab = box(g, 11, 0.2, 4.4, roof, 0, 5.6, s * 1.8);
-    slab.rotation.x = s * 0.52;
+    const slab = box(g, 11, 0.2, slabLen, roof, 0, 5.55, s * 1.7);
+    slab.rotation.x = s * rAng;
   }
-  box(g, 11.2, 0.28, 0.6, mat(0x553b32), 0, 6.75, 0);
+  box(g, 11.0, 0.3, 0.55, mat(0x553b32), 0, 6.6, 0);   // ridge cap (square overhang)
 
-  // Brick chimney on the rear slope, with cap + flue.
-  box(g, 0.9, 2.9, 0.9, mat(0xb46a55, false, 'brick'), 3.0, 6.5, -1.2);
-  box(g, 1.15, 0.25, 1.15, mat(0x8a8a8a), 3.0, 8.0, -1.2);
-  box(g, 0.5, 0.18, 0.5, mat(0x2b2b2b), 3.0, 8.16, -1.2);
+  // Brick chimney rising through the rear slope (square to the wall),
+  // with corbel cap + dark flue.
+  box(g, 0.85, 3.6, 0.85, mat(0xb46a55, false, 'brick'), 3.0, 5.6, -1.4);
+  box(g, 1.1, 0.22, 1.1, mat(0x8a8a8a), 3.0, 7.5, -1.4);   // corbel cap
+  box(g, 0.5, 0.16, 0.5, mat(0x2b2b2b), 3.0, 7.66, -1.4);  // flue
 
   // Windows: white frame, warm pane, cross mullions, sill, working shutters.
   const windowAt = (x, y, z, ry = 0) => {
@@ -1173,10 +1199,21 @@ export function createFarmhouse() {
       sh.rotation.y = s * 0.18;
     }
   };
-  windowAt(-3.0, 2.0, 3.52);
-  windowAt(3.0, 2.0, 3.52);
-  windowAt(-2.2, 3.78, 3.52);
-  windowAt(2.2, 3.78, 3.52);
+  windowAt(-3.0, 2.2, 3.52);
+  windowAt(3.0, 2.2, 3.52);
+  windowAt(-1.6, 4.0, 3.52);
+  windowAt(1.6, 4.0, 3.52);
+
+  // A little dormer window on the front roof slope.
+  const dormer = pivot(g, 0, 5.45, 2.55);
+  box(dormer, 1.4, 1.0, 0.9, wall, 0, 0, 0);                          // dormer box
+  for (const s of [-1, 1]) {                                           // dormer roof
+    const dr = box(dormer, 0.85, 0.1, 0.7, roof, s * 0.3, 0.55, 0);
+    dr.rotation.z = -s * 0.6;
+  }
+  box(dormer, 0.6, 0.55, 0.1, white, 0, 0.05, 0.46);                // dormer frame
+  const dpane = box(dormer, 0.42, 0.4, 0.06, glow, 0, 0.05, 0.5);   // dormer pane
+  dpane.castShadow = false;
 
   // Paneled front door with a little lit window + brass knob.
   box(g, 1.4, 2.4, 0.1, white, 0, 1.6, 3.52);
@@ -1185,38 +1222,44 @@ export function createFarmhouse() {
   doorWin.castShadow = false;
   box(g, 0.09, 0.09, 0.07, emat(COLORS.gold, 0xc79a1e, 0.3), 0.38, 1.5, 3.63);
 
-  // Hanging porch lantern: bracket chain + glowing body + cap.
+  // Hanging porch lantern: bracket chain + glowing body (with a cap top).
   box(g, 0.04, 0.3, 0.04, mat(0x3b3b42), 1.0, 2.6, 3.7);
-  const lantern = box(g, 0.18, 0.26, 0.14, emat(0xffd98c, 0xffa040, 1.0), 1.0, 2.32, 3.7);
+  const lantern = box(g, 0.2, 0.3, 0.16, emat(0xffd98c, 0xffa040, 1.0), 1.0, 2.32, 3.7);
   lantern.castShadow = false;
-  box(g, 0.24, 0.05, 0.2, mat(0x3b3b42), 1.0, 2.48, 3.7);
 
-  // Porch: floor, two steps, 4 turned posts, sloped roof.
+  // Porch: floor + two steps centered on the door (x=0).
   box(g, 7.2, 0.3, 2.6, wood, 0, 0.3, 4.7);
-  box(g, 2.0, 0.18, 0.55, wood, 0, 0.26, 6.2);
-  box(g, 2.0, 0.18, 0.55, wood, 0, 0.09, 6.7);
-  for (const x of [-3.3, -1.15, 1.15, 3.3]) {                          // turned posts
-    box(g, 0.26, 0.18, 0.26, white, x, 0.54, 5.7);                     // base block
-    box(g, 0.15, 1.9, 0.15, white, x, 1.55, 5.7);                      // shaft
-    box(g, 0.24, 0.14, 0.24, white, x, 2.55, 5.7);                     // capital
-  }
+  box(g, 2.2, 0.18, 0.5, wood, 0, 0.3, 6.15);                          // step 1 (centered)
+  box(g, 2.2, 0.18, 0.5, wood, 0, 0.13, 6.6);                          // step 2 (centered)
+
+  // Porch roof first (so we can land the posts exactly on its underside).
+  // Roof underside at the post line (z=5.7) ≈ y 2.65 with the slight tilt.
   const proof = box(g, 7.8, 0.16, 3.0, roof, 0, 2.78, 4.7);
   proof.rotation.x = 0.1;
 
-  // Railing with balusters (gap at the door).
+  // Four turned posts reaching from the porch floor UP to the roof.
+  for (const x of [-3.3, -1.15, 1.15, 3.3]) {
+    box(g, 0.26, 0.2, 0.26, white, x, 0.55, 5.7);                      // base block
+    box(g, 0.15, 2.05, 0.15, white, x, 1.62, 5.7);                     // shaft (to roof)
+    box(g, 0.24, 0.14, 0.24, white, x, 2.66, 5.7);                     // capital under roof
+  }
+
+  // Railing with balusters (gap at the door for the gate).
   for (const s of [-1, 1]) {
-    box(g, 2.7, 0.1, 0.1, white, s * 2.1, 1.05, 5.72);
+    box(g, 2.7, 0.1, 0.1, white, s * 2.1, 1.05, 5.72);                // top rail
     for (const x of [-3.0, -2.2, -1.4, 1.4, 2.2, 3.0]) {
-      if (Math.sign(x) === s) box(g, 0.07, 0.5, 0.07, white, x, 0.75, 5.72);
+      if (Math.sign(x) === s) box(g, 0.07, 0.5, 0.07, white, x, 0.78, 5.72);
     }
     box(g, 0.1, 0.1, 2.2, white, s * 3.45, 1.05, 4.75);                // side rails
   }
+  // Little porch-rail gate across the step opening (top + bottom rail + 2 bars).
+  box(g, 1.5, 0.09, 0.08, woodD, 0, 0.95, 5.74);                      // gate top rail
+  box(g, 1.5, 0.08, 0.07, woodD, 0, 0.55, 5.74);                      // gate bottom rail
+  for (const x of [-0.4, 0.4]) box(g, 0.06, 0.42, 0.06, woodD, x, 0.74, 5.74);
 
   // A little porch bench by the window.
   box(g, 1.5, 0.1, 0.45, woodD, -2.3, 0.85, 4.35);
   box(g, 1.5, 0.5, 0.1, woodD, -2.3, 1.2, 4.14);
-  box(g, 0.1, 0.42, 0.4, woodD, -2.95, 0.62, 4.35);
-  box(g, 0.1, 0.42, 0.4, woodD, -1.65, 0.62, 4.35);
 
   return g;
 }
@@ -1231,14 +1274,23 @@ export function createSilo() {
   const band = mat(0x93a0ad, true);
 
   add(g, cylGeo(2.5, 2.5, 10, 12), body, 0, 5, 0);
-  for (const y of [2.5, 5, 7.5]) {
-    add(g, cylGeo(2.56, 2.56, 0.18, 12), band, 0, y, 0);
+  // Evenly spaced hoop bands.
+  for (const y of [2, 4, 6, 8]) {
+    add(g, cylGeo(2.56, 2.56, 0.16, 12), band, 0, y, 0);
   }
-  const cap = add(g, domeGeo(2.5, 12, 5), mat(COLORS.ufoBody, true), 0, 10, 0);
-  cap.scale.set(1, 0.72, 1);
-  // Top vent with a little cone hat.
-  add(g, cylGeo(0.3, 0.3, 0.5, 6), band, 0, 11.9, 0);
-  add(g, coneGeo(0.45, 0.4, 6), mat(0x78909c, true), 0, 12.3, 0);
+  // Vertical seam ribs (panel joints) around the body.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * PI2;
+    const seam = box(g, 0.1, 9.8, 0.1, band, Math.cos(a) * 2.5, 5, Math.sin(a) * 2.5);
+    seam.rotation.y = -a;
+  }
+  // Eave ring where the cap lands, then a domed cap that sits flush.
+  add(g, cylGeo(2.6, 2.6, 0.22, 12), band, 0, 10, 0);
+  const cap = add(g, domeGeo(2.5, 12, 6), mat(COLORS.ufoBody, true), 0, 10.05, 0);
+  cap.scale.set(1, 0.82, 1);
+  // Top vent: collar + little cone hat, flush on the dome.
+  add(g, cylGeo(0.3, 0.3, 0.5, 6), band, 0, 11.95, 0);
+  add(g, coneGeo(0.46, 0.42, 6), mat(0x78909c, true), 0, 12.4, 0);
   // Ladder up the front with a safety hoop near the top.
   for (const s of [-1, 1]) {
     box(g, 0.07, 9.2, 0.07, mat(0x6f7d92), s * 0.32, 4.7, 2.48);
@@ -1248,16 +1300,23 @@ export function createSilo() {
   }
   const hoop = add(g, torusGeo(0.5, 0.04, 5, 10), mat(0x6f7d92, true), 0, 8.6, 2.5);
   hoop.rotation.x = Math.PI / 2;
-  // Hatch door + filler chute at the base.
+  // Hatch door at the base + filler chute on the barn side (-X face,
+  // angling down toward the neighbouring barn).
   box(g, 0.9, 1.3, 0.15, mat(0x55606a), 0, 0.7, 2.42);
-  box(g, 0.5, 0.1, 0.5, mat(0x55606a), 0, 1.42, 2.4);
+  const chute = box(g, 0.55, 3.4, 0.5, mat(0x8794a1, false, 'metal'), -2.55, 4.2, 0);
+  chute.rotation.z = 0.18;
+  box(g, 0.7, 0.5, 0.6, band, -2.75, 2.5, 0);                         // chute outlet hopper
   return g;
 }
 
 /* ------------------------------------------------------------------ *
- *  createWindmill — ~11 tall lattice tower. userData: { blades }
- *  4 splayed legs with 3 levels of cross-braces, platform, gear head,
- *  tail vane, 6 framed cloth sails, ladder up one leg.
+ *  createWindmill — ~11 tall lattice tower (truncated pyramid).
+ *  userData: { blades }
+ *  Right-side-up: 4 legs sit on a WIDE square (half-width B=1.5) at the
+ *  ground and lean INWARD as they rise to a SMALL top square (half-width
+ *  T=0.45) at H=8. Girdles + X-braces are computed from hw(y) so every
+ *  endpoint lands on a leg. Platform + gear head + roof + tail vane sit
+ *  ON TOP; the 6-sail blade wheel hangs at the front of the hub.
  *  blades Group sits at the hub; spin with blades.rotation.z.
  * ------------------------------------------------------------------ */
 
@@ -1266,48 +1325,97 @@ export function createWindmill() {
   const steel = mat(0x8e9aa6);
   const light = mat(0xd7dee6);
 
-  // Four splayed legs.
-  for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-    const leg = box(g, 0.2, 9.4, 0.2, steel, sx * 0.88, 4.5, sz * 0.88);
-    leg.rotation.z = -sx * 0.116;
-    leg.rotation.x = sz * 0.116;
-  }
-  // Lattice girdles at THREE heights (cross-braces).
-  for (const [y, hw] of [[1.6, 1.22], [4.2, 0.92], [6.8, 0.62]]) {
-    box(g, hw * 2 + 0.2, 0.09, 0.09, steel, 0, y, hw);
-    box(g, hw * 2 + 0.2, 0.09, 0.09, steel, 0, y, -hw);
-    box(g, 0.09, 0.09, hw * 2 + 0.2, steel, hw, y, 0);
-    box(g, 0.09, 0.09, hw * 2 + 0.2, steel, -hw, y, 0);
-  }
-  // Diagonal X braces on the front face between girdle 1 and 2.
-  for (const d of [-1, 1]) {
-    const brace = box(g, 0.07, 2.9, 0.07, steel, 0, 2.9, 1.06);
-    brace.rotation.z = d * 0.62;
-  }
-  // Ladder up the +Z/-X leg.
-  box(g, 0.05, 7.6, 0.05, light, -0.62, 3.8, 1.18);
-  box(g, 0.05, 7.6, 0.05, light, -0.3, 3.8, 1.18);
-  for (let i = 0; i < 6; i++) {
-    box(g, 0.38, 0.05, 0.05, light, -0.46, 0.9 + i * 1.25, 1.18);
-  }
-  // Platform + gear head + roof plate.
-  box(g, 1.7, 0.16, 1.7, mat(COLORS.wood, false, 'planks'), 0, 9.05, 0);
-  box(g, 0.8, 0.8, 1.05, steel, 0, 9.65, 0);
-  box(g, 0.9, 0.14, 1.15, light, 0, 10.1, 0);
-  // Tail boom + red vane.
-  box(g, 0.08, 0.08, 1.4, steel, 0, 9.7, -1.1);
-  box(g, 0.06, 0.75, 0.9, mat(0xe05348), 0, 9.85, -1.75);
+  // --- Tower geometry: wide base, narrow top (truncated pyramid). ---
+  const B = 1.5;          // base half-width (footprint at y=0)
+  const T = 0.45;         // top half-width (at the platform)
+  const H = 8.0;          // tower height to the platform underside
+  // Half-width of the square cross-section at any height y.
+  const hw = (y) => B + (T - B) * (y / H);          // hw(0)=1.5, hw(8)=0.45
+  // Inward lean angle of each leg from vertical.
+  const theta = Math.atan((B - T) / H);             // ≈ atan(1.05/8) = 0.1305
+  const legLen = Math.hypot(H, B - T) + 0.2;        // full leg incl. ground stub
 
-  // Blade wheel at the hub (front): 6 sails, each a spar + frame + cloth.
-  const blades = pivot(g, 0, 9.7, 0.68);
-  add(blades, cylZGeo(0.2, 0.3, 8), mat(0x55606a, true), 0, 0, 0);
+  // Four legs. Each pivots about its own center; +Y tilts inward toward
+  // the axis. rotation.z = sx*theta drops the top toward -sx (inward);
+  // rotation.x = -sz*theta drops the top toward -sz (inward).
+  for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    const cx = sx * (B + T) / 2;                     // x of leg mid-height
+    const cz = sz * (B + T) / 2;
+    const leg = box(g, 0.2, legLen, 0.2, steel, cx, H / 2, cz);
+    leg.rotation.order = 'ZXY';
+    leg.rotation.z = sx * theta;
+    leg.rotation.x = -sz * theta;
+  }
+
+  // --- Horizontal girdles at 3 heights; each ring's half-width is hw(y)
+  //     so the rails actually touch the legs at that height. ---
+  const girderY = [1.4, 3.9, 6.4];
+  for (const y of girderY) {
+    const w = hw(y);
+    const span = 2 * w + 0.2;
+    box(g, span, 0.1, 0.1, steel, 0, y, w);          // +Z rail
+    box(g, span, 0.1, 0.1, steel, 0, y, -w);         // -Z rail
+    box(g, 0.1, 0.1, span, steel, w, y, 0);          // +X rail
+    box(g, 0.1, 0.1, span, steel, -w, y, 0);         // -X rail
+  }
+
+  // --- Single diagonal brace per face, per bay, alternating direction
+  //     bay-to-bay so the four faces read as a continuous zig-zag lattice
+  //     whose endpoints land on the legs. (8 braces total.) ---
+  const bays = [[girderY[0], girderY[1]], [girderY[1], girderY[2]]];
+  bays.forEach(([y0, y1], bi) => {
+    const ym = (y0 + y1) / 2;
+    const wm = hw(ym);
+    const dy = y1 - y0;
+    const run = 2 * wm;                              // full face width at mid
+    const len = Math.hypot(dy, run);                 // diagonal length
+    const tilt = Math.atan2(run, dy);                // from vertical
+    const d = bi % 2 ? 1 : -1;                       // alternate lean per bay
+    for (const sz of [1, -1]) {                      // +Z / -Z faces
+      const br = box(g, 0.07, len, 0.07, steel, 0, ym, sz * wm);
+      br.rotation.z = d * tilt;
+    }
+    for (const sx of [1, -1]) {                      // +X / -X faces
+      const br = box(g, 0.07, len, 0.07, steel, sx * wm, ym, 0);
+      br.rotation.x = d * tilt;
+    }
+  });
+
+  // --- Ladder up the +Z face, hugging the inward-leaning leg line. ---
+  for (let i = 0; i <= 6; i++) {
+    const y = 0.6 + i * 1.1;
+    const w = hw(y) - 0.06;
+    box(g, 0.46, 0.05, 0.05, light, 0, y, w + 0.12);     // rung
+  }
+  // Two ladder stiles following the taper (slightly tilted inward).
+  for (const s of [-1, 1]) {
+    const st = box(g, 0.05, 7.0, 0.05, light, s * 0.22, 3.6, hw(3.6) + 0.14);
+    st.rotation.x = -theta * 0.7;
+  }
+
+  // --- Platform + gear head + roof on TOP. ---
+  box(g, 1.7, 0.18, 1.7, mat(COLORS.wood, false, 'planks'), 0, H + 0.09, 0);
+  box(g, 0.8, 0.85, 1.1, steel, 0, H + 0.62, 0);       // gear-head housing
+  for (const s of [-1, 1]) {                            // pitched roof halves
+    const slab = box(g, 0.62, 0.12, 1.2, light, s * 0.24, H + 1.12, 0);
+    slab.rotation.z = -s * 0.5;
+  }
+  box(g, 0.14, 0.18, 1.24, mat(0x55606a), 0, H + 1.32, 0);   // ridge cap
+
+  // --- Tail boom + red vane behind the gear head. ---
+  box(g, 0.09, 0.09, 1.5, steel, 0, H + 0.62, -1.15);
+  box(g, 0.06, 0.78, 0.95, mat(0xe05348), 0, H + 0.7, -1.85);
+
+  // --- Blade wheel at the FRONT of the hub: 6 sails, spar + frame + cloth.
+  const hubZ = 0.72;
+  const blades = pivot(g, 0, H + 0.62, hubZ);
+  add(blades, cylZGeo(0.2, 0.34, 8), mat(0x55606a, true), 0, 0, 0);   // hub
   for (let i = 0; i < 6; i++) {
     const sail = pivot(blades, 0, 0, 0);
     sail.rotation.z = (i / 6) * PI2;
-    box(sail, 0.09, 2.1, 0.06, steel, 0, 1.05, 0);                    // spar
-    box(sail, 0.5, 0.07, 0.06, steel, 0, 0.85, 0.04);                 // frame bottom
-    box(sail, 0.5, 0.07, 0.06, steel, 0, 2.1, 0.04);                  // frame top
-    const cloth = box(sail, 0.44, 1.3, 0.04, light, 0.05, 1.48, 0.07);
+    box(sail, 0.09, 2.2, 0.06, steel, 0, 1.1, 0);                     // spar
+    box(sail, 0.52, 0.07, 0.06, steel, 0, 2.05, 0.04);               // outer frame bar
+    const cloth = box(sail, 0.46, 1.55, 0.04, light, 0.06, 1.2, 0.07);
     cloth.rotation.y = 0.3;                                            // pitched cloth
   }
 
@@ -1325,47 +1433,47 @@ export function createWell() {
   const g = new THREE.Group();
   const rope = mat(0x6d5a45);
 
-  // Core ring + water surface.
-  add(g, cylGeo(0.82, 0.9, 0.8, 8), mat(0x8c8c8c, true), 0, 0.4, 0);
-  const water = add(g, cylGeo(0.7, 0.7, 0.06, 8), mat(COLORS.waterDeep, true), 0, 0.74, 0);
+  // Solid stone drum (guarantees a closed ring) + capstone + water.
+  add(g, cylGeo(0.9, 0.96, 0.86, 12), mat(0x8c8c8c, false, 'stone'), 0, 0.43, 0);
+  add(g, cylGeo(0.94, 0.94, 0.12, 12), mat(0xb4b4b4, true), 0, 0.92, 0);   // capstone rim
+  const water = add(g, cylGeo(0.66, 0.66, 0.06, 12), mat(COLORS.waterDeep, true), 0, 0.62, 0);
   water.castShadow = false;
-  // Two offset courses of individual stone blocks around the core.
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * PI2;
-    const s = box(g, 0.42, 0.34, 0.26, i % 2 ? mat(COLORS.stone) : mat(0xb4b4b4),
-      Math.cos(a) * 0.86, 0.2, Math.sin(a) * 0.86);
-    s.rotation.y = -a + Math.PI / 2;
-  }
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * PI2 + Math.PI / 8;                             // offset course
-    const s = box(g, 0.4, 0.32, 0.24, i % 2 ? mat(0xb4b4b4) : mat(COLORS.stone),
-      Math.cos(a) * 0.88, 0.54, Math.sin(a) * 0.88);
+  // One course of stone blocks proud of the drum — 10 blocks overlap to
+  // form a clean CLOSED ring (arc per block ≈ 0.52 < block width 0.58).
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * PI2;
+    const s = box(g, 0.58, 0.7, 0.22, i % 2 ? mat(COLORS.stone) : mat(0xb4b4b4),
+      Math.cos(a) * 0.88, 0.45, Math.sin(a) * 0.88);
     s.rotation.y = -a + Math.PI / 2;
   }
 
-  // Wooden A-frame: posts + diagonal braces.
+  // Symmetric wooden A-frame: two posts + two mirrored diagonal braces.
   for (const s of [-1, 1]) {
     box(g, 0.15, 1.6, 0.15, mat(COLORS.woodDark), s * 0.85, 1.35, 0);
-    const brace = box(g, 0.1, 0.7, 0.1, mat(COLORS.wood), s * 0.72, 0.9, 0.3);
+    const brace = box(g, 0.1, 0.75, 0.1, mat(COLORS.wood), s * 0.7, 0.95, 0.32);
     brace.rotation.x = -0.5;
+    const brace2 = box(g, 0.1, 0.75, 0.1, mat(COLORS.wood), s * 0.7, 0.95, -0.32);
+    brace2.rotation.x = 0.5;                                           // mirror (symmetric)
   }
-  // Shingled mini-roof + ridge.
+  // Shingled mini-roof CENTERED over the well (ridge at x=0), + ridge cap.
   for (const s of [-1, 1]) {
     const slab = box(g, 2.3, 0.1, 1.05, mat(COLORS.roof, false, 'shingles'), 0, 2.32, s * 0.4);
     slab.rotation.x = s * 0.55;
   }
   box(g, 2.4, 0.14, 0.22, mat(0x553b32), 0, 2.58, 0);
 
-  // Crank: axle, wound rope coils, crank arm + handle.
+  // Crank: axle at y=1.62, wound rope coil, crank arm + handle.
   add(g, cylXGeo(0.07, 1.9, 6), mat(COLORS.woodDark), 0, 1.62, 0);
-  add(g, cylXGeo(0.11, 0.34, 6), rope, -0.05, 1.62, 0);                // rope coil
-  add(g, cylXGeo(0.1, 0.18, 6), rope, 0.22, 1.62, 0);                  // loose coil
+  add(g, cylXGeo(0.12, 0.5, 6), rope, -0.1, 1.62, 0);                  // rope coil on axle
   box(g, 0.07, 0.3, 0.07, mat(COLORS.woodDark), 0.99, 1.5, 0);         // crank arm
   box(g, 0.07, 0.07, 0.3, mat(0x4e342e), 0.99, 1.36, 0.12);            // crank handle
-  // Hanging rope + bucket with a steel rim.
-  box(g, 0.05, 0.5, 0.05, rope, 0, 1.32, 0);
-  box(g, 0.28, 0.24, 0.28, mat(COLORS.wood), 0, 0.97, 0);
-  box(g, 0.32, 0.06, 0.32, mat(0x55606a), 0, 1.1, 0);
+  // Rope hangs FROM the axle (y=1.62) DOWN to the bucket (top y≈1.05):
+  // span 1.05→1.62 = 0.57, centered at 1.335.
+  box(g, 0.05, 0.57, 0.05, rope, 0.1, 1.335, 0);
+  box(g, 0.3, 0.26, 0.3, mat(COLORS.wood), 0.1, 0.92, 0);              // bucket body
+  box(g, 0.34, 0.06, 0.34, mat(0x55606a), 0.1, 1.05, 0);              // bucket steel rim
+  const handle = add(g, torusGeo(0.16, 0.02, 4, 8), mat(0x55606a, true), 0.1, 1.08, 0);
+  handle.rotation.x = Math.PI / 2;                                     // bucket bail handle
   return g;
 }
 
@@ -1406,15 +1514,20 @@ export function createScarecrow() {
   box(g, 0.08, 0.08, 0.04, mat(0x3a2a22), -0.1, 2.08, 0.185);
   box(g, 0.08, 0.08, 0.04, mat(0x2b2b2b), 0.1, 2.08, 0.185);          // odd buttons
   box(g, 0.16, 0.04, 0.04, mat(0x3a2a22), 0, 1.92, 0.185);
-  // Straw hat.
-  box(g, 0.62, 0.06, 0.58, straw, 0, 2.24, 0);
-  box(g, 0.34, 0.2, 0.32, straw, 0, 2.36, 0);
-  // A cheeky crow perched on the arm.
-  box(g, 0.14, 0.13, 0.2, mat(0x1c1c22), 0.62, 1.82, -0.05);
-  box(g, 0.1, 0.1, 0.09, mat(0x1c1c22), 0.62, 1.93, 0.05);
-  box(g, 0.04, 0.04, 0.07, mat(0xffa726), 0.62, 1.92, 0.12);
+  // Straw hat: wider floppy brim (two tones) + crown + hat band.
+  box(g, 0.74, 0.05, 0.68, straw, 0, 2.23, 0);                        // broad brim
+  const brimTip = box(g, 0.3, 0.05, 0.2, mat(0xcaa84e), 0, 2.21, 0.36);
+  brimTip.rotation.x = -0.2;                                          // drooping front brim
+  box(g, 0.34, 0.2, 0.32, straw, 0, 2.36, 0);                         // crown
+  box(g, 0.36, 0.06, 0.34, mat(0x8a6d2e), 0, 2.3, 0);                 // hat band
+  // A cheeky crow perched on the arm, now with a second tail feather.
+  box(g, 0.14, 0.13, 0.2, mat(0x1c1c22), 0.62, 1.82, -0.05);          // body
+  box(g, 0.1, 0.1, 0.09, mat(0x1c1c22), 0.62, 1.93, 0.05);           // head
+  box(g, 0.04, 0.04, 0.07, mat(0xffa726), 0.62, 1.92, 0.12);         // beak
   const crowTail = box(g, 0.05, 0.04, 0.12, mat(0x1c1c22), 0.62, 1.86, -0.18);
-  crowTail.rotation.x = -0.4;
+  crowTail.rotation.x = -0.4;                                         // tail feather 1
+  const crowTail2 = box(g, 0.05, 0.04, 0.1, mat(0x2b2b33), 0.66, 1.84, -0.17);
+  crowTail2.rotation.set(-0.4, 0.3, 0);                               // tail feather 2
   return g;
 }
 
@@ -1453,6 +1566,12 @@ export function createTractor() {
   column.rotation.x = 0.5;
   const wheelRim = add(g, torusGeo(0.17, 0.035, 5, 10), mat(0x263238, true), 0, 1.62, -0.28);
   wheelRim.rotation.x = 0.5 + Math.PI / 2;
+  // Roll-over protection bar (ROPS) behind the seat.
+  for (const s of [-1, 1]) box(g, 0.08, 1.0, 0.08, dark, s * 0.32, 2.05, -1.06);
+  box(g, 0.72, 0.08, 0.08, dark, 0, 2.5, -1.06);                      // roll-bar top
+  // Pedals on the floor in front of the seat.
+  box(g, 0.12, 0.04, 0.12, mat(0x55606a), -0.16, 1.06, -0.28);
+  box(g, 0.12, 0.04, 0.12, mat(0x55606a), 0.16, 1.06, -0.28);
   // Rear fenders arched over the big wheels.
   for (const s of [-1, 1]) {
     box(g, 0.3, 0.12, 1.15, green, s * 0.78, 1.52, -0.62);
@@ -1509,81 +1628,113 @@ export function createHayBale() {
 }
 
 /* ------------------------------------------------------------------ *
- *  createFenceSection — posts every ~2 + two rails, height ~1.1.
- *  Runs along +X from the origin (x in [0, length]).
- *  Posts get beveled caps; the top rail sags a touch; knot dots.
+ *  createFenceSection — posts + three rails, height ~1.1. Runs along +X
+ *  from the origin (x in [0, length]). TILES SEAMLESSLY: a post sits at
+ *  local x=0 (start) but NOT at x=length, so a section at offset X and
+ *  the next at X+length share the boundary post position with no double
+ *  post and no gap. Rails span the FULL length (0 → length) so there is
+ *  no hole. e.g. length=8 → posts at world x 0,2,4,6 then next section
+ *  8,10,12,14: clean spacing of 2 across the seam, no overlap.
  * ------------------------------------------------------------------ */
 
 export function createFenceSection(length = 8) {
   const g = new THREE.Group();
   const postM = mat(COLORS.woodDark);
   const railM = mat(COLORS.wood);
-  const xs = [];
-  for (let x = 0; x < length - 0.01; x += 2) xs.push(x);
-  xs.push(length);
-  for (const x of xs) {
+
+  // Even spacing that divides length so the gap from the last interior
+  // post to the next section's start post equals the interior spacing.
+  const bays = Math.max(1, Math.round(length / 2));
+  const spacing = length / bays;
+  // Posts at x = 0, spacing, 2*spacing, ... up to (but NOT including) length.
+  for (let i = 0; i < bays; i++) {
+    const x = i * spacing;
     box(g, 0.18, 1.1, 0.18, postM, x, 0.55, 0);
     box(g, 0.24, 0.09, 0.24, postM, x, 1.14, 0);                      // beveled cap
   }
-  // Top rail sits true; middle rail sags a touch (lower + rotated).
-  box(g, length, 0.13, 0.08, railM, length / 2, 0.92, 0.1);
-  const mid = box(g, length, 0.12, 0.08, railM, length / 2, 0.48, 0.1);
-  mid.rotation.z = 0.018;
-  mid.rotation.y = 0.012;
-  // A couple of knot dots on the rails.
-  box(g, 0.05, 0.07, 0.04, postM, length * 0.3, 0.93, 0.15);
-  box(g, 0.05, 0.06, 0.04, postM, length * 0.72, 0.49, 0.15);
+
+  // Three rails spanning the FULL length (centered, so they reach x=length).
+  box(g, length, 0.13, 0.08, railM, length / 2, 0.95, 0.1);          // top rail
+  box(g, length, 0.12, 0.08, railM, length / 2, 0.62, 0.1);          // mid rail
+  const low = box(g, length, 0.12, 0.08, railM, length / 2, 0.3, 0.1);
+  low.rotation.z = 0.012;                                            // faint sag
+  // A couple of knot dots on the rails for grain.
+  box(g, 0.05, 0.07, 0.04, postM, length * 0.3, 0.96, 0.15);
+  box(g, 0.05, 0.06, 0.04, postM, length * 0.72, 0.63, 0.15);
   return g;
 }
 
 /* ------------------------------------------------------------------ *
- *  createBridge — arched plank deck (plank-by-plank with tiny jitter),
- *  side rails with posts, visible support beams + cross beams under.
- *  Runs along +X, centered on the origin (x in [-length/2, length/2]).
+ *  createBridge — COMPLETE flat-deck crossing. Deck spans local x in
+ *  [0, length], centered on z, base near y=0 (world places it bank to
+ *  bank). A continuous solid deck base + overlapping planks (no holes),
+ *  ramp lips at BOTH ends, full-length railings (top rail + posts + kick
+ *  rail) on BOTH sides, and trestle pylons descending to y≈-2.5 at 4
+ *  points so it visibly stands in the river.
  * ------------------------------------------------------------------ */
 
 export function createBridge(length = 14, width = 4) {
   const g = new THREE.Group();
-  const arch = Math.min(0.6, Math.max(0.15, length * 0.045));
-  const deckY = (x) => 0.22 + arch * (1 - Math.pow((2 * x) / length, 2));
-  const slopeAt = (x) => Math.atan((-8 * arch * x) / (length * length));
-  const jr = makeRng(91);                                              // deterministic jitter
+  const deckY = 0.5;                       // flat deck top surface height
+  const hw = width / 2;
+  const woodD = mat(COLORS.woodDark);
+  const beam = mat(0x4a3327);
+  const jr = makeRng(91);                  // deterministic plank jitter
 
-  // Deck planks (two alternating wood tones), following the arch.
-  const n = Math.max(6, Math.round(length / 0.6));
+  // --- Continuous solid deck base (guarantees NO see-through holes). ---
+  box(g, length, 0.18, width, beam, length / 2, deckY - 0.09, 0);
+
+  // --- Overlapping cross-planks laid edge to edge over the base. Each
+  //     plank is wider than its step so they always visually overlap. ---
+  const n = Math.max(8, Math.round(length / 0.62));
   const step = length / n;
   for (let i = 0; i < n; i++) {
-    const x = -length / 2 + (i + 0.5) * step;
-    const plank = box(g, step * 0.94, 0.14, width, i % 2 ? mat(0x99756a) : mat(COLORS.wood),
-      x, deckY(x) + (jr() - 0.5) * 0.025, 0);
-    plank.rotation.z = slopeAt(x);
-    plank.rotation.y = (jr() - 0.5) * 0.03;                            // hand-laid look
+    const x = (i + 0.5) * step;
+    const plank = box(g, step + 0.06, 0.12, width - 0.08,
+      i % 2 ? mat(0x99756a) : mat(COLORS.wood),
+      x, deckY + 0.02 + (jr() - 0.5) * 0.02, 0);
+    plank.rotation.z = (jr() - 0.5) * 0.012;        // faint hand-laid jitter
   }
-  // Long support beams, cross beams and corner footing posts underneath.
+
+  // --- Ramp lips at BOTH ends so the deck meets the banks flush. ---
+  for (const ex of [0, length]) {
+    const dir = ex === 0 ? 1 : -1;                  // ramp slopes down to bank
+    const lip = box(g, 1.1, 0.16, width, mat(COLORS.wood),
+      ex + dir * 0.45, deckY - 0.12, 0);
+    lip.rotation.z = dir * 0.22;
+  }
+
+  // --- Side stringer beams running the full length under the deck. ---
   for (const s of [-1, 1]) {
-    box(g, length * 0.94, 0.18, 0.24, mat(COLORS.woodDark), 0, 0.12, s * (width / 2 - 0.3));
-    for (const e of [-1, 1]) {
-      box(g, 0.22, 0.5, 0.22, mat(COLORS.woodDark), e * (length / 2 - 0.25), 0.25, s * (width / 2 - 0.25));
+    box(g, length, 0.26, 0.26, woodD, length / 2, deckY - 0.24, s * (hw - 0.22));
+  }
+
+  // --- Trestle pylons at 4 stations descending well below the deck. ---
+  const stations = [length * 0.12, length * 0.38, length * 0.62, length * 0.88];
+  for (const px of stations) {
+    for (const s of [-1, 1]) {
+      const sx = s * (hw - 0.3);
+      box(g, 0.28, 3.0, 0.28, woodD, px, deckY - 0.18 - 1.5, sx);   // post to y≈-2.5
     }
+    // Cross brace tying the two posts together below the deck.
+    box(g, 0.2, 0.2, width - 0.4, woodD, px, deckY - 1.6, 0);
+    // Diagonal kicker for that built look.
+    const kick = box(g, 0.18, 1.8, 0.18, beam, px, deckY - 1.0, 0);
+    kick.rotation.x = 0.5;
   }
-  for (const fx of [-0.28, 0, 0.28]) {                                 // cross beams
-    box(g, 0.26, 0.16, width - 0.4, mat(COLORS.woodDark), fx * length, 0.14, 0);
-  }
-  // Side railings: posts + rail segments that follow the arch.
-  const nSeg = Math.max(2, Math.round(length / 1.8));
-  const segW = length / nSeg;
+
+  // --- Full-length railings on BOTH sides: top rail + kick rail + posts. ---
+  const railY = deckY + 0.78;
+  const kickY = deckY + 0.32;
   for (const s of [-1, 1]) {
-    const rz = s * (width / 2 - 0.1);
-    for (let i = 0; i <= nSeg; i++) {
-      const x = -length / 2 + i * segW;
-      box(g, 0.13, 0.85, 0.13, mat(COLORS.woodDark), x, deckY(x) + 0.42, rz);
-    }
-    for (let i = 0; i < nSeg; i++) {
-      const xm = -length / 2 + (i + 0.5) * segW;
-      const rail = box(g, segW, 0.11, 0.11, mat(COLORS.wood), xm, deckY(xm) + 0.84, rz);
-      rail.rotation.z = slopeAt(xm);
+    const rz = s * (hw - 0.12);
+    box(g, length, 0.1, 0.1, mat(COLORS.wood), length / 2, railY, rz);   // top rail
+    box(g, length, 0.08, 0.08, woodD, length / 2, kickY, rz);            // kick rail
+    for (let x = 0; x <= length + 0.01; x += 2) {                        // posts every 2
+      box(g, 0.14, 0.95, 0.14, woodD, Math.min(x, length), deckY + 0.42, rz);
     }
   }
+
   return g;
 }
 
@@ -1613,26 +1764,30 @@ export function createCoop() {
   for (const s of [-1, 1]) {
     box(g, 0.14, 1.5, 0.14, trim, s * 1.46, 1.15, 1.05);
   }
-  // ROUND pophole door: white ring + dark hole.
-  const ringFrame = add(g, cylZGeo(0.42, 0.1, 10), trim, -0.6, 1.0, 1.1);
-  ringFrame.castShadow = false;
-  add(g, cylZGeo(0.32, 0.12, 10), mat(0x3a2a22), -0.6, 1.0, 1.12);
+  // SQUARE pophole door: white frame + dark opening + a little threshold.
+  box(g, 0.62, 0.74, 0.08, trim, -0.6, 0.85, 1.1);                    // frame
+  box(g, 0.44, 0.58, 0.08, mat(0x3a2a22), -0.6, 0.85, 1.13);          // dark opening
+  box(g, 0.5, 0.06, 0.14, trim, -0.6, 0.52, 1.13);                    // threshold/sill
   // Tiny ventilation window (slatted) high on the front.
   box(g, 0.5, 0.4, 0.1, trim, 0.75, 1.55, 1.1);
   box(g, 0.36, 0.07, 0.12, mat(0x3a2a22), 0.75, 1.64, 1.12);
   box(g, 0.36, 0.07, 0.12, mat(0x3a2a22), 0.75, 1.52, 1.12);
   box(g, 0.36, 0.07, 0.12, mat(0x3a2a22), 0.75, 1.4, 1.12);
-  // Ramp with cleats (its own group so the cleats tilt with the board).
-  const ramp = pivot(g, -0.6, 0.55, 1.12);
-  ramp.rotation.x = 0.42;
-  box(ramp, 0.55, 0.07, 1.5, mat(COLORS.wood), 0, 0, 0.7);
-  for (const z of [0.35, 0.75, 1.15]) {
-    box(ramp, 0.55, 0.06, 0.09, mat(COLORS.woodDark), 0, 0.05, z);
+  // Ramp with cleats: starts at the pophole sill (y≈0.55, z=1.13) and
+  // runs down to meet the GROUND (y=0). Drop 0.55 over a 1.5 board with
+  // rotation.x=0.38 → board far end y = 0.55 - 1.5*sin(0.38) ≈ 0.0.
+  const ramp = pivot(g, -0.6, 0.55, 1.13);
+  ramp.rotation.x = 0.38;
+  box(ramp, 0.55, 0.07, 1.5, mat(COLORS.wood), 0, 0, 0.78);
+  for (const z of [0.4, 0.82, 1.24]) {
+    box(ramp, 0.55, 0.06, 0.09, mat(COLORS.woodDark), 0, 0.06, z);
   }
-  // Side nesting-box bump with a slanted lid.
-  box(g, 0.6, 0.65, 0.9, red, 1.65, 1.1, -0.3);
-  const lid = box(g, 0.75, 0.08, 1.0, trim, 1.68, 1.48, -0.3);
-  lid.rotation.z = -0.18;
+  for (const s of [-1, 1]) box(ramp, 0.05, 0.1, 1.5, mat(COLORS.woodDark), s * 0.27, 0.02, 0.78); // ramp edge rails
+  // Side nesting-box bump, flush against the -X wall (wall face at x=-1.5).
+  box(g, 0.7, 0.7, 1.0, red, -1.83, 1.05, -0.3);                      // box (inner edge at x=-1.48)
+  const lid = box(g, 0.85, 0.08, 1.12, trim, -1.86, 1.45, -0.3);     // slanted lid
+  lid.rotation.z = 0.2;
+  box(g, 0.72, 0.34, 0.05, mat(0x3a2a22), -2.19, 1.0, -0.3);         // egg-access flap
   return g;
 }
 
@@ -1744,7 +1899,12 @@ export function createLanternPost() {
   const g = new THREE.Group();
   const dark = mat(0x3b3b42);
   box(g, 0.44, 0.22, 0.44, mat(COLORS.stone, false, 'stone'), 0, 0.11, 0);
+  box(g, 0.18, 0.12, 0.18, mat(0x2c2c33), 0, 0.28, 0);                // base collar
   box(g, 0.16, 2.7, 0.16, mat(COLORS.woodDark), 0, 1.45, 0);
+  // Decorative cross-bar near the top + a finial cap on the post.
+  box(g, 0.6, 0.07, 0.07, dark, 0, 2.62, 0);                          // cross-bar
+  box(g, 0.12, 0.1, 0.12, dark, 0, 2.88, 0);                          // post finial base
+  add(g, coneGeo(0.1, 0.16, 6), dark, 0, 3.02, 0);                    // finial spike
   // Curved bracket arm: three segments easing over, plus a scroll brace.
   box(g, 0.3, 0.09, 0.09, mat(COLORS.woodDark), 0.13, 2.74, 0);
   const seg2 = box(g, 0.26, 0.08, 0.08, mat(COLORS.woodDark), 0.36, 2.7, 0);
@@ -1785,9 +1945,11 @@ export function createMailbox() {
   box(g, 0.3, 0.2, 0.05, mat(0x32599e), 0, 1.12, 0.31);               // door
   box(g, 0.08, 0.04, 0.04, mat(0xd9d9d9), 0, 1.05, 0.34);             // latch
   box(g, 0.07, 0.07, 0.03, mat(0xf5f5f0), 0.12, 1.16, 0.315);         // number plate
-  // Flag up!
-  box(g, 0.03, 0.3, 0.04, mat(0xe53935), 0.2, 1.36, -0.12);
-  box(g, 0.03, 0.1, 0.16, mat(0xe53935), 0.2, 1.48, -0.05);
+  box(g, 0.36, 0.04, 0.62, mat(0x32599e), 0, 1.0, 0);                 // seam line under lid
+  // Flag UP, on a little pivot mount bolted to the box side.
+  box(g, 0.05, 0.07, 0.07, mat(0xd9d9d9), 0.19, 1.18, -0.1);          // flag pivot mount
+  box(g, 0.03, 0.32, 0.04, mat(0xe53935), 0.21, 1.36, -0.1);          // flag pole
+  box(g, 0.03, 0.13, 0.16, mat(0xe53935), 0.21, 1.49, -0.02);         // flag
   return g;
 }
 
@@ -1814,7 +1976,9 @@ export function createCar() {
     box(g, 0.12, 0.42, 1.7, paint, s * 0.84, 1.22, -1.1);
     box(g, 0.16, 0.08, 1.78, paintD, s * 0.84, 1.46, -1.1);           // rail top bar
   }
-  box(g, 1.8, 0.42, 0.12, paint, 0, 1.22, -1.94);
+  box(g, 1.8, 0.42, 0.12, paint, 0, 1.22, -1.94);                    // tailgate
+  box(g, 1.7, 0.05, 0.06, paintD, 0, 1.32, -2.0);                    // tailgate seam line
+  box(g, 0.18, 0.05, 0.05, gray, 0, 1.12, -2.01);                    // tailgate latch
   box(g, 1.3, 0.32, 1.2, mat(COLORS.straw), 0, 1.18, -1.1);
   // Grille, ROUND headlights, taillights, bumpers, plate, mirrors, exhaust.
   box(g, 1.5, 0.3, 0.1, mat(0x78909c, false, 'metal'), 0, 0.78, 2.02);

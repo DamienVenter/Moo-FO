@@ -72,6 +72,7 @@ let comboTimer = 0;
 
 let shake = 0;
 let endDelay = 0;
+let dangerLevel = -1;        // last music chase-layer bucket pushed to audio
 
 const HS_KEY = 'moofo-highscore';
 const getHighscore = () => Number(localStorage.getItem(HS_KEY) || 0);
@@ -170,6 +171,7 @@ const hud = new HUD(world);
 async function startGame() {
   await audio.init();
   audio.play('start', { volume: 0.9 });
+  audio.playMusic('music_title', { fade: 0.4 });   // theme rides the hyperspace exit
   await ui.hideStart();
   beginRound();
 }
@@ -178,6 +180,9 @@ async function beginRound() {
   resetRound();
   hud.show();
   hud.update({ score, timeLeft, health: ufo.health, combo: 0, warpEnergy: ufo.warpEnergy, cows: 0 });
+  audio.playMusic('music_play', { fade: 1.0 });     // crossfade theme → gameplay groove
+  audio.setMusicIntensity(0, { fade: 0.2 });
+  dangerLevel = -1;
   state = State.COUNTDOWN;
   await ui.countdown();
   state = State.PLAYING;
@@ -189,6 +194,8 @@ function togglePause() {
     state = State.PAUSED;
     ufo.forceStopBeam();
     audio.play('click', { volume: 0.6 });
+    audio.setMusicIntensity(0, { fade: 0.3 });   // drop the tension layer while paused
+    dangerLevel = -1;
     ui.showPause(audio.muted);
     controls.setTouchVisible(false);
   } else if (state === State.PAUSED) {
@@ -205,6 +212,9 @@ function quitToMenu() {
   hud.hide();
   controls.setTouchVisible(false);
   ufo.forceStopBeam();
+  audio.playMusic('music_title', { fade: 0.8 });   // back to the theme on the menu
+  audio.setMusicIntensity(0, { fade: 0.3 });
+  dangerLevel = -1;
   state = State.MENU;
   resetRound();
   ui.showStart(getHighscore());
@@ -213,6 +223,9 @@ function quitToMenu() {
 function finishRound(won) {
   hud.hide();
   controls.setTouchVisible(false);
+  audio.playMusic('music_title', { fade: 0.6 });   // theme returns under the results
+  audio.setMusicIntensity(0, { fade: 0.3 });
+  dangerLevel = -1;
   const best = getHighscore();
   const isNewBest = score > best;
   if (isNewBest) setHighscore(score);
@@ -262,18 +275,20 @@ function updateCamera(dt) {
     return;
   }
 
-  // manual orbit input
+  // manual orbit input. Keyboard (Q/E) and controller right-stick go through
+  // controls.orbit unchanged; the mouse-drag term is inverted (and only it)
+  // so dragging right swings the camera right — per the player's request.
   orbitOffset += controls.orbit * CFG.CAM_ORBIT_SPEED * dt;
-  orbitOffset += controls.consumeDragDelta() * 0.006;
+  orbitOffset += controls.consumeDragDelta() * -CFG.CAM_DRAG_GAIN;
   orbitOffset = wrapAngle(orbitOffset);
   const speed = Math.hypot(ufo.velocity.x, ufo.velocity.z);
   if (controls.orbit === 0 && speed > 6) {
-    orbitOffset *= Math.exp(-dt * 0.9);   // drift back behind the ship while flying
+    orbitOffset *= Math.exp(-dt * 0.7);   // drift back behind the ship while flying
   }
 
   // chase: settle behind the flight heading (+ the player's offset)
   const targetYaw = ufo.heading + orbitOffset;
-  camYaw += wrapAngle(targetYaw - camYaw) * Math.min(1, dt * 2.4);
+  camYaw += wrapAngle(targetYaw - camYaw) * Math.min(1, dt * CFG.CAM_FOLLOW);
 
   const fx = Math.sin(camYaw);
   const fz = Math.cos(camYaw);
@@ -352,6 +367,15 @@ function frame() {
     if (comboTimer > 0) {
       comboTimer -= dt;
       if (comboTimer <= 0) comboCount = 0;
+    }
+
+    // Music tension layer follows how many farmers are after you.
+    let aggro = 0;
+    for (const f of farmers.farmers) if (f.state === 'shoot' || f.state === 'chase') aggro++;
+    const lvl = aggro >= 2 ? 1 : aggro === 1 ? 0.55 : 0;
+    if (lvl !== dangerLevel) {
+      dangerLevel = lvl;
+      audio.setMusicIntensity(lvl);
     }
 
     timeLeft -= dt;

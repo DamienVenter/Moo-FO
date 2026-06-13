@@ -337,7 +337,7 @@ export class UFO {
     }
 
     // ---- banking: roll + pitch into velocity, clamped & smoothed ----
-    const tiltK = 0.34 + (this.warping ? 0.1 : 0);
+    const tiltK = 0.24 + (this.warping ? 0.08 : 0);
     const targetRoll = THREE.MathUtils.clamp(-this.velocity.x / CFG.UFO_SPEED, -1.1, 1.1) * tiltK;
     const targetPitch = THREE.MathUtils.clamp(this.velocity.z / CFG.UFO_SPEED, -1.1, 1.1) * tiltK;
     const tk = Math.min(1, dt * 7);

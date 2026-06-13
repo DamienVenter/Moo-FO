@@ -35,13 +35,30 @@ function fbm(x, z) {
   );
 }
 
-// same river the world builds — terrain carves its valley
+// same river the world builds — terrain carves its valley.
+// riverW is the bank-to-bank WATER width; the channel bed sits below WATER.
 export function riverX(z) {
   return -120 + 60 * Math.sin(z * 0.005 + 0.5) + 30 * Math.sin(z * 0.0021 - 0.4);
 }
 export function riverW(z) {
-  return 12 + 3 * Math.sin(z * 0.011 + 2.0);
+  return 22 + 5 * Math.sin(z * 0.011 + 2.0);
 }
+
+const RIVER_BED = -1.8;   // channel floor, well below WATER_LEVEL
+const RIVER_BANK = 7;     // horizontal run for the bank to rise to base ground
+
+// Gentle interior hills — rounded bumps in the middle of the playable map
+// (NOT the big edge mountains). Added on top of the base before the flats are
+// applied, so building/pasture zones still get flattened over them.
+const HILLS = [
+  { x: 120, z: -165, r: 52, h: 12 },
+  { x: -78, z: -150, r: 46, h: 10 },
+  { x: 135, z: 232, r: 48, h: 11 },
+  { x: -150, z: 70, r: 50, h: 12 },
+  { x: 250, z: -95, r: 44, h: 9 },
+  { x: -40, z: 250, r: 40, h: 8 },
+  { x: 300, z: 250, r: 46, h: 10 },
+];
 
 // Flat plateaus (farm compound, crop fields, pastures, meadows). Each blends
 // the terrain toward `y` inside radius r, with a soft skirt.
@@ -81,6 +98,16 @@ export function terrainHeight(x, z) {
     h += t * t * 52 * ridge;
   }
 
+  // gentle interior hills (rounded cosine bumps, with a little noise texture)
+  for (let i = 0; i < HILLS.length; i++) {
+    const hl = HILLS[i];
+    const d = Math.hypot(x - hl.x, z - hl.z);
+    if (d < hl.r) {
+      const t = 0.5 + 0.5 * Math.cos((d / hl.r) * Math.PI); // 1 at center → 0 at rim
+      h += hl.h * t * t * (0.85 + fbm(x * 0.05 + 60, z * 0.05 + 60) * 0.3);
+    }
+  }
+
   // flatten plateaus
   for (let i = 0; i < FLATS.length; i++) {
     const f = FLATS[i];
@@ -91,14 +118,15 @@ export function terrainHeight(x, z) {
     }
   }
 
-  // river valley: pull terrain down toward the channel
+  // River valley: a flat bed below water out to the bank-to-bank half-width,
+  // then banks rising over RIVER_BANK units. Water (built in world.js at the
+  // same half-width) fills the channel edge-to-edge — no exposed dry trench.
   const rx = riverX(z);
-  const rw = riverW(z);
+  const half = riverW(z) / 2;
   const dr = Math.abs(x - rx);
-  if (dr < rw / 2 + 16) {
-    const t = smooth(clamp01(1 - (dr - rw / 2) / 16)); // 1 in channel
-    const bed = -1.4;
-    h = h + (bed - h) * t;
+  if (dr < half + RIVER_BANK) {
+    const t = dr <= half ? 1 : smooth(clamp01(1 - (dr - half) / RIVER_BANK));
+    h = h + (RIVER_BED - h) * t;
   }
 
   // water basins carve below water level

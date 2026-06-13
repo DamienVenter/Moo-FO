@@ -13,9 +13,7 @@ import { CFG } from './config.js';
 
 const HEALTH_SEGS = 10;
 
-// --- Day-cycle clock ---
-const CLOCK_R = 34;        // px radius of the sun/moon orbit inside the dial
-const CLOCK_STEP = 0.002;  // min phase delta worth touching the DOM for
+// Day-phase tints — forwarded to end-screen backdrops via --mf-phase-glow.
 const CLOCK_TINTS = {
   NIGHT: '#7aa2ff',   // soft blue
   SUNRISE: '#ff9e80', // peachy orange
@@ -35,7 +33,7 @@ export class HUD {
   constructor(world) {
     this._buildDOM();
     this._buildMinimap(world);
-    this._buildClock();
+    this._clockName = null;   // last day-phase name seen (drives end-screen tint)
 
     // Cached previous values — update() only touches DOM on change.
     this._prev = {
@@ -264,14 +262,11 @@ export class HUD {
     ctx.clearRect(0, 0, size, size);
     ctx.drawImage(this._mapStatic, 0, 0, size, size);
 
-    // Critters: white 2px (golden handled after, pulsing gold 3–4px)
-    ctx.fillStyle = '#ffffff';
+    // Keep the minimap uncluttered: show only the objective (golden cow),
+    // the threats (farmers) and the player — not the whole herd.
     let golden = null;
     for (let i = 0; i < cows.length; i++) {
-      const c = cows[i];
-      if (c.kind === 'golden') { golden = c; continue; }
-      const s = c.kind === 'chicken' ? 1.5 : 2;
-      ctx.fillRect(toX(c.x) - s / 2, toY(c.z) - s / 2, s, s);
+      if (cows[i].kind === 'golden') { golden = cows[i]; break; }
     }
 
     if (golden) {
@@ -312,47 +307,16 @@ export class HUD {
   }
 
   /**
-   * Day-cycle clock — called every frame by main.
-   * phase: 0..1 (0 = midnight) · name: 'NIGHT'|'SUNRISE'|'DAY'|'SUNSET' ·
-   * icon: emoji for the current phase. Only touches the DOM when the phase
-   * moved by ≥ CLOCK_STEP (~0.002) or the phase name changed.
+   * Day-cycle clock indicator was removed at the player's request; the cycle
+   * itself still runs. Kept as a no-op so existing call sites stay safe, and
+   * it forwards the live phase tint to end-screen backdrops via --mf-phase-glow.
    */
-  updateClock({ phase, name, icon } = {}) {
-    if (typeof phase !== 'number' || !Number.isFinite(phase)) return;
-    const p = ((phase % 1) + 1) % 1;
-    const q = Math.round(p / CLOCK_STEP);
-    if (q === this._clockQ && name === this._clockName) return;
-    this._clockQ = q;
-
-    if (this._clockName === null) this._clockEl.classList.remove('mf-clock-idle');
-
-    // Sun rises at phase 0.25, peaks at 0.5 (noon), sets at 0.75.
-    // Moon mirrors it: rises 0.75, peaks at 0 (midnight), sets 0.25.
-    // Below-horizon markers slide under the dial edge and are clipped away.
-    this._placeMarker(this._sunEl, (((p - 0.25) % 1) + 1) % 1);
-    this._placeMarker(this._moonEl, (p + 0.25) % 1);
-
+  updateClock({ name } = {}) {
     if (name && name !== this._clockName) {
       this._clockName = name;
-      this._clockNameEl.textContent = name;
-      this._clockIconEl.textContent = icon || '';
-      const tint = CLOCK_TINTS[name] || CLOCK_TINTS.NIGHT;
-      this._clockEl.style.setProperty('--mf-clock-glow', tint);
-      // Shared phase tint — end-screen backdrops (and anything else) read it.
-      document.documentElement.style.setProperty('--mf-phase-glow', tint);
+      document.documentElement.style.setProperty(
+        '--mf-phase-glow', CLOCK_TINTS[name] || CLOCK_TINTS.NIGHT);
     }
-  }
-
-  /**
-   * Place a sun/moon marker on the arc. t is the fraction of a full orbit:
-   * 0 = rising on the left horizon, 0.25 = zenith, 0.5 = setting on the
-   * right, (0.5..1) = below the horizon (clipped by the dial).
-   */
-  _placeMarker(node, t) {
-    const a = t * Math.PI * 2;
-    const x = -Math.cos(a) * CLOCK_R;
-    const y = -Math.sin(a) * CLOCK_R; // negative = up
-    node.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
   }
 
   /** Full-screen red vignette flash on damage. */

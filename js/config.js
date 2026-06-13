@@ -28,7 +28,7 @@ export const CFG = Object.freeze({
   UFO_FRICTION: 4.5,         // velocity damping /s when no input
   WARP_MULT: 2.4,
   BEAM_SLOW: 0.55,           // speed multiplier while beaming
-  UFO_MAX_HEALTH: 50,        // harder: ~6 hits and you're down
+  UFO_MAX_HEALTH: 30,        // harder: ~3 hits and you're down
   HIT_INVULN: 0.4,           // seconds of invulnerability after a hit
   WARP_DRAIN: 1 / 3.0,       // warp energy drained per second (full tank = 3 s)
   WARP_REGEN: 1 / 5.0,       // regen per second while not warping
@@ -36,7 +36,9 @@ export const CFG = Object.freeze({
   // Camera
   CAM_DIST: 27,
   CAM_HEIGHT: 24,
-  CAM_ORBIT_SPEED: 2.6,      // rad/s at full manual-orbit input
+  CAM_ORBIT_SPEED: 1.6,      // rad/s at full manual-orbit input (gentler)
+  CAM_FOLLOW: 1.7,           // chase-yaw follow rate — lower = calmer swing
+  CAM_DRAG_GAIN: 0.0034,     // mouse-drag → orbit radians per px (inverted in main)
 
   // Beam
   BEAM_RADIUS: 4.2,          // capture radius on the ground

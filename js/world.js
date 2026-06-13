@@ -13,6 +13,71 @@ const CELL = 4;
 const GRID_N = (H * 2) / CELL;
 const WATER_Y = WATER_LEVEL + 0.05;
 
+// Tileable ripple texture for moving water — scrolled downstream each frame so
+// the river visibly runs. OPAQUE near-white base (it multiplies the material's
+// blue color) with brighter highlight streaks; alpha stays 1 so the water is
+// never made transparent by the map.
+function makeFlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#cfe6ff';                 // light base → blue survives the multiply
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.strokeStyle = '#ffffff';               // crests
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 6; i++) {
+    const y = i * 11 + 3;
+    ctx.beginPath();
+    for (let x = 0; x <= 64; x += 8) {
+      ctx.lineTo(x, y + Math.sin((x / 64) * Math.PI * 2 + i) * 2.5);
+    }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = '#9cc4ec';               // troughs (slightly darker)
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 5; i++) {
+    const y = i * 13 + 9;
+    ctx.beginPath();
+    ctx.moveTo(8, y); ctx.lineTo(20, y + 4); ctx.lineTo(32, y);
+    ctx.moveTo(40, y); ctx.lineTo(52, y + 4); ctx.lineTo(64, y);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 6);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// A little clump of grass blades (a few thin angled boxes in two greens).
+// Bottom-center origin so it sits on the terrain; instanced across the map.
+function makeGrassTuft() {
+  const g = new THREE.Group();
+  const geo = new THREE.BoxGeometry(0.07, 1, 0.07);
+  geo.translate(0, 0.5, 0);              // grow upward from the base
+  const greens = [
+    new THREE.MeshLambertMaterial({ color: COLORS.grassC }),
+    new THREE.MeshLambertMaterial({ color: COLORS.grassB }),
+  ];
+  const blades = [
+    [0, 0, 0, 0.62, 0.0],
+    [0.12, 0.05, 0.02, 0.5, 0.5],
+    [-0.1, -0.04, 0.05, 0.46, -0.6],
+    [0.03, 0.1, -0.1, 0.54, 0.25],
+    [-0.08, 0.02, -0.06, 0.44, 1.0],
+  ];
+  for (let i = 0; i < blades.length; i++) {
+    const [x, lz, lx, h, lean] = blades[i];
+    const b = new THREE.Mesh(geo, greens[i % 2]);
+    b.scale.set(1, h + Math.random() * 0.35, 1);
+    b.position.set(x, 0, lx);
+    b.rotation.z = lean + (Math.random() - 0.5) * 0.2;
+    b.rotation.x = lz;
+    g.add(b);
+  }
+  return g;
+}
+
 export class World {
   constructor(scene) {
     this.scene = scene;
@@ -31,7 +96,7 @@ export class World {
     this._map = { ponds: [], lake: null, buildings: [], fields: [], bridges: [], fenceRuns: [], dam: null };
     this._anim = {
       windmillBlades: null, tractor: null, waterMats: [], lilies: [],
-      owls: [], bats: [], fireflies: [],
+      owls: [], bats: [],
     };
     this._goldenSpots = [];
     this._bushList = [];
@@ -45,9 +110,51 @@ export class World {
     this._buildPastures();
     this._buildForestRing();
     this._buildScatter();
+    this._buildGrass();
+    this._buildRoadLanterns();
     this._buildTractor();
     this._buildWildlife();
     this._defineSpawns();
+  }
+
+  // Street lanterns lining the road shoulders at a regular spacing, alternating
+  // sides, skipping anything in water / on a blocker / too close to a neighbour.
+  _buildRoadLanterns() {
+    const SPACING = 30;
+    const placed = [];
+    let side = 1;
+    for (const r of this._roads) {
+      const dx = r.x2 - r.x1;
+      const dz = r.z2 - r.z1;
+      const len = Math.hypot(dx, dz);
+      if (len < 20) continue;            // skip short bridge stubs
+      const ux = dx / len;
+      const uz = dz / len;
+      const nx = -uz;                    // road-shoulder normal
+      const nz = ux;
+      const off = r.w / 2 + 1.7;
+      for (let along = SPACING * 0.5; along < len - 4; along += SPACING) {
+        side = -side;
+        const x = r.x1 + ux * along + nx * off * side;
+        const z = r.z1 + uz * along + nz * off * side;
+        if (Math.abs(x) > H - 6 || Math.abs(z) > H - 6) continue;
+        if (this.isWater(x, z)) continue;
+        let ok = true;
+        for (const b of this._blockers) {
+          const rr = b.r + 1.2;
+          if ((x - b.x) ** 2 + (z - b.z) ** 2 < rr * rr) { ok = false; break; }
+        }
+        if (!ok) continue;
+        for (const p of placed) {
+          if ((x - p.x) ** 2 + (z - p.z) ** 2 < 16 * 16) { ok = false; break; }
+        }
+        if (!ok) continue;
+        // face the bracket arm toward the road centerline
+        this._place(M.createLanternPost(), x, z, Math.atan2(-nx * side, -nz * side),
+          { collider: { r: 0.5, h: 3.4 } });
+        placed.push({ x, z });
+      }
+    }
   }
 
   // ------------------------------------------------------------- water
@@ -68,26 +175,39 @@ export class World {
   }
 
   _buildWater() {
-    const waterMat = new THREE.MeshLambertMaterial({ color: COLORS.water, transparent: true, opacity: 0.92 });
+    const flowTex = makeFlowTexture();
+    this._flowTex = flowTex;
+    const waterMat = new THREE.MeshLambertMaterial({
+      color: COLORS.water, transparent: true, opacity: 0.93, map: flowTex,
+      side: THREE.DoubleSide,   // river strip normals face down — light both faces
+    });
     waterMat.emissive = new THREE.Color(COLORS.waterDeep);
     waterMat.emissiveIntensity = 0.25;
     this._anim.waterMats.push(waterMat);
 
+    // River surface: a strip spanning bank-to-bank (riverW) so it fills the
+    // carved channel edge-to-edge. UVs run v along the length for flow scroll.
     const pts = [];
-    for (let z = -H; z <= H; z += 8) pts.push({ x: riverX(z), z, w: riverW(z) });
+    for (let z = -H; z <= H; z += 6) pts.push({ x: riverX(z), z, w: riverW(z) });
     const pos = [];
+    const uv = [];
     const idx = [];
+    let runLen = 0;
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
-      pos.push(p.x - p.w / 2, WATER_Y, p.z, p.x + p.w / 2, WATER_Y, p.z);
+      if (i > 0) runLen += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z);
+      const half = p.w / 2 + 0.5;          // hair of overlap onto the bank toe
+      pos.push(p.x - half, WATER_Y, p.z, p.x + half, WATER_Y, p.z);
+      uv.push(0, runLen / 14, 1, runLen / 14);
       if (i > 0) {
         const a = (i - 1) * 2;
         idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
       }
-      this._stampWaterCircle(p.x, p.z, p.w / 2 + 1, 5);
+      this._stampWaterCircle(p.x, p.z, half + 1, 4);
     }
     const riverGeo = new THREE.BufferGeometry();
     riverGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    riverGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     riverGeo.setIndex(idx);
     riverGeo.computeVertexNormals();
     const river = new THREE.Mesh(riverGeo, waterMat);
@@ -219,13 +339,16 @@ export class World {
     const bridgeZ = [-40, 140, -290];
     for (const bz of bridgeZ) {
       const bx = riverX(bz);
-      const blen = riverW(bz) + 10;
-      const bankY = Math.max(terrainHeight(bx - blen / 2 - 2, bz), terrainHeight(bx + blen / 2 + 2, bz), 0.5);
-      const bridge = M.createBridge(blen, 5);
-      bridge.position.set(bx - blen / 2, bankY - 0.15, bz);
+      const blen = riverW(bz) + 16;     // span the wider water plus a bank seat each side
+      const bankY = Math.max(
+        terrainHeight(bx - blen / 2 - 2, bz),
+        terrainHeight(bx + blen / 2 + 2, bz), 0.6);
+      const bridge = M.createBridge(blen, 6);
+      bridge.position.set(bx - blen / 2, bankY - 0.12, bz);
       this.scene.add(bridge);
       this._map.bridges.push({ x: bx, z: bz, len: blen });
-      this._roads.push({ x1: bx - blen / 2 - 2, z1: bz, x2: bx + blen / 2 + 2, z2: bz, w: 6 });
+      // road meets the deck flush at both banks
+      this._roads.push({ x1: bx - blen / 2 - 1, z1: bz, x2: bx + blen / 2 + 1, z2: bz, w: 6 });
     }
     // east
     this._road(hub.x, hub.z, 200, -10);
@@ -280,6 +403,12 @@ export class World {
       tmp.copy(row % 2 === 0 ? cA : cB);
       const n = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
       if (n - Math.floor(n) > 0.82) tmp.copy(cC);
+
+      // big soft grass patches — lush light-green blotches and worn earthy ones
+      const patch = Math.sin(x * 0.045 + 1.3) * Math.cos(z * 0.05 - 0.7) +
+                    0.6 * Math.sin((x + z) * 0.028);
+      if (patch > 0.7) tmp.lerp(cC, 0.7);
+      else if (patch < -0.95) tmp.lerp(cField, 0.4);
 
       // tilled fields with visible furrow stripes
       for (const f of fields) {
@@ -395,14 +524,6 @@ export class World {
     });
     this._fenceRect(30, 44, 22, 14, [1]);
 
-    // lanterns only where genuinely clear of roads + props
-    const lanternSpots = [[26, -28], [54, -4], [72, -2], [10, -24], [60, -34], [90, -24]];
-    for (const [lx, lz] of lanternSpots) {
-      if (this._isFree(lx, lz, 1)) {
-        this._place(M.createLanternPost(), lx, lz, 0, { collider: { r: 0.5, h: 3.4 } });
-      }
-    }
-
     // vegetable garden block (x 44..76, z -58..-36) — clear of all roads
     const sunflowers = [];
     const pumpkins = [];
@@ -473,33 +594,39 @@ export class World {
   }
 
   // -------------------------------------------------------------- pastures
-  _fenceRect(cx, cz, w, d, gateSides = [0, 2]) {
+  // A closed rectangular fence with ONE gate (default top edge). Each side is
+  // divided into whole sections of an exact per-side length (len / round(len/4))
+  // so corners always meet — no end-gaps, no holes. Sections of equal length
+  // are instanced together; gate sections are skipped and not made solid.
+  _fenceRect(cx, cz, w, d, gateSides = [0]) {
     const SEC = 4;
     const runs = [
-      { x: cx - w / 2, z: cz - d / 2, len: w, rotY: 0 },
-      { x: cx + w / 2, z: cz - d / 2, len: d, rotY: -Math.PI / 2 },
-      { x: cx - w / 2, z: cz + d / 2, len: w, rotY: 0 },
-      { x: cx - w / 2, z: cz - d / 2, len: d, rotY: -Math.PI / 2 },
+      { x: cx - w / 2, z: cz - d / 2, len: w, rotY: 0 },             // top  (+x)
+      { x: cx + w / 2, z: cz - d / 2, len: d, rotY: -Math.PI / 2 },  // right(+z)
+      { x: cx - w / 2, z: cz + d / 2, len: w, rotY: 0 },             // bottom(+x)
+      { x: cx - w / 2, z: cz - d / 2, len: d, rotY: -Math.PI / 2 },  // left (+z)
     ];
-    const placements = [];
+    const byLen = new Map();   // segLen(2dp) -> placements[]
     runs.forEach((run, side) => {
-      const n = Math.floor(run.len / SEC);
-      const gate = gateSides.includes(side) ? Math.floor(n / 2) : -1;
-      for (let i = 0; i < n; i++) {
-        if (i === gate) continue;
-        const along = i * SEC;
-        const sx = run.x + Math.cos(run.rotY) * along;
-        const sz = run.z - Math.sin(run.rotY) * along;
-        placements.push({ x: sx, z: sz, rotY: run.rotY });
-        // record solid segment for critter collision
-        this.fences.push({
-          x1: sx, z1: sz,
-          x2: sx + Math.cos(run.rotY) * SEC,
-          z2: sz - Math.sin(run.rotY) * SEC,
-        });
+      const nSeg = Math.max(1, Math.round(run.len / SEC));
+      const segLen = run.len / nSeg;
+      const key = segLen.toFixed(2);
+      if (!byLen.has(key)) byLen.set(key, []);
+      const list = byLen.get(key);
+      const gate = gateSides.includes(side) ? Math.floor(nSeg / 2) : -1;
+      const ux = Math.cos(run.rotY);
+      const uz = -Math.sin(run.rotY);
+      for (let i = 0; i < nSeg; i++) {
+        const sx = run.x + ux * (i * segLen);
+        const sz = run.z + uz * (i * segLen);
+        if (i === gate) continue;            // leave the gate open
+        list.push({ x: sx, z: sz, rotY: run.rotY });
+        this.fences.push({ x1: sx, z1: sz, x2: sx + ux * segLen, z2: sz + uz * segLen });
       }
     });
-    this._instance(M.createFenceSection(SEC), placements);
+    for (const [key, placements] of byLen) {
+      this._instance(M.createFenceSection(Number(key)), placements);
+    }
     this._map.fenceRuns.push({ x: cx, z: cz, w, d });
   }
 
@@ -643,6 +770,39 @@ export class World {
     this._instance(M.createCattail(), cattails);
   }
 
+  // Scattered grass tufts — loose fill across open grass plus denser clumps,
+  // skipping water, roads, fields, buildings and the rocky high ground.
+  _buildGrass() {
+    const tufts = [];
+    const tryAdd = (x, z) => {
+      if (Math.abs(x) > H - 20 || Math.abs(z) > H - 20) return;
+      if (this.isWater(x, z)) return;
+      if (terrainHeight(x, z) > 15) return;          // bare rock/snow up high
+      if (this._distToRoad(x, z) < 3) return;
+      for (const c of this._clearRects) {
+        if (Math.abs(x - c.x) < c.w / 2 && Math.abs(z - c.z) < c.d / 2) return;
+      }
+      for (const b of this._blockers) {
+        if ((x - b.x) ** 2 + (z - b.z) ** 2 < (b.r + 1) ** 2) return;
+      }
+      tufts.push({ x, z, rotY: Math.random() * Math.PI * 2, s: 0.7 + Math.random() * 0.9 });
+    };
+    // loose fill
+    for (let i = 0; i < 900; i++) {
+      tryAdd((Math.random() * 2 - 1) * (H - 20), (Math.random() * 2 - 1) * (H - 20));
+    }
+    // denser clumps
+    for (let p = 0; p < 40; p++) {
+      const cx = (Math.random() * 2 - 1) * (H - 60);
+      const cz = (Math.random() * 2 - 1) * (H - 60);
+      const n = 6 + ((Math.random() * 8) | 0);
+      for (let i = 0; i < n; i++) {
+        tryAdd(cx + (Math.random() - 0.5) * 12, cz + (Math.random() - 0.5) * 12);
+      }
+    }
+    this._instance(makeGrassTuft(), tufts);
+  }
+
   // ---------------------------------------------------------------- tractor
   _buildTractor() {
     const tractor = M.createTractor();
@@ -686,29 +846,6 @@ export class World {
       }
     }
 
-    // Fireflies along the river meadows — three drifting clusters.
-    const flyMat = new THREE.PointsMaterial({
-      color: 0xc8ff6e, size: 2.6, sizeAttenuation: false, transparent: true,
-      opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
-    });
-    const clusters = [{ x: -60, z: 40 }, { x: -90, z: 120 }, { x: -40, z: -110 }];
-    for (const c of clusters) {
-      const n = 40;
-      const pos = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) {
-        const x = c.x + (Math.random() - 0.5) * 50;
-        const z = c.z + (Math.random() - 0.5) * 50;
-        pos[i * 3] = x;
-        pos[i * 3 + 1] = terrainHeight(x, z) + 0.6 + Math.random() * 2.2;
-        pos[i * 3 + 2] = z;
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      const pts = new THREE.Points(geo, flyMat);
-      this.scene.add(pts);
-      this._anim.fireflies.push({ points: pts, baseY: pts.geometry.attributes.position.array.slice(), phase: Math.random() * 9 });
-    }
-    this._fireflyMat = flyMat;
   }
 
   // ----------------------------------------------------------------- spawns
@@ -769,11 +906,6 @@ export class World {
     ctx.fillRect(sizePx - band, 0, band, sizePx);
     ctx.globalAlpha = 1;
 
-    for (const f of this._map.fields) {
-      ctx.fillStyle = f.color;
-      ctx.fillRect(px(f.x - f.w / 2), py(f.z - f.d / 2), f.w * k, f.d * k);
-    }
-
     ctx.strokeStyle = '#8a7445';
     ctx.lineWidth = Math.max(1, 4 * k);
     for (const r of this._roads) {
@@ -810,12 +942,6 @@ export class World {
       ctx.fillRect(px(b.x - b.len / 2), py(b.z - 3), b.len * k, 6 * k);
     }
 
-    ctx.strokeStyle = 'rgba(230, 220, 180, 0.5)';
-    ctx.lineWidth = 1;
-    for (const f of this._map.fenceRuns) {
-      ctx.strokeRect(px(f.x - f.w / 2), py(f.z - f.d / 2), f.w * k, f.d * k);
-    }
-
     for (const b of this._map.buildings) {
       ctx.fillStyle = b.color || '#8a6d52';
       ctx.fillRect(px(b.x - b.w / 2), py(b.z - b.d / 2), Math.max(2, b.w * k), Math.max(2, b.d * k));
@@ -827,8 +953,15 @@ export class World {
     const a = this._anim;
     if (a.windmillBlades) a.windmillBlades.rotation.z += dt * 1.4;
 
+    // Water glows brighter at night so the river always reads as water, not a
+    // dark gully, while staying natural in daylight.
+    const nightBoost = cycle ? cycle.nightGlow : 0;
     for (const m of a.waterMats) {
-      m.emissiveIntensity = 0.22 + Math.sin(elapsed * 1.3) * 0.08;
+      m.emissiveIntensity = 0.3 + nightBoost * 0.5 + Math.sin(elapsed * 1.3) * 0.07;
+    }
+    if (this._flowTex) {
+      this._flowTex.offset.y = (this._flowTex.offset.y - dt * 0.35) % 1;
+      this._flowTex.offset.x = Math.sin(elapsed * 0.6) * 0.04;
     }
     for (const l of a.lilies) {
       l.mesh.position.y = WATER_Y + 0.06 + Math.sin(elapsed * 1.6 + l.phase) * 0.05;
@@ -915,17 +1048,5 @@ export class World {
       }
     }
 
-    // fireflies fade with the night
-    if (this._fireflyMat) {
-      const glow = cycle ? cycle.nightGlow : 1;
-      this._fireflyMat.opacity = glow * (0.55 + Math.sin(elapsed * 3.1) * 0.3);
-      for (const f of a.fireflies) {
-        const arr = f.points.geometry.attributes.position.array;
-        for (let i = 1; i < arr.length; i += 3) {
-          arr[i] = f.baseY[i] + Math.sin(elapsed * 1.3 + i) * 0.35;
-        }
-        f.points.geometry.attributes.position.needsUpdate = true;
-      }
-    }
   }
 }
