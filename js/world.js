@@ -73,16 +73,32 @@ function makeFallTexture() {
   return tex;
 }
 
+// Grass palettes — different patches of the map grow different-coloured grass.
+const _bladeGeo = (() => { const g = new THREE.BoxGeometry(0.07, 1, 0.07); g.translate(0, 0.5, 0); return g; })();
+const GRASS_PALETTE = [
+  [COLORS.grassC, COLORS.grassB],   // lush
+  [0x9fbf4a, 0x86a83a],             // dry / golden
+  [0x2f7d3a, 0x3c8f48],             // deep forest green
+  [0x57b98a, 0x49a978],             // blue-green
+  [0xa7a83f, 0x8f9a34],             // olive
+];
+const _grassMats = GRASS_PALETTE.map(([a, b]) => [
+  new THREE.MeshLambertMaterial({ color: a }),
+  new THREE.MeshLambertMaterial({ color: b }),
+]);
+// Low-frequency region index → big contiguous patches of one colour.
+function grassRegion(x, z) {
+  const v = Math.sin(x * 0.018 + 1.7) * Math.cos(z * 0.021 - 0.5) + 0.5 * Math.sin((x - z) * 0.013);
+  const n = GRASS_PALETTE.length;
+  return Math.max(0, Math.min(n - 1, Math.floor(((v + 1.6) / 3.2) * n)));
+}
+
 // A little clump of grass blades (a few thin angled boxes in two greens).
 // Bottom-center origin so it sits on the terrain; instanced across the map.
-function makeGrassTuft() {
+function makeGrassTuft(matPair) {
   const g = new THREE.Group();
-  const geo = new THREE.BoxGeometry(0.07, 1, 0.07);
-  geo.translate(0, 0.5, 0);              // grow upward from the base
-  const greens = [
-    new THREE.MeshLambertMaterial({ color: COLORS.grassC }),
-    new THREE.MeshLambertMaterial({ color: COLORS.grassB }),
-  ];
+  const geo = _bladeGeo;
+  const greens = matPair;
   const blades = [
     [0, 0, 0, 0.62, 0.0],
     [0.12, 0.05, 0.02, 0.5, 0.5],
@@ -928,7 +944,7 @@ export class World {
   // Scattered grass tufts — loose fill across open grass plus denser clumps,
   // skipping water, roads, fields, buildings and the rocky high ground.
   _buildGrass() {
-    const tufts = [];
+    const buckets = GRASS_PALETTE.map(() => []);   // one placement list per colour
     const tryAdd = (x, z) => {
       if (Math.abs(x) > H - 20 || Math.abs(z) > H - 20) return;
       if (this.isWater(x, z)) return;
@@ -940,7 +956,7 @@ export class World {
       for (const b of this._blockers) {
         if ((x - b.x) ** 2 + (z - b.z) ** 2 < (b.r + 1) ** 2) return;
       }
-      tufts.push({ x, z, rotY: Math.random() * Math.PI * 2, s: 0.7 + Math.random() * 0.9 });
+      buckets[grassRegion(x, z)].push({ x, z, rotY: Math.random() * Math.PI * 2, s: 0.7 + Math.random() * 0.9 });
     };
     // loose fill
     for (let i = 0; i < 1400; i++) {
@@ -955,7 +971,10 @@ export class World {
         tryAdd(cx + (Math.random() - 0.5) * 12, cz + (Math.random() - 0.5) * 12);
       }
     }
-    this._instance(makeGrassTuft(), tufts);
+    // one instanced batch per colour so different spots grow different grass
+    for (let b = 0; b < buckets.length; b++) {
+      if (buckets[b].length) this._instance(makeGrassTuft(_grassMats[b]), buckets[b]);
+    }
   }
 
   // Clothe the giant mountain: pines + a few oaks on the lower slopes, boulders

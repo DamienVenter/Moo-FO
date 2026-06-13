@@ -47,6 +47,8 @@ export class HUD {
       health: CFG.UFO_MAX_HEALTH,
       warpPct: -1,
       warpFull: null,
+      goalOn: null,
+      goalHit: null,
     };
   }
 
@@ -70,6 +72,18 @@ export class HUD {
 
     // --- Timer (top-center) ---
     this._timerEl = el('div', 'mf-timer', root, '1:30');
+
+    // --- Campaign goal pill (below the timer; hidden in free play) ---
+    this._goalEl = el('div', 'mf-goal mf-hidden', root, '');
+    Object.assign(this._goalEl.style, {
+      position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 52px)',
+      left: '50%', transform: 'translateX(-50%)',
+      font: '700 15px/1 system-ui, sans-serif', letterSpacing: '0.5px',
+      color: '#fff', background: 'rgba(20,16,40,0.55)',
+      border: '2px solid rgba(124,252,154,0.55)', borderRadius: '999px',
+      padding: '5px 12px', whiteSpace: 'nowrap', pointerEvents: 'none',
+      textShadow: '0 1px 2px rgba(0,0,0,0.6)',
+    });
 
     // --- Bars (bottom-left) ---
     const bars = el('div', 'mf-bars', root);
@@ -171,8 +185,28 @@ export class HUD {
   hide() { this.root.classList.add('mf-hidden'); }
 
   /** Called every frame by main — only touches DOM when a value changed. */
-  update({ score, timeLeft, health, combo, warpEnergy, cows } = {}) {
+  update({ score, timeLeft, health, combo, warpEnergy, cows, goal } = {}) {
     const p = this._prev;
+
+    // Campaign goal pill: "🎯 score / target", greener once the goal is hit.
+    if (typeof goal === 'number') {
+      const on = goal > 0;
+      if (on !== p.goalOn) {
+        p.goalOn = on;
+        this._goalEl.classList.toggle('mf-hidden', !on);
+        this._goalEl.style.display = on ? 'block' : 'none';
+      }
+      if (on) {
+        const sc = typeof score === 'number' ? score : 0;
+        this._goalEl.textContent = `🎯 ${sc.toLocaleString('en-US')} / ${goal.toLocaleString('en-US')}`;
+        const hit = sc >= goal;
+        if (hit !== p.goalHit) {
+          p.goalHit = hit;
+          this._goalEl.style.borderColor = hit ? 'rgba(124,252,154,1)' : 'rgba(124,252,154,0.55)';
+          this._goalEl.style.background = hit ? 'rgba(40,120,60,0.7)' : 'rgba(20,16,40,0.55)';
+        }
+      }
+    }
 
     // Score
     if (typeof score === 'number' && score !== p.score) {

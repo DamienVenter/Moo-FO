@@ -1128,8 +1128,8 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
-  margin-bottom: 6px;
+  width: min(1280px, 92vw);
+  margin-bottom: 14px;
 }
 
 .mf-modes-back { flex: 0 0 auto; }
@@ -1141,38 +1141,39 @@ button {
   text-align: center;
 }
 
-/* row of cards (wrap to a vertical stack on narrow screens) */
+/* row of BIG hero tiles filling most of the screen (stack on narrow screens) */
 .mf-mode-grid {
   display: flex;
-  gap: 14px;
-  width: min(760px, 92vw);
+  gap: 20px;
+  width: min(1280px, 92vw);
+  height: min(62vh, 620px);
   justify-content: center;
   align-items: stretch;
 }
 
-/* --- a single mode card --- */
+/* --- a single mode card: large hero tile --- */
 .mf-mode-card {
   position: relative;
   flex: 1 1 0;
   min-width: 0;
-  min-height: 150px;
+  min-height: 300px;
   padding: 0;
   overflow: hidden;
   display: flex;
   align-items: flex-end;
-  border: 3px solid rgba(124, 252, 154, 0.55);
-  border-radius: 18px;
+  border: 4px solid rgba(124, 252, 154, 0.55);
+  border-radius: 24px;
   color: #fff;
   text-align: left;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   box-shadow:
-    0 0 16px rgba(124, 252, 154, 0.22),
-    0 7px 0 rgba(0, 0, 0, 0.35),
-    inset 0 0 18px rgba(0, 0, 0, 0.25);
-  transition: transform 0.14s ease, box-shadow 0.14s ease,
-              border-color 0.14s ease, filter 0.14s ease;
+    0 0 22px rgba(124, 252, 154, 0.24),
+    0 9px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 26px rgba(0, 0, 0, 0.28);
+  transition: transform 0.16s ease, box-shadow 0.16s ease,
+              border-color 0.16s ease, filter 0.16s ease;
 }
 
 /* per-card background images + a tasteful gradient FALLBACK colour behind
@@ -1210,24 +1211,25 @@ button {
 .mf-mode-text {
   position: relative;
   z-index: 1;
-  padding: 14px 16px 16px;
+  width: 100%;
+  padding: 22px 24px 26px;
   pointer-events: none;
 }
 
 .mf-mode-name {
-  font-size: 22px;
+  font-size: clamp(26px, 3.2vw, 44px);
   font-weight: 900;
   letter-spacing: 0.06em;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6), 0 0 14px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6), 0 0 18px rgba(0, 0, 0, 0.5);
 }
 
 .mf-mode-sub {
-  margin-top: 3px;
-  font-size: 13px;
+  margin-top: 6px;
+  font-size: clamp(14px, 1.4vw, 19px);
   font-weight: 700;
   letter-spacing: 0.03em;
-  line-height: 1.3;
-  color: rgba(238, 246, 255, 0.86);
+  line-height: 1.35;
+  color: rgba(238, 246, 255, 0.88);
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
 }
 
@@ -1322,11 +1324,19 @@ button {
   transform: translateX(-50%) translateY(0);
 }
 
-/* stack the cards vertically on narrow / mobile screens */
+/* stack the cards vertically on narrow / mobile screens — still BIG tiles */
 @media (max-width: 700px) {
-  .mf-mode-grid { flex-direction: column; width: min(440px, 92vw); }
-  .mf-mode-card { min-height: 120px; }
-  .mf-modes-title { font-size: 24px; }
+  .mf-mode-grid {
+    flex-direction: column;
+    width: min(560px, 94vw);
+    height: auto;
+    max-height: 74vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .mf-mode-card { min-height: 22vh; flex: 1 1 22vh; }
+  .mf-modes-head { width: min(560px, 94vw); }
+  .mf-modes-title { font-size: 26px; }
 }
 
 /* --- HYPERSPACE EXIT (~900ms total, hideStart() resolves then) ----------
@@ -1775,6 +1785,395 @@ button {
 }
 
 /* ==========================================================================
+   LEVEL SELECT — Mario / Candy-Crush style world map
+   ========================================================================== */
+
+.mf-levelsel {
+  z-index: 72;                /* above the start overlay (70) */
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: calc(10px + var(--sat)) calc(10px + var(--sar))
+           calc(10px + var(--sab)) calc(10px + var(--sal));
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(8, 11, 28, 0.35) 0%, rgba(6, 8, 22, 0.86) 70%),
+    linear-gradient(180deg, #0b1430 0%, #142a1c 100%);
+  overflow: hidden;
+}
+
+.mf-levelsel.mf-anim { animation: mf-ls-fade 0.34s ease-out both; }
+
+/* DAY-CYCLE sky tint — re-points with --mf-phase-glow (set on :root by HUD) */
+.mf-ls-sky {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 0%, var(--mf-phase-glow) 0%, transparent 58%),
+    linear-gradient(180deg, var(--mf-phase-glow) 0%, transparent 46%);
+  opacity: 0.28;
+  mix-blend-mode: screen;
+  transition: background 0.8s ease;
+}
+
+.mf-ls-stars { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.mf-ls-star-a { animation: mf-twinkle 2.8s ease-in-out infinite alternate; }
+.mf-ls-star-b { animation: mf-twinkle 3.9s ease-in-out 1s infinite alternate; }
+
+.mf-ls-cloud {
+  position: absolute;
+  top: calc(8% + var(--i) * 16%);
+  left: -22%;
+  width: 160px;
+  height: 46px;
+  border-radius: 40px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    34px 8px 0 -6px rgba(255, 255, 255, 0.14),
+    -30px 10px 0 -8px rgba(255, 255, 255, 0.12);
+  filter: blur(0.5px);
+  pointer-events: none;
+  animation: mf-ls-cloud 38s linear infinite;
+  animation-delay: calc(var(--i) * -12s);
+}
+.mf-ls-cloud-1 { transform: scale(0.8); opacity: 0.8; }
+.mf-ls-cloud-2 { transform: scale(1.25); opacity: 0.6; }
+
+.mf-ls-head {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.mf-ls-back { flex: 0 0 auto; }
+.mf-ls-headspacer { flex: 0 0 auto; width: 86px; }  /* mirrors back btn → centred title */
+
+.mf-ls-title {
+  flex: 1;
+  margin: 0;
+  font-size: clamp(28px, 6vw, 44px);
+  text-align: center;
+  color: var(--mf-gold);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5), 0 0 22px rgba(255, 213, 79, 0.5);
+}
+
+/* scrollable viewport for the tall map */
+.mf-ls-scroll {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px 0 calc(20px + var(--sab));
+  scrollbar-width: thin;
+}
+
+.mf-ls-map {
+  position: relative;
+  width: min(560px, 94vw);
+  margin: 0 auto;
+  /* height locked to the SVG aspect ratio so % node coords map cleanly */
+  aspect-ratio: var(--mf-ls-ratio, 100 / 1200);
+}
+
+.mf-ls-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* the winding trail */
+.mf-ls-trail-shadow {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.mf-ls-trail {
+  fill: none;
+  stroke: rgba(255, 213, 79, 0.85);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 1 7;
+  filter: drop-shadow(0 0 4px rgba(255, 213, 79, 0.6));
+}
+
+/* doodads (scaled in viewBox units) */
+.mf-ls-trunk { fill: #6e4a2c; }
+.mf-ls-leaf  { fill: #3fae5e; }
+.mf-ls-post  { fill: rgba(120, 86, 54, 0.9); }
+.mf-ls-doodad { opacity: 0.85; }
+
+/* START / FINISH flag chips */
+.mf-ls-flag {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  padding: 4px 12px;
+  border: 2px solid;
+  border-radius: 999px;
+  background: rgba(10, 14, 34, 0.85);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+.mf-ls-flag-start  { border-color: var(--mf-green); color: var(--mf-green); box-shadow: 0 0 14px rgba(124, 252, 154, 0.4); }
+.mf-ls-flag-finish { border-color: var(--mf-gold);  color: var(--mf-gold);  box-shadow: 0 0 16px rgba(255, 213, 79, 0.5); }
+
+/* --- a level node --- */
+.mf-ls-node {
+  position: absolute;
+  z-index: 3;
+  width: 64px;
+  height: 64px;
+  transform: translate(-50%, -50%);
+  padding: 0;
+  border: 0;
+  background: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mf-ls-node.mf-ls-locked { cursor: not-allowed; }
+
+.mf-ls-node:focus-visible { outline: none; }
+.mf-ls-node:focus-visible .mf-ls-ufo {
+  box-shadow: 0 0 0 4px var(--mf-purple), 0 0 22px rgba(179, 136, 255, 0.7);
+}
+
+/* little UFO icon */
+.mf-ls-ufo {
+  position: relative;
+  width: 54px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #d4dde9 0%, #9aa7b8 55%, #66758a 100%);
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, 0.4),
+    inset 0 -4px 6px rgba(0, 0, 0, 0.3),
+    inset 0 3px 4px rgba(255, 255, 255, 0.55);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+}
+.mf-ls-ufo-dome {
+  position: absolute;
+  left: 50%;
+  top: -13px;
+  transform: translateX(-50%);
+  width: 26px;
+  height: 20px;
+  border-radius: 60% 60% 14% 14% / 100% 100% 10% 10%;
+  background: linear-gradient(180deg, #d2f8ff 0%, #7ce8ff 70%);
+  box-shadow: inset 0 -3px 6px rgba(0, 80, 130, 0.35), 0 0 10px rgba(124, 232, 255, 0.5);
+}
+.mf-ls-ufo-body {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.mf-ls-num {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 17px;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.7), 0 0 8px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* tiny goal pill below the node */
+.mf-ls-goal {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  bottom: -16px;
+  transform: translateX(-50%);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(10, 14, 34, 0.82);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: rgba(238, 246, 255, 0.85);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* completed: green glow + checkmark + stars */
+.mf-ls-done .mf-ls-ufo {
+  filter: saturate(1.1);
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, 0.4),
+    0 0 18px rgba(124, 252, 154, 0.7),
+    inset 0 3px 4px rgba(255, 255, 255, 0.55);
+}
+.mf-ls-check {
+  position: absolute;
+  z-index: 2;
+  right: -4px;
+  top: -10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--mf-green);
+  color: #06321a;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 0 10px rgba(124, 252, 154, 0.8);
+  pointer-events: none;
+}
+.mf-ls-stars {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: -22px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 1px;
+  pointer-events: none;
+}
+.mf-ls-star {
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.22);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+.mf-ls-star-on {
+  color: var(--mf-gold);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6), 0 0 8px rgba(255, 213, 79, 0.85);
+}
+
+/* current (next playable, not yet done): purple highlight + gentle pulse */
+.mf-ls-current .mf-ls-ufo {
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    0 0 22px rgba(179, 136, 255, 0.85),
+    inset 0 3px 4px rgba(255, 255, 255, 0.55);
+  animation: mf-ls-ufo-pulse 1.5s ease-in-out infinite;
+}
+.mf-ls-current::after {
+  content: 'PLAY';
+  position: absolute;
+  left: 50%;
+  bottom: -30px;
+  transform: translateX(-50%);
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #c79bff, #8e5bff);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(60, 0, 120, 0.6);
+  box-shadow: 0 0 14px rgba(179, 136, 255, 0.7);
+  pointer-events: none;
+  animation: mf-ls-pulse 1.5s ease-in-out infinite;
+}
+.mf-ls-current .mf-ls-goal { bottom: -16px; opacity: 0; }  /* PLAY badge takes the slot */
+
+/* open (unlocked, not current, not done): plain bright */
+.mf-ls-open .mf-ls-ufo { filter: brightness(1.05); }
+
+/* hover / active feedback for playable nodes */
+.mf-ls-node:not(.mf-ls-locked):hover .mf-ls-ufo { transform: translateY(-3px) scale(1.06); }
+.mf-ls-node:not(.mf-ls-locked):active .mf-ls-ufo { transform: translateY(1px) scale(0.96); }
+
+/* locked: dimmed + padlock */
+.mf-ls-locked .mf-ls-ufo { filter: saturate(0.25) brightness(0.5); }
+.mf-ls-locked .mf-ls-num { opacity: 0.4; }
+.mf-ls-lock {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 18px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   LEVEL RESULT — campaign round results (shares the .mf-end shell)
+   ========================================================================== */
+
+.mf-lr-panel { width: min(440px, 94vw); }
+
+.mf-lr-eyebrow {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  color: var(--mf-gold);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+}
+
+.mf-lr-title { margin-top: 2px; }
+
+/* three star slots; earned ones pop in on a stagger */
+.mf-lr-stars {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0 6px;
+}
+.mf-lr-star {
+  font-size: 52px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.18);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+.mf-lr-star-on {
+  color: var(--mf-gold);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5), 0 0 22px rgba(255, 213, 79, 0.85);
+  animation: mf-lr-star-pop 0.5s cubic-bezier(0.2, 1.8, 0.4, 1) both;
+  animation-delay: calc(0.25s + var(--i) * 0.22s);
+}
+
+.mf-lr-best { margin: 6px 0 4px; }
+
+.mf-lr-scoreline {
+  margin-top: 8px;
+  font-size: 30px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+.mf-lr-score { color: #fff; }
+.mf-lr-scoreline.mf-lr-hit .mf-lr-score {
+  color: var(--mf-green);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5), 0 0 16px rgba(124, 252, 154, 0.6);
+}
+.mf-lr-sep { opacity: 0.6; }
+.mf-lr-target { color: rgba(238, 246, 255, 0.7); }
+.mf-lr-scorelabel {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-indent: 0.28em;
+  color: rgba(238, 246, 255, 0.55);
+}
+
+.mf-lr-btns { margin-top: 20px; }
+
+/* ==========================================================================
    KEYFRAMES
    ========================================================================== */
 
@@ -1974,6 +2373,37 @@ button {
   50%      { transform: rotate(38deg) scale(1.12); filter: brightness(1.35); }
 }
 
+/* level-select overlay fade + lift in */
+@keyframes mf-ls-fade {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* drifting clouds across the world map */
+@keyframes mf-ls-cloud {
+  from { transform: translateX(0); }
+  to   { transform: translateX(150vw); }
+}
+
+/* current-level PLAY badge gentle pulse (translateX keeps it centred) */
+@keyframes mf-ls-pulse {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50%      { transform: translateX(-50%) scale(1.1); }
+}
+
+/* current-level UFO gentle pulse (no translate — it's grid-centred) */
+@keyframes mf-ls-ufo-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}
+
+/* result-screen star pop-in */
+@keyframes mf-lr-star-pop {
+  0%   { opacity: 0; transform: scale(0) rotate(-40deg); }
+  70%  { opacity: 1; transform: scale(1.3) rotate(8deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+
 /* ==========================================================================
    RESPONSIVE
    ========================================================================== */
@@ -1999,6 +2429,13 @@ button {
   }
   .mf-set-row { gap: 8px; }
   .mf-set-label { font-size: 13px; }
+  /* level select / result tuned for small screens */
+  .mf-ls-map { width: 96vw; }
+  .mf-ls-node { width: 56px; height: 56px; }
+  .mf-ls-ufo { width: 48px; height: 27px; }
+  .mf-ls-headspacer { width: 64px; }
+  .mf-lr-star { font-size: 42px; }
+  .mf-lr-scoreline { font-size: 26px; }
 }
 
 /* short landscape phones: compress the title stack so it always fits */
@@ -2015,10 +2452,11 @@ button {
   .mf-stat-value { font-size: 22px; }
   .mf-medal { transform: scale(0.7); margin: -16px 0; }
   /* keep mode cards side-by-side & shorter so the row fits a short viewport */
-  .mf-mode-grid { flex-direction: row; width: min(760px, 94vw); gap: 10px; }
-  .mf-mode-card { min-height: 96px; }
-  .mf-mode-name { font-size: 17px; }
-  .mf-mode-sub { font-size: 11px; }
+  .mf-mode-grid { flex-direction: row; width: min(1100px, 96vw); height: 70vh; gap: 12px; }
+  .mf-mode-card { min-height: 0; }
+  .mf-mode-name { font-size: clamp(20px, 4.2vh, 30px); }
+  .mf-mode-sub { font-size: clamp(11px, 2vh, 14px); }
+  .mf-modes-head { width: min(1100px, 96vw); margin-bottom: 6px; }
   .mf-modes-title { font-size: 22px; }
 }
 
@@ -2035,5 +2473,10 @@ button {
   .mf-start.mf-anim .mf-btn-start,
   .mf-start.mf-anim .mf-beam-cone,
   .mf-start.mf-anim .mf-beam-rider,
+  .mf-ls-cloud,
+  .mf-ls-current .mf-ls-ufo,
+  .mf-ls-current::after,
+  .mf-ls-star-a,
+  .mf-ls-star-b,
   .mf-timer.mf-warn { animation-iteration-count: 1; }
 }

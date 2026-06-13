@@ -1,0 +1,9 @@
+name = "moofo-scores"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# After `wrangler d1 create moofo`, paste the printed database_id here.
+[[d1_databases]]
+binding = "DB"
+database_name = "moofo"
+database_id = "PASTE_DATABASE_ID_HERE"

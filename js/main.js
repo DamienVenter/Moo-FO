@@ -14,6 +14,8 @@ import { Controls } from './controls.js';
 import { HUD } from './hud.js';
 import { UI } from './ui.js';
 import { AudioManager } from './audio.js';
+import { Campaign } from './campaign.js';
+import { submitScore } from './leaderboard.js';
 
 // ---------------------------------------------------------------------------
 // Renderer / scene / camera
@@ -72,6 +74,13 @@ let comboTimer = 0;
 
 let shake = 0;
 let endDelay = 0;
+
+// Mode / campaign run state
+const campaign = new Campaign();
+let mode = 'free';            // 'free' | 'campaign'
+let level = 0;               // current campaign level index (1..20), 0 in free play
+let target = 0;              // score goal for the current campaign level (0 = none)
+let timeLimit = CFG.GAME_DURATION;
 
 const HS_KEY = 'moofo-highscore';
 const getHighscore = () => Number(localStorage.getItem(HS_KEY) || 0);
@@ -139,7 +148,7 @@ function disposeEntities() {
 function resetRound() {
   score = 0;
   cowsGrabbed = 0;
-  timeLeft = CFG.GAME_DURATION;
+  timeLeft = timeLimit;
   lastTickSecond = -1;
   comboCount = 0;
   comboTimer = 0;
@@ -166,6 +175,18 @@ const ui = new UI({
   onQuitToMenu: quitToMenu,
   onToggleMute: () => { audio.setMuted(!audio.muted); ui.setMuteUI(audio.muted); },
   controls,
+  campaign,
+  onStartLevel: startLevel,
+  onRetryLevel: () => { ui.hideEnd(); beginLevel(level); },
+  onNextLevel: () => { ui.hideEnd(); beginLevel(Math.min(campaign.levels.length, level + 1)); },
+  onLevelSelect: () => {
+    ui.hideEnd();
+    hud.hide();
+    state = State.MENU;
+    mode = 'free'; level = 0; target = 0; timeLimit = CFG.GAME_DURATION;
+    resetRound();
+    ui.showLevelSelect();
+  },
 });
 
 const hud = new HUD(world);
@@ -173,14 +194,32 @@ const hud = new HUD(world);
 async function startGame() {
   await audio.init();
   audio.play('start', { volume: 0.9 });
+  mode = 'free'; level = 0; target = 0; timeLimit = CFG.GAME_DURATION;
   await ui.hideStart();
+  beginRound();
+}
+
+// Campaign: launch a specific level from the level-select screen.
+async function startLevel(i) {
+  await audio.init();
+  audio.play('start', { volume: 0.9 });
+  const L = campaign.levels[i - 1];
+  mode = 'campaign'; level = i; target = L.target; timeLimit = L.time;
+  await ui.hideStart();
+  beginRound();
+}
+
+// Restart a level directly (from the results screen — no title transition).
+function beginLevel(i) {
+  const L = campaign.levels[i - 1];
+  mode = 'campaign'; level = i; target = L.target; timeLimit = L.time;
   beginRound();
 }
 
 async function beginRound() {
   resetRound();
   hud.show();
-  hud.update({ score, timeLeft, health: ufo.health, combo: 0, warpEnergy: ufo.warpEnergy, cows: 0 });
+  hud.update({ score, timeLeft, health: ufo.health, combo: 0, warpEnergy: ufo.warpEnergy, cows: 0, goal: target });
   state = State.COUNTDOWN;
   await ui.countdown();
   state = State.PLAYING;
@@ -211,8 +250,16 @@ function quitToMenu() {
   ufo.forceStopBeam();
   audio.stopLoop('waterfall');
   state = State.MENU;
+  mode = 'free'; level = 0; target = 0; timeLimit = CFG.GAME_DURATION;
   resetRound();
   ui.showStart(getHighscore());
+}
+
+// End-of-run router. Campaign runs go to the level-result screen; free play to
+// the classic win/game-over screens.
+function endRound(crashed) {
+  if (mode === 'campaign') { finishLevel(); return; }
+  finishRound(!crashed);
 }
 
 function finishRound(won) {
@@ -223,6 +270,7 @@ function finishRound(won) {
   const isNewBest = score > best;
   if (isNewBest) setHighscore(score);
   const payload = { score, cows: cowsGrabbed, highscore: Math.max(best, score), isNewBest };
+  submitScore(score, 'free');   // local board now; global once /server is deployed
   if (won) {
     let medal = null;
     if (score >= CFG.MEDALS.gold) medal = 'gold';
@@ -236,6 +284,23 @@ function finishRound(won) {
     ui.showGameOver(payload);
     state = State.GAMEOVER;
   }
+}
+
+function finishLevel() {
+  hud.hide();
+  controls.setTouchVisible(false);
+  audio.stopLoop('waterfall');
+  const won = score >= target;
+  const stars = won ? campaign.starCount(score, target) : 0;
+  const isNewBest = won ? campaign.complete(level, score, stars) : false;
+  if (won) submitScore(score, 'campaign');
+  audio.play(won ? 'win' : 'lose', { volume: 0.9 });
+  ui.showLevelResult({
+    won, index: level, score, target, time: timeLimit,
+    isNewBest, starsEarned: stars,
+    hasNext: won && level < campaign.levels.length,
+  });
+  state = won ? State.WIN : State.GAMEOVER;
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -313,13 +378,12 @@ function updateCamera(dt) {
 
   camPos.set(
     p.x - fx * CFG.CAM_DIST,
-    p.y + CFG.CAM_HEIGHT * 0.72 + (state === State.ESCAPE ? p.y * 0.4 : 0),
+    p.y + CFG.CAM_HEIGHT * 0.82 + (state === State.ESCAPE ? p.y * 0.4 : 0),
     p.z - fz * CFG.CAM_DIST
   );
   camera.position.lerp(camPos, 1 - Math.exp(-dt * 5));
 
-  // Look a touch above the ship so the horizon (and the giant mountain) show.
-  camTarget.lerp(new THREE.Vector3(p.x + fx * 9, p.y + 3, p.z + fz * 9), 1 - Math.exp(-dt * 6));
+  camTarget.lerp(new THREE.Vector3(p.x + fx * 5, p.y - 3, p.z + fz * 5), 1 - Math.exp(-dt * 6));
 
   if (shake > 0.001) {
     shake *= Math.exp(-dt * 6);
@@ -405,7 +469,7 @@ function frame() {
     hud.update({
       score, timeLeft, health: ufo.health,
       combo: comboTimer > 0 ? Math.min(comboCount, CFG.COMBO_MAX) : 0,
-      warpEnergy: ufo.warpEnergy, cows: cowsGrabbed,
+      warpEnergy: ufo.warpEnergy, cows: cowsGrabbed, goal: target,
     });
 
     minimapAcc += dt;
@@ -418,6 +482,25 @@ function frame() {
         farmers: farmers.farmers.map((f) => ({ x: f.group.position.x, z: f.group.position.z })),
       });
     }
+
+    // Campaign: hitting the goal completes the mission instantly — the clock is
+    // cut and the ship is lifted away in triumph (handled by the ESCAPE state).
+    if (mode === 'campaign' && target > 0 && score >= target && state === State.PLAYING) {
+      state = State.ESCAPE;
+      escapeConfettiDone = false;
+      endDelay = 0;
+      ufo.forceStopBeam();
+      controls.setTouchVisible(false);
+      hud.announce('MISSION COMPLETE!', { color: '#7cfc9a' });
+    }
+
+    // Flew into the mountain (or otherwise crashed): you lose.
+    if ((ufo.crashing || ufo.dead) && state === State.PLAYING) {
+      state = State.CRASHING;
+      endDelay = 0;
+      controls.setTouchVisible(false);
+      audio.stopLoop('waterfall');
+    }
   } else if (state === State.MENU) {
     if (cows) cows.update(dt, ufo);
     ufo.update(dt, NO_INPUT);
@@ -426,19 +509,22 @@ function frame() {
     if (cows) cows.update(dt, ufo);   // anything mid-lift falls free
     if (ufo.dead) {
       endDelay += dt;
-      if (endDelay > 1.3) finishRound(false);
+      if (endDelay > 1.3) endRound(true);
     }
   } else if (state === State.ESCAPE) {
     if (cows) cows.update(dt, ufo);   // released critters drop while we leave
     ufo.group.position.y += dt * (14 + ufo.group.position.y * 0.6);
     ufo.group.rotation.y += dt * 6;
-    if (!escapeConfettiDone && ufo.group.position.y > 30) {
+    // Celebrate on a win (free-play time-up, or a completed mission) — not on a
+    // campaign time-up where the goal was missed.
+    const celebrate = mode !== 'campaign' || score >= target;
+    if (celebrate && !escapeConfettiDone && ufo.group.position.y > 30) {
       escapeConfettiDone = true;
       effects.confettiAt(ufo.group.position.clone());
       audio.play('warp', { volume: 0.8, rate: 1.2 });
     }
     endDelay += dt;
-    if (endDelay > 2.2) finishRound(true);
+    if (endDelay > 2.2) endRound(false);
   }
 
   updateWaterfallSound();
@@ -458,6 +544,11 @@ window.__MOOFO = {
   get cows() { return cows; },
   get farmers() { return farmers; },
   get cycle() { return cycle; },
+  get mode() { return mode; },
+  get level() { return level; },
+  get target() { return target; },
+  get campaign() { return campaign; },
+  addScore(n) { score += n; },   // test hook
 };
 
 resetRound();

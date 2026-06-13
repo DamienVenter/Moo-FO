@@ -70,7 +70,13 @@ function starShadows(count, maxX, maxY) {
 }
 
 export class UI {
-  constructor({ onStart, onResume, onRestart, onQuitToMenu, onToggleMute, onSelectMode, controls } = {}) {
+  constructor({
+    onStart, onResume, onRestart, onQuitToMenu, onToggleMute, onSelectMode,
+    controls,
+    // --- campaign additions (all optional / duck-typed) ---
+    campaign,
+    onStartLevel, onRetryLevel, onNextLevel, onLevelSelect,
+  } = {}) {
     this.cb = {
       onStart: onStart || (() => {}),
       onResume: onResume || (() => {}),
@@ -78,15 +84,26 @@ export class UI {
       onQuitToMenu: onQuitToMenu || (() => {}),
       onToggleMute: onToggleMute || (() => {}),
       onSelectMode: onSelectMode || (() => {}),
+      // Campaign callbacks — default to no-ops so the UI never crashes if
+      // the host hasn't wired them up yet.
+      onStartLevel: onStartLevel || (() => {}),
+      onRetryLevel: onRetryLevel || (() => {}),
+      onNextLevel: onNextLevel || (() => {}),
+      onLevelSelect: onLevelSelect || (() => {}),
     };
     // Controls instance (binds / bindLabels / rebind / resetBinds /
     // gamepadConnected). Optional & duck-typed so the UI degrades gracefully
     // if it isn't wired up yet.
     this.controls = controls || null;
+    // Campaign model: { levels:[{index,target,time}], unlockedCount (getter),
+    // isCompleted(i), bestScore(i), starsFor(i) }. Fully optional — every
+    // access is guarded so a missing campaign just yields an empty map.
+    this.campaign = campaign || null;
 
     this._startVisible = false;
     this._pauseVisible = false;
     this._endVisible = false;
+    this._levelSelectVisible = false;
     this._startArmed = false; // guards double-starts
     this._muted = false;
     this._startView = 'title'; // 'title' | 'modes' — start-overlay sub-view
@@ -97,7 +114,50 @@ export class UI {
     this._buildCountdown();
     this._buildPause();
     this._buildEndShell();
+    this._buildLevelSelect();
     this._bindKeys();
+  }
+
+  // ----------------------------------------------------------------------
+  // Campaign model accessors — every one tolerates a missing/partial
+  // campaign object so the level-select & result screens never throw.
+  // ----------------------------------------------------------------------
+
+  _levels() {
+    const c = this.campaign;
+    if (c && Array.isArray(c.levels) && c.levels.length) return c.levels;
+    // Fallback: synthesise 20 placeholder levels so the map still renders.
+    if (!this._fallbackLevels) {
+      this._fallbackLevels = Array.from({ length: 20 }, (_, i) => ({
+        index: i + 1, target: 500 + i * 250, time: 90,
+      }));
+    }
+    return this._fallbackLevels;
+  }
+
+  _unlockedCount() {
+    const c = this.campaign;
+    let n = 1;
+    try { if (c && c.unlockedCount != null) n = c.unlockedCount | 0; }
+    catch (_) { n = 1; }
+    return Math.max(1, n);
+  }
+
+  _isCompleted(i) {
+    try { return !!(this.campaign && this.campaign.isCompleted?.(i)); }
+    catch (_) { return false; }
+  }
+
+  _bestScore(i) {
+    try { return Number(this.campaign?.bestScore?.(i)) || 0; }
+    catch (_) { return 0; }
+  }
+
+  _starsFor(i) {
+    let s = 0;
+    try { s = this.campaign?.starsFor?.(i) | 0; }
+    catch (_) { s = 0; }
+    return Math.max(0, Math.min(3, s));
   }
 
   // ======================================================================
@@ -204,10 +264,12 @@ export class UI {
 
     const grid = el('div', 'mf-mode-grid', view);
 
+    // CAMPAIGN is now playable (opens LEVEL SELECT). MULTIPLAYER stays locked
+    // ("coming soon"). FREE PLAY runs the normal start flow.
     const MODES = [
-      { key: 'campaign',    name: 'CAMPAIGN',    sub: 'Story missions across the galaxy', locked: true },
-      { key: 'multiplayer', name: 'MULTIPLAYER', sub: 'Beam-off against your friends',    locked: true },
-      { key: 'freeplay',    name: 'FREE PLAY',   sub: '90-second high-score rush',         locked: false },
+      { key: 'campaign',    name: 'CAMPAIGN',    sub: '20 missions across the farm galaxy', locked: false },
+      { key: 'multiplayer', name: 'MULTIPLAYER', sub: 'Beam-off against your friends',       locked: true },
+      { key: 'freeplay',    name: 'FREE PLAY',   sub: '90-second high-score rush',           locked: false },
     ];
 
     this._modeCards = {};
@@ -224,6 +286,13 @@ export class UI {
           e.preventDefault();
           this._comingSoon(card, ribbon, m.key);
         });
+      } else if (m.key === 'campaign') {
+        card.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.cb.onSelectMode(m.key);
+          this.showLevelSelect();
+        });
+        this._campaignCard = card;
       } else {
         card.addEventListener('click', (e) => {
           e.preventDefault();
@@ -283,6 +352,10 @@ export class UI {
   }
 
   showStart(highscore = 0) {
+    this._lastHighscore = highscore;
+    // Any campaign result overlay is stale once we're back at the title.
+    this.hideEnd();
+    if (this._levelSelectVisible) this.hideLevelSelect();
     this._startEl.classList.remove('mf-hidden', 'mf-exit');
     // Always reset to the TITLE view (so quit-to-menu re-entry starts clean).
     this._startView = 'title';
@@ -332,6 +405,271 @@ export class UI {
     if (!this._startArmed) return;
     this._startArmed = false;
     this.cb.onStart();
+  }
+
+  // ======================================================================
+  // LEVEL SELECT — a Mario/Candy-Crush style mini world map. A winding SVG
+  // path snakes from START to FINISH across a stylized farm; 20 UFO nodes
+  // sit along it (completed / current / locked states). Its own overlay so
+  // it floats above the start screen and survives day-cycle re-tints.
+  // ======================================================================
+
+  _buildLevelSelect() {
+    const s = el('div', 'mf-screen mf-levelsel mf-hidden');
+    s.id = 'mf-levelsel';
+
+    // Sky tint overlay — driven by --mf-phase-glow (set on :root by the HUD).
+    el('div', 'mf-ls-sky', s);
+    // Decorative twinkling starfield (re-using the start-screen technique).
+    const stars = el('div', 'mf-ls-stars', s);
+    const sa = el('div', 'mf-stars-layer mf-ls-star-a', stars);
+    const sb = el('div', 'mf-stars-layer mf-ls-star-b', stars);
+    sa.style.boxShadow = starShadows(70, 1600, 1000);
+    sb.style.boxShadow = starShadows(40, 1600, 1000);
+    // Drifting clouds.
+    for (let i = 0; i < 3; i++) {
+      const c = el('div', `mf-ls-cloud mf-ls-cloud-${i}`, s);
+      c.style.setProperty('--i', i);
+    }
+
+    const head = el('div', 'mf-ls-head', s);
+    this._lsBackBtn = button('mf-btn-back mf-ls-back', head, '◀ BACK',
+      () => this._closeLevelSelect());
+    el('h2', 'mf-panel-title mf-ls-title', head, 'CAMPAIGN');
+    // spacer to keep the title centred opposite the back button
+    el('div', 'mf-ls-headspacer', head);
+
+    // Scroll container so the tall map fits / scrolls on small screens.
+    const scroll = el('div', 'mf-ls-scroll', s);
+    this._lsScroll = scroll;
+    this._lsMap = el('div', 'mf-ls-map', scroll);
+
+    document.body.appendChild(s);
+    this._levelSelEl = s;
+  }
+
+  /**
+   * Render the winding path + 20 nodes into the map. Re-built on every show
+   * so completion / unlock state always reflects the latest campaign data.
+   */
+  _renderLevelMap() {
+    const map = this._lsMap;
+    map.textContent = '';
+
+    const levels = this._levels();
+    const n = levels.length;
+    const unlocked = this._unlockedCount();
+
+    // --- layout: a serpentine path on a 100×(rows*step) viewBox. Nodes zig-
+    // zag left↔right as they climb so the SVG path can weave between them. ---
+    const VW = 100;
+    const rowStep = 150;            // vertical spacing between nodes (viewBox units)
+    const top = 90, bottom = 70;    // padding at FINISH (top) and START (bottom)
+    const VH = top + bottom + (n - 1) * rowStep;
+    const leftX = 26, rightX = 74;  // the two zig-zag columns
+    const midX = 50;
+
+    // Nodes are laid out bottom→top (level 1 at the bottom, by the START flag).
+    const pts = levels.map((lvl, i) => {
+      const y = VH - bottom - i * rowStep;
+      // gentle sine sway so columns aren't perfectly rigid
+      const base = i % 2 === 0 ? leftX : rightX;
+      const x = base + Math.sin(i * 1.3) * 6;
+      return { x, y, lvl, i };
+    });
+
+    // SVG: sky-less (the overlay paints sky); just the trail + doodads + flags.
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('class', 'mf-ls-svg');
+    svg.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
+    map.style.setProperty('--mf-ls-ratio', `${VW} / ${VH}`);
+
+    // Build a smooth path string through the points (quadratic midpoints).
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length; i++) {
+      const p0 = pts[i - 1], p1 = pts[i];
+      const cx = (p0.x + p1.x) / 2;
+      const cy = (p0.y + p1.y) / 2;
+      // control point pushed toward mid-column for a lazy S-curve
+      const ctrlX = (cx + midX) / 2;
+      d += ` Q ${ctrlX} ${p0.y - rowStep / 2} ${p1.x} ${p1.y}`;
+    }
+
+    // dashed "shadow" under-trail + bright trail on top
+    const trailShadow = document.createElementNS(svgNS, 'path');
+    trailShadow.setAttribute('class', 'mf-ls-trail-shadow');
+    trailShadow.setAttribute('d', d);
+    svg.appendChild(trailShadow);
+    const trail = document.createElementNS(svgNS, 'path');
+    trail.setAttribute('class', 'mf-ls-trail');
+    trail.setAttribute('d', d);
+    svg.appendChild(trail);
+
+    // little fence / tree doodads scattered beside the path
+    const doodads = [
+      { t: 'tree', x: 12, fy: 0.14 }, { t: 'fence', x: 88, fy: 0.30 },
+      { t: 'tree', x: 90, fy: 0.52 }, { t: 'fence', x: 10, fy: 0.66 },
+      { t: 'tree', x: 14, fy: 0.84 }, { t: 'fence', x: 86, fy: 0.92 },
+    ];
+    for (const dd of doodads) {
+      const gy = top + dd.fy * (VH - top - bottom);
+      const g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('class', `mf-ls-doodad mf-ls-${dd.t}`);
+      g.setAttribute('transform', `translate(${dd.x} ${gy})`);
+      if (dd.t === 'tree') {
+        const trunk = document.createElementNS(svgNS, 'rect');
+        trunk.setAttribute('x', '-1.1'); trunk.setAttribute('y', '0');
+        trunk.setAttribute('width', '2.2'); trunk.setAttribute('height', '7');
+        trunk.setAttribute('class', 'mf-ls-trunk');
+        const top1 = document.createElementNS(svgNS, 'circle');
+        top1.setAttribute('cx', '0'); top1.setAttribute('cy', '-2'); top1.setAttribute('r', '5');
+        top1.setAttribute('class', 'mf-ls-leaf');
+        g.appendChild(trunk); g.appendChild(top1);
+      } else {
+        for (let k = 0; k < 4; k++) {
+          const post = document.createElementNS(svgNS, 'rect');
+          post.setAttribute('x', String(-6 + k * 4)); post.setAttribute('y', '-5');
+          post.setAttribute('width', '1.6'); post.setAttribute('height', '8');
+          post.setAttribute('class', 'mf-ls-post');
+          g.appendChild(post);
+        }
+        const rail = document.createElementNS(svgNS, 'rect');
+        rail.setAttribute('x', '-6.5'); rail.setAttribute('y', '-3.5');
+        rail.setAttribute('width', '13'); rail.setAttribute('height', '1.6');
+        rail.setAttribute('class', 'mf-ls-post');
+        g.appendChild(rail);
+      }
+      svg.appendChild(g);
+    }
+    map.appendChild(svg);
+
+    // START / FINISH flags as DOM (positioned in %).
+    const start = el('div', 'mf-ls-flag mf-ls-flag-start', map, 'START');
+    start.style.left = `${pts[0].x}%`;
+    start.style.top = `${((pts[0].y + 34) / VH) * 100}%`;
+    const finish = el('div', 'mf-ls-flag mf-ls-flag-finish', map, 'FINISH');
+    finish.style.left = `${pts[n - 1].x}%`;
+    finish.style.top = `${((pts[n - 1].y - 46) / VH) * 100}%`;
+
+    // --- nodes ---
+    this._lsNodes = [];
+    let firstFocus = null;
+    for (const p of pts) {
+      const index = p.lvl.index ?? (p.i + 1);
+      const completed = this._isCompleted(index);
+      const isCurrent = !completed && index === unlocked;
+      const locked = index > unlocked;
+      const stars = completed ? this._starsFor(index) : 0;
+
+      let cls = 'mf-ls-node';
+      if (locked) cls += ' mf-ls-locked';
+      else if (completed) cls += ' mf-ls-done';
+      else if (isCurrent) cls += ' mf-ls-current';
+      else cls += ' mf-ls-open';
+
+      const node = el(locked ? 'div' : 'button', cls, map);
+      if (!locked) node.type = 'button';
+      node.style.left = `${p.x}%`;
+      node.style.top = `${(p.y / VH) * 100}%`;
+      node.dataset.index = String(index);
+
+      // little UFO icon (CSS art)
+      const ufo = el('div', 'mf-ls-ufo', node);
+      el('div', 'mf-ls-ufo-dome', ufo);
+      el('div', 'mf-ls-ufo-body', ufo);
+      // level number on the UFO body
+      el('div', 'mf-ls-num', node, String(index));
+
+      // goal pill (tiny "1000 pts")
+      const target = Number(p.lvl.target) || 0;
+      if (target > 0) el('div', 'mf-ls-goal', node, `${fmt(target)} pts`);
+
+      if (locked) {
+        el('div', 'mf-ls-lock', node, '🔒');
+        node.setAttribute('aria-disabled', 'true');
+      } else {
+        if (completed) {
+          el('div', 'mf-ls-check', node, '✓');
+          // earned stars
+          const sw = el('div', 'mf-ls-stars', node);
+          for (let k = 0; k < 3; k++) {
+            el('div', `mf-ls-star${k < stars ? ' mf-ls-star-on' : ''}`, sw, '★');
+          }
+        }
+        node.setAttribute('aria-label',
+          `Level ${index}${completed ? ', completed' : ''}${isCurrent ? ', current' : ''}, goal ${fmt(target)} points`);
+        node.addEventListener('click', (e) => {
+          e.preventDefault();
+          this._startLevel(index);
+        });
+        // Prefer focusing the "current" level; else the first playable node.
+        if (isCurrent) firstFocus = node;
+        else if (!firstFocus) firstFocus = node;
+      }
+      this._lsNodes.push(node);
+    }
+    this._lsFocusNode = firstFocus;
+  }
+
+  /** Public: open the LEVEL SELECT world map. */
+  showLevelSelect() {
+    // If the start overlay is up, it stays beneath; the level-select sits over
+    // it (and over the result overlay if that was showing).
+    this.hideEnd();
+    this._renderLevelMap();
+    const s = this._levelSelEl;
+    s.classList.remove('mf-hidden');
+    s.classList.remove('mf-anim');
+    void s.offsetWidth;
+    s.classList.add('mf-anim');
+    this._levelSelectVisible = true;
+    // Scroll so the current level (bottom-ish) is in view, then focus it.
+    requestAnimationFrame(() => {
+      const focus = this._lsFocusNode;
+      if (focus) {
+        focus.scrollIntoView({ block: 'center', behavior: 'auto' });
+        focus.focus({ preventScroll: true });
+      } else {
+        this._lsBackBtn.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  /** Hide the level-select map (without choosing a level). */
+  hideLevelSelect() {
+    this._levelSelEl.classList.add('mf-hidden');
+    this._levelSelectVisible = false;
+  }
+
+  /** BACK from level select → return to the mode selector view. */
+  _closeLevelSelect() {
+    this.hideLevelSelect();
+    // Make sure the start overlay is visible on the modes view behind it.
+    if (!this._startVisible) {
+      this.showStart(this._lastHighscore || 0);
+    }
+    this._setStartViewForced('modes');
+  }
+
+  /** Like _setStartView but tolerant of being called when already on title. */
+  _setStartViewForced(name) {
+    if (this._startView === name) {
+      // Re-assert the DOM classes (showStart resets to title).
+      const toModes = name === 'modes';
+      this._startTitleView.classList.toggle('mf-startview-on', !toModes);
+      this._startModesView.classList.toggle('mf-startview-on', toModes);
+      if (toModes) (this._campaignCard || this._freePlayCard || this._modesBackBtn).focus({ preventScroll: true });
+      return;
+    }
+    this._setStartView(name);
+  }
+
+  /** A playable node was activated → fire onStartLevel and close the map. */
+  _startLevel(index) {
+    this.hideLevelSelect();
+    this.cb.onStartLevel(index);
   }
 
   // ======================================================================
@@ -651,19 +989,120 @@ export class UI {
   }
 
   // ======================================================================
+  // LEVEL RESULT — campaign-round results screen. Shares the .mf-end shell
+  // (so the existing hideEnd() clears it too) but renders its own layout.
+  // ======================================================================
+
+  /**
+   * @param {object} o
+   *   won, index, score, target, time, isNewBest, starsEarned, hasNext
+   */
+  showLevelResult({
+    won = false, index = 1, score = 0, target = 0, time = 0,
+    isNewBest = false, starsEarned = 0, hasNext = false,
+  } = {}) {
+    // The level-select map (if open) should give way to the result.
+    if (this._levelSelectVisible) this.hideLevelSelect();
+
+    const stars = Math.max(0, Math.min(3, starsEarned | 0));
+    const s = this._endEl;
+    s.textContent = '';
+    s.className = `mf-screen mf-end mf-levelresult ${won ? 'mf-theme-win mf-lr-won' : 'mf-theme-over mf-lr-fail'}`;
+
+    const panel = el('div', 'mf-panel mf-end-panel mf-lr-panel', s);
+
+    el('div', 'mf-lr-eyebrow', panel, `LEVEL ${index}`);
+    el('h2', 'mf-panel-title mf-end-title mf-lr-title', panel,
+      won ? 'MISSION COMPLETE' : 'MISSION FAILED');
+
+    if (won) {
+      // Three star slots; the earned ones pop in on a stagger.
+      const sw = el('div', 'mf-lr-stars', panel);
+      for (let k = 0; k < 3; k++) {
+        const slot = el('div', `mf-lr-star${k < stars ? ' mf-lr-star-on' : ''}`, sw, '★');
+        slot.style.setProperty('--i', k);
+      }
+      if (isNewBest) el('div', 'mf-ribbon mf-lr-best', panel, '★ NEW BEST! ★');
+    } else {
+      el('div', 'mf-end-sub mf-lr-sub', panel, 'The herd got away. Try again!');
+    }
+
+    // SCORE vs TARGET ("1240 / 1000").
+    const scoreWrap = el('div', 'mf-lr-scoreline', panel);
+    const scoreVal = el('span', 'mf-lr-score', scoreWrap, '0');
+    el('span', 'mf-lr-sep', scoreWrap, ' / ');
+    el('span', 'mf-lr-target', scoreWrap, fmt(target));
+    scoreWrap.classList.toggle('mf-lr-hit', won || (target > 0 && score >= target));
+    countUp(scoreVal, score, { duration: 900, delay: 300 });
+    el('div', 'mf-lr-scorelabel', panel, 'SCORE / TARGET');
+
+    // Buttons: NEXT (win+hasNext), RETRY, LEVEL SELECT, MENU.
+    const rowBtns = el('div', 'mf-btn-row mf-lr-btns', panel);
+    let primary = null;
+    if (won && hasNext) {
+      primary = button('mf-btn-primary mf-lr-next', rowBtns, 'NEXT LEVEL',
+        () => this.cb.onNextLevel());
+    }
+    const retry = button(primary ? '' : 'mf-btn-primary', rowBtns, 'RETRY',
+      () => this.cb.onRetryLevel());
+    if (!primary) primary = retry;
+    button('', rowBtns, 'LEVEL SELECT', () => this.cb.onLevelSelect());
+    button('mf-btn-quiet', rowBtns, 'MENU', () => this.cb.onQuitToMenu());
+
+    this._endPrimaryBtn = primary;
+    s.classList.remove('mf-hidden');
+    this._endVisible = true;
+    primary.focus({ preventScroll: true });
+  }
+
+  // ======================================================================
   // Keyboard: Enter/Space confirms the visible screen's primary action.
   // ======================================================================
 
   _bindKeys() {
     document.addEventListener('keydown', (e) => {
       if (e.repeat) return;
+
+      // Escape / Backspace → "back" on views that have a back affordance.
+      if (e.code === 'Escape' || e.code === 'Backspace') {
+        if (this._capturing) return; // a rebind capture owns Esc
+        if (this._levelSelectVisible) {
+          e.preventDefault();
+          this._closeLevelSelect();
+          return;
+        }
+        if (this._startVisible && this._startView === 'modes') {
+          e.preventDefault();
+          this._setStartView('title');
+          return;
+        }
+        return;
+      }
+
       const confirm = e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space';
       if (!confirm) return;
+
+      // Level select sits ABOVE the start overlay → handle it first.
+      if (this._levelSelectVisible) {
+        const focused = document.activeElement;
+        // A focused playable node (or the BACK button) handles its own click.
+        if (focused && focused.closest && focused.closest('#mf-levelsel') &&
+            (focused.classList.contains('mf-ls-node') || focused === this._lsBackBtn)) {
+          e.preventDefault();
+          focused.click();
+        } else if (this._lsFocusNode) {
+          // Nothing useful focused → start the current/first playable level.
+          e.preventDefault();
+          this._lsFocusNode.click();
+        }
+        return;
+      }
+
       if (this._startVisible) {
         e.preventDefault();
         if (this._startView === 'modes') {
-          // If a specific card is focused, honour it (locked → coming soon);
-          // otherwise default to starting Free Play.
+          // If a specific card is focused, honour it (locked → coming soon,
+          // campaign → level select); otherwise default to starting Free Play.
           const focused = document.activeElement;
           if (focused && focused.classList && focused.classList.contains('mf-mode-card')) {
             focused.click();
@@ -688,7 +1127,13 @@ export class UI {
         if (document.activeElement && document.activeElement.closest('#mf-end') &&
             document.activeElement !== this._endPrimaryBtn && e.code !== 'Space') return;
         e.preventDefault();
-        this.cb.onRestart();
+        // Campaign results route through the focused primary button (NEXT or
+        // RETRY); Free-Play game-over/win fall back to onRestart as before.
+        if (this._endEl.classList.contains('mf-levelresult') && this._endPrimaryBtn) {
+          this._endPrimaryBtn.click();
+        } else {
+          this.cb.onRestart();
+        }
       }
     });
   }
