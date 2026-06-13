@@ -538,277 +538,75 @@ def make_lose():
     return normalize(fade(out, 0.004, 0.10))
 
 
-# ---------------------------------------------------------------------------
-# Music: the MOO-FO theme
-# ---------------------------------------------------------------------------
-#
-# Key:   C major (with the relative A-minor pull of the vi chord).
-# Tempo: 120 BPM  ->  beat = 0.5 s, bar (4/4) = 2.0 s, eighth = 0.25 s.
-# Form:  8 bars = 16.0 s — an exact, beat-aligned seamless loop.
-# Harmony: the evergreen, singable  I - V - vi - IV  =  C - G - Am - F
-#          played twice across the 8 bars.
-#
-# THE HOOK ("the MOO-FO motif"), C-major pentatonic, lands on the down-beats so
-# players hum it.  Read it as: up the triad, skip to the high note, bounce back.
-#   Bar1 (C):  G4  C5   E5 . G5 ---   "moo-oo-foo!"   (rising answer)
-#   Bar2 (G):  D5  B4   G4 . A4 ---   (settles, leaves the line hanging)
-#   Bar3 (Am): C5  E5   A5 . G5 ---   (the big lift — highest point)
-#   Bar4 (F):  F5  E5 . C5 . D5 . C5  (curls back down, ready to repeat)
-# The 2nd four bars re-use the same motif with small tail variations so it
-# resolves cleanly back onto bar-1's G4 at the loop seam.
-
-BPM = 120.0
-BEAT = 60.0 / BPM          # 0.5 s
-BAR = 4.0 * BEAT           # 2.0 s
-N8 = BEAT / 2.0            # eighth note = 0.25 s
-MUSIC_BARS = 8
-MUSIC_DUR = MUSIC_BARS * BAR   # 16.0 s
-
-# Equal-tempered note table (Hz), enough range for melody + bass.
-_NOTE_BASE = {'C': -9, 'C#': -8, 'D': -7, 'D#': -6, 'E': -5, 'F': -4,
-              'F#': -3, 'G': -2, 'G#': -1, 'A': 0, 'A#': 1, 'B': 2}
-
-
-def nf(name):
-    """Note name like 'C4','G5','A#3' -> frequency in Hz (A4 = 440)."""
-    octave = int(name[-1])
-    semis = _NOTE_BASE[name[:-1]] + (octave - 4) * 12
-    return 440.0 * (2.0 ** (semis / 12.0))
-
-
-def seq(out, events, voice):
-    """Place a melodic line. events = [(beat, note_or_None, beats, *opts)].
-    `voice(freq, dur, *opts)` renders one note; None note = rest."""
-    for ev in events:
-        beat, note, beats = ev[0], ev[1], ev[2]
-        if note is None:
-            continue
-        seg = voice(nf(note), beats * BEAT, *ev[3:])
-        mix_at(out, seg, offset=beat * BEAT)
-
-
-def kick(dur=0.16, g=1.0):
-    """Punchy synth kick: pitch-dropping sine + click transient."""
-    body = osc('sine', xsweep(150.0, 48.0, 0.10), dur, amp=exp_env(0.07, attack=0.001))
-    click = lowpass(noise(0.008), 3000.0)
-    click = apply_env(click, exp_env(0.003, attack=0.0003))
+def make_jingle():
+    """~2.0 s iconic 'MOO-FO' boot sting for the title screen. A punchy
+    ascending arpeggio/fanfare (square lead + sine bass) with a little UFO
+    shimmer on top. NON-looping: fades out cleanly at the end."""
+    dur = 2.0
     out = zeros(dur)
-    mix_at(out, body)
-    mix_at(out, click, g=0.35)
-    return gain(fade(soft_clip(out, 1.4), 0.0006, 0.02), g)
-
-
-def snare(dur=0.14, g=1.0):
-    """Noise-body snare with a little tonal snap."""
-    body = lowpass(noise(dur), 6500.0)
-    body = apply_env(body, exp_env(0.045, attack=0.0006))
-    tone200 = osc('triangle', 190.0, dur, amp=exp_env(0.03, attack=0.0008))
-    out = zeros(dur)
-    mix_at(out, body)
-    mix_at(out, tone200, g=0.4)
-    return gain(fade(out, 0.0006, 0.02), g)
-
-
-def hat(dur=0.05, g=1.0, bright=8000.0):
-    """Closed hi-hat: high filtered-noise tick."""
-    h = noise(dur)
-    h = [s - l for s, l in zip(h, lowpass(h, bright))]  # crude high-pass
-    h = apply_env(h, exp_env(0.012, attack=0.0003))
-    return gain(fade(h, 0.0004, 0.012), g)
-
-
-def loop_xfade(out, dur, label, tail=0.18):
-    """Make `out` (length dur + tail seconds) seamlessly loopable: crossfade the
-    extra `tail` seconds back over the start, then trim to exactly dur.
-    Robust for dense musical content where finish_loop's hard equality is hard
-    to hit. Reports the resulting seam delta for transparency."""
-    n = nsamp(dur)
-    nt = min(nsamp(tail), len(out) - n)
-    for i in range(nt):
-        w = (i + 1) / (nt + 1)            # 0..1 ramp, weight of the tail
-        out[i] = out[i] * (1.0 - w) + out[n + i] * w
-    out = out[:n]
-    # Wrap delta after the crossfade (compare last sample's neighbour to first).
-    delta = abs(out[-1] - out[0])
-    print(f"  [loop-xfade {label}] len={dur:.2f}s  seam delta~{delta:.2e}")
-    return out
-
-
-# --- drum patterns (beat positions within the 8-bar loop) -------------------
-
-def _drums_play(out, g=1.0):
-    """Steady, light arcade pulse: four-on-the-floor kick, backbeat snare,
-    off-beat hats. Beats are absolute (0..32 across 8 bars of 4 beats)."""
-    for bar in range(MUSIC_BARS):
-        b0 = bar * 4
-        mix_at(out, kick(g=0.9 * g), offset=(b0 + 0) * BEAT)
-        mix_at(out, kick(g=0.7 * g), offset=(b0 + 2) * BEAT)
-        mix_at(out, snare(g=0.55 * g), offset=(b0 + 1) * BEAT)
-        mix_at(out, snare(g=0.55 * g), offset=(b0 + 3) * BEAT)
-        for e in range(8):  # eighth-note hats, accent the off-beats
-            gg = (0.30 if e % 2 else 0.16) * g
-            mix_at(out, hat(g=gg), offset=(b0 * BEAT) + e * N8)
-
-
-def _drums_chase(out, g=1.0):
-    """Tension layer percussion: driving 16th-note hats + extra kicks/toms
-    to raise urgency. Same grid as _drums_play so they phase-lock."""
-    for bar in range(MUSIC_BARS):
-        b0 = bar * 4
-        # extra syncopated kicks
-        mix_at(out, kick(dur=0.13, g=0.6 * g), offset=(b0 + 0.5) * BEAT)
-        mix_at(out, kick(dur=0.13, g=0.5 * g), offset=(b0 + 2.75) * BEAT)
-        # urgent 16th hats
-        for s in range(16):
-            gg = (0.22 if s % 2 else 0.12) * g
-            mix_at(out, hat(dur=0.04, g=gg, bright=9000.0),
-                   offset=(b0 * BEAT) + s * (N8 / 2.0))
-
-
-# --- the recurring chord bed -----------------------------------------------
-
-# I - V - vi - IV in C, two passes.  (root, [chord-tone notes for the pad])
-_PROG = [
-    ('C',  ['C3', 'E3', 'G3', 'C4']),   # I   (C major)
-    ('G',  ['G2', 'B2', 'D3', 'G3']),   # V   (G major)
-    ('Am', ['A2', 'C3', 'E3', 'A3']),   # vi  (A minor)
-    ('F',  ['F2', 'A2', 'C3', 'F3']),   # IV  (F major)
-]
-
-
-def _chord_bed(out, g=1.0, kind='triangle', cutoff=2200.0):
-    """Soft sustained chord pad — one chord per bar across the 8-bar form."""
-    for bar in range(MUSIC_BARS):
-        _, notes = _PROG[bar % 4]
-        for j, nm in enumerate(notes):
-            v = tone(nf(nm), BAR * 0.98, kind=kind, cutoff=cutoff,
-                     a=0.04, r=0.22, g=(0.34 if j == 0 else 0.24) * g,
-                     vib=0.003, vibr=4.5)
-            mix_at(out, v, offset=bar * BAR)
-
-
-# Bouncy bass line: root on beat 1, octave-up bounce on the 'and', a fifth
-# pickup into the next bar.  Bright but short so it grooves.
-_BASS = [  # (note, beat-in-bar, beats)
-    [('C2', 0, 1.0), ('C3', 1.5, 0.5), ('C2', 2, 1.0), ('G2', 3.5, 0.5)],
-    [('G1', 0, 1.0), ('G2', 1.5, 0.5), ('G1', 2, 1.0), ('B1', 3.5, 0.5)],
-    [('A1', 0, 1.0), ('A2', 1.5, 0.5), ('A1', 2, 1.0), ('C2', 3.5, 0.5)],
-    [('F1', 0, 1.0), ('F2', 1.5, 0.5), ('F1', 2, 1.0), ('G1', 3.5, 0.5)],
-]
-
-
-def _bass_line(out, g=1.0, cutoff=900.0):
-    for bar in range(MUSIC_BARS):
-        for nm, b, beats in _BASS[bar % 4]:
-            v = tone(nf(nm), beats * BEAT, kind='square', cutoff=cutoff,
-                     a=0.006, r=0.06, g=0.7 * g)
-            # add a sub-sine octave-down for weight
-            sub = tone(nf(nm) / 2.0, beats * BEAT, kind='sine',
-                       a=0.006, r=0.06, g=0.35 * g)
-            mix_at(out, v, offset=bar * BAR + b * BEAT)
-            mix_at(out, sub, offset=bar * BAR + b * BEAT)
-
-
-# THE MOTIF — the catchy lead, written as (beat-from-loop-start, note, beats).
-# First 4 bars (beats 0..15) = statement; last 4 bars = answer that lands the
-# line back on bar-1's first note across the loop seam.
-def _motif_events():
-    e = []
-    # Bar 1 (C):  G4  C5  E5 . G5            "moo-oo-foo!"
-    e += [(0.0, 'G4', 1.0), (1.0, 'C5', 1.0), (2.0, 'E5', 0.75), (3.0, 'G5', 1.0)]
-    # Bar 2 (G):  D5  B4  G4 . A4
-    e += [(4.0, 'D5', 1.0), (5.0, 'B4', 1.0), (6.0, 'G4', 0.75), (7.0, 'A4', 1.0)]
-    # Bar 3 (Am): C5  E5  A5 . G5            (the lift)
-    e += [(8.0, 'C5', 1.0), (9.0, 'E5', 1.0), (10.0, 'A5', 0.75), (11.0, 'G5', 1.0)]
-    # Bar 4 (F):  F5  E5 . C5 . D5 . C5      (curl down)
-    e += [(12.0, 'F5', 0.75), (13.0, 'E5', 0.75), (13.75, 'C5', 0.75),
-          (14.5, 'D5', 0.5), (15.0, 'C5', 1.0)]
-    # Bars 5-8: repeat motif, with a small variation in the final bar so the
-    # last note (G4) leads cleanly back into bar-1's G4 at the seam.
-    e += [(16.0, 'G4', 1.0), (17.0, 'C5', 1.0), (18.0, 'E5', 0.75), (19.0, 'G5', 1.0)]
-    e += [(20.0, 'D5', 1.0), (21.0, 'B4', 1.0), (22.0, 'G4', 0.75), (23.0, 'A4', 1.0)]
-    e += [(24.0, 'C5', 1.0), (25.0, 'E5', 1.0), (26.0, 'A5', 0.75), (27.0, 'G5', 1.0)]
-    # answer cadence: F5 E5 D5 G4  -> resolves down to the dominant-ish G4 pickup
-    e += [(28.0, 'F5', 0.75), (29.0, 'E5', 0.75), (30.0, 'D5', 1.0), (31.0, 'G4', 1.0)]
-    return e
-
-
-def _lead_voice(freq, dur, kind='square', cutoff=4200.0, g=0.55):
-    """Bright, playful lead note: square + a sine octave 'whistle' on top."""
-    sq = tone(freq, dur, kind=kind, cutoff=cutoff, a=0.006, r=0.07, g=g,
-              vib=0.004, vibr=5.5)
-    whistle = tone(freq * 2.0, dur, kind='sine', a=0.01, r=0.07, g=0.18)
-    return [a + b for a, b in zip(sq, whistle)]
-
-
-def make_music_title():
-    """The full iconic MOO-FO theme: lead motif over bouncy bass + chord bed +
-    light kit, with a sparkle counter-melody.  16 s, seamless."""
-    tail = 0.30
-    de = MUSIC_DUR + tail
-    out = zeros(de)
-    _chord_bed(out, g=1.0, kind='triangle', cutoff=2000.0)
-    _bass_line(out, g=1.0, cutoff=950.0)
-    _drums_play(out, g=0.85)
-    # The lead motif, full strength.
-    seq(out, _motif_events(), _lead_voice)
-    # Twinkle counter-melody: soft bell pings tracing the top of each bar.
-    for bar in range(MUSIC_BARS):
-        root = _PROG[bar % 4][1][-1]            # top chord tone of the bar
-        mix_at(out, ping(nf(root) * 2.0, dur=0.5, tau=0.16, harm=0.4, g=0.18),
-               offset=bar * BAR + 0.5 * BEAT)
+    # Punchy ascending arpeggio: C major up-run that lands on a bright high G.
+    arp = [(0.00, 523.25, 0.16), (0.13, 659.25, 0.16), (0.26, 783.99, 0.16),
+           (0.39, 1046.5, 0.20), (0.55, 1318.5, 0.34)]            # C5 E5 G5 C6 E6
+    for off, f, d in arp:
+        lead = tone(f, d, kind='square', cutoff=5200.0, a=0.004, r=0.07,
+                    g=0.55, vib=0.004, vibr=6.0)
+        spark = ping(f * 2.0, dur=d, tau=0.05, g=0.22)
+        seg = [a + b for a, b in zip(lead, spark)]
+        mix_at(out, seg, offset=off)
+    # Final bright major chord stab to cap the fanfare.
+    for f, g in [(1046.5, 0.50), (1318.5, 0.42), (1568.0, 0.40), (2093.0, 0.30)]:
+        mix_at(out, tone(f, 0.85, kind='square', cutoff=5800.0, r=0.30, g=g,
+                         vib=0.005, vibr=6.0), offset=0.95)         # C major
+    # Sine bass thump under the run + the final chord.
+    mix_at(out, tone(130.81, 0.40, kind='sine', a=0.006, r=0.10, g=0.85), offset=0.00)
+    mix_at(out, tone(196.00, 0.30, kind='sine', a=0.006, r=0.08, g=0.75), offset=0.39)
+    mix_at(out, tone(65.41, 0.95, kind='sine', a=0.006, r=0.30, g=0.9), offset=0.95)
+    # A little UFO shimmer: high vibrato sine swelling under the tail.
+    shimmer = osc('sine', lambda t: 2637.0 + 18.0 * math.sin(TWO_PI * 6.0 * t),
+                  1.0, amp=lambda t: 0.10 * math.sin(math.pi * min(t / 1.0, 1.0)) ** 2)
+    mix_at(out, shimmer, offset=1.0)
+    # Chord-top sparkle dusting.
+    for k, f in enumerate([2093.0, 2637.0, 3135.9]):
+        mix_at(out, ping(f, dur=0.22, tau=0.045, g=0.15), offset=1.05 + 0.07 * k)
     out = soft_clip(out, 1.1)
-    out = normalize(out, peak=PEAK * 0.95)
-    return loop_xfade(out, MUSIC_DUR, 'music_title', tail=tail)
+    return normalize(fade(out, 0.003, 0.10))
 
 
-def make_music_play():
-    """Gameplay groove: SAME motif & harmony, lighter mix so it doesn't fatigue.
-    Lead is softer/rounder, drums steady but gentle.  16 s, seamless, and in
-    the SAME key/tempo/length as music_chase for phase-lock."""
-    tail = 0.30
-    de = MUSIC_DUR + tail
+def make_waterfall():
+    """~2.8 s SEAMLESS LOOP of falling-water rush: a filtered white-noise bed
+    plus a little bubbling. Positional proximity loop near a waterfall. Built
+    periodically (every modulator is an integer cycle count over the loop) so
+    finish_loop wraps cleanly."""
+    dur = 2.8
+    de = dur + 1.0 / SR  # one extra sample for the loop check
+    # White-noise rush bed: noise through a slowly wobbling lowpass. The cutoff
+    # LFOs use integer cycle counts over `dur` so the filtered bed stays
+    # periodic; the noise envelope is windowed to zero at both edges so the
+    # aperiodic source can never break the seam.
+    bed = noise(de)
+    bed = lowpass(bed, lambda t: 1600.0 + 600.0 * math.sin(TWO_PI * (1.0 / dur) * t))
+    # crude high-pass to add airy "hiss" of the spray (subtract a low band).
+    low = lowpass(bed, 350.0)
+    rush = [b - 0.6 * l for b, l in zip(bed, low)]
+    rush = apply_env(rush, lambda t: 0.5 * (1.0 - math.cos(TWO_PI * t / dur)))
     out = zeros(de)
-    _chord_bed(out, g=0.7, kind='triangle', cutoff=1700.0)
-    _bass_line(out, g=0.85, cutoff=850.0)
-    _drums_play(out, g=0.6)
-    # Lead: quieter, rounder (triangle) so it sits back during play.
-    seq(out, _motif_events(),
-        lambda f, d: _lead_voice(f, d, kind='triangle', cutoff=2600.0, g=0.34))
-    out = soft_clip(out, 1.05)
-    out = normalize(out, peak=PEAK * 0.82)
-    return loop_xfade(out, MUSIC_DUR, 'music_play', tail=tail)
-
-
-def make_music_chase():
-    """Tension LAYER designed to play SIMULTANEOUSLY on top of music_play.
-    Same key (C), tempo (120), and 16 s length => phase-locked.  Adds urgent
-    16th-note percussion, a syncopated saw bassline doubling the harmony, and a
-    minor-flavoured arpeggio that ratchets the pressure.  No lead melody (the
-    base track keeps the tune)."""
-    tail = 0.30
-    de = MUSIC_DUR + tail
-    out = zeros(de)
-    _drums_chase(out, g=0.9)
-    # Driving saw 'pulse' bass: 8th notes on the chord root, gritty.
-    for bar in range(MUSIC_BARS):
-        root = _PROG[bar % 4][1][0]
-        for e in range(8):
-            v = tone(nf(root), N8 * 0.9, kind='saw', cutoff=1100.0,
-                     a=0.004, r=0.04, g=0.30)
-            mix_at(out, v, offset=bar * BAR + e * N8)
-    # Tense arpeggio: fast triplet-ish run up each chord (adds the 'oh no' rush).
-    for bar in range(MUSIC_BARS):
-        notes = _PROG[bar % 4][1]
-        arp = [notes[1], notes[2], notes[3], notes[2]]  # mid->top->mid
-        for k in range(8):
-            nm = arp[k % len(arp)]
-            v = tone(nf(nm) * 2.0, N8 * 0.8, kind='square', cutoff=3800.0,
-                     a=0.003, r=0.05, g=0.16)
-            mix_at(out, v, offset=bar * BAR + k * N8)
+    mix_at(out, rush, g=0.85)
+    # Steady deep churn underneath: filtered noise with a slow swell (2 cycles).
+    churn = lowpass(noise(de), lambda t: 500.0 + 250.0 * math.sin(TWO_PI * (2.0 / dur) * t))
+    churn = apply_env(churn, lambda t: 0.5 * (1.0 - math.cos(TWO_PI * 2.0 * t / dur)))
+    mix_at(out, churn, g=0.30)
+    # Bubbling: short sine "bloops" with quick pitch drops, each amplitude-
+    # windowed (sin^2) to zero at its edges so any placement stays loop-safe.
+    blo = [(0.18, 360.0), (0.55, 300.0), (0.92, 420.0), (1.30, 280.0),
+           (1.68, 390.0), (2.05, 330.0), (2.42, 450.0)]
+    for off, f in blo:
+        bl = 0.30
+        seg = osc('sine', curve([(0, f), (bl, f * 0.7)]), bl,
+                  amp=lambda t, L=bl: 0.18 * math.sin(math.pi * t / L) ** 2)
+        mix_at(out, seg, offset=off)
     out = soft_clip(out, 1.1)
-    out = normalize(out, peak=PEAK * 0.80)
-    return loop_xfade(out, MUSIC_DUR, 'music_chase', tail=tail)
+    out = normalize(out, peak=PEAK * 0.9)
+    return finish_loop(out, dur, 'waterfall')
 
 
 # ---------------------------------------------------------------------------
@@ -834,9 +632,8 @@ SOUNDS = [
     ('start',     make_start),
     ('win',       make_win),
     ('lose',      make_lose),
-    ('music_title', make_music_title),
-    ('music_play',  make_music_play),
-    ('music_chase', make_music_chase),
+    ('jingle',    make_jingle),
+    ('waterfall', make_waterfall),
 ]
 
 

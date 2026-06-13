@@ -609,7 +609,9 @@ export class CowManager {
     }
     g.position.x = nx;
     g.position.z = nz;
-    g.position.y = WATER_Y + Math.sin(this._t * 2.2 + c.phase) * 0.04;
+    // Minecraft-style bob: a pronounced up/down float plus a little pitch rock.
+    g.position.y = WATER_Y + Math.sin(this._t * 2.6 + c.phase) * 0.14;
+    g.rotation.x = Math.sin(this._t * 2.6 + c.phase + 1) * 0.12;
     if (c.ud.head) c.ud.head.rotation.x = Math.sin(this._t * 1.5 + c.phase) * 0.2 + (scared ? 0.25 : 0);
   }
 

@@ -320,8 +320,9 @@ export function blobShadow(radius) {
  *  createUFO — diameter ~5, height ~2.2. The hero model.
  *  userData: { dome, ring, lights: Mesh[8], beamAnchor }
  *  Two-tone hull (light top / dark underside), panel-line ring segments,
- *  rivets, antenna, glass dome with an alien pilot at a blinking console,
- *  concentric underside rings + emissive emitter lens, 8 rim lights.
+ *  rivets, antenna, glass dome over a blinking instrument console (no pilot
+ *  — the player flies it), concentric underside rings + emissive emitter
+ *  lens, 8 rim lights.
  * ------------------------------------------------------------------ */
 
 export function createUFO() {
@@ -390,23 +391,15 @@ export function createUFO() {
   const antTip = add(g, sphGeo(0.07, 5, 4), emat(0xff6b9d, 0xff2d78, 1.0, true), 0.78, 1.9, -0.55);
   antTip.castShadow = false;
 
-  // ---- Cockpit: console with blinking boxes + alien pilot.
-  const alien = pivot(g, 0, 1.45, 0);
-  const green = mat(0x3a7d44, true);
-  box(alien, 0.56, 0.14, 0.3, greeble, 0, 0.16, 0.42);                 // console desk
-  const bl1 = box(alien, 0.1, 0.07, 0.06, emat(0xff5252, 0xff1744, 1.0), -0.14, 0.27, 0.42);
+  // ---- Cockpit: instrument console with two blinking lights (no pilot —
+  //      the player flies the ship). Sits under the dome as tasteful detail.
+  const console_ = pivot(g, 0, 1.45, 0);
+  box(console_, 0.56, 0.14, 0.3, greeble, 0, 0.16, 0.42);              // console desk
+  box(console_, 0.46, 0.18, 0.16, mat(0x44506a, true), 0, 0.27, 0.46); // raised instrument panel
+  const bl1 = box(console_, 0.1, 0.07, 0.06, emat(0xff5252, 0xff1744, 1.0), -0.14, 0.34, 0.46);
   bl1.castShadow = false;
-  const bl2 = box(alien, 0.1, 0.07, 0.06, emat(0x7ce8ff, 0x00b8d4, 1.0), 0.14, 0.27, 0.42);
+  const bl2 = box(console_, 0.1, 0.07, 0.06, emat(0x7ce8ff, 0x00b8d4, 1.0), 0.14, 0.34, 0.46);
   bl2.castShadow = false;
-  add(alien, cylGeo(0.16, 0.26, 0.3, 7), green, 0, 0.13, 0);           // little body
-  const aHead = add(alien, sphGeo(0.24, 7, 5), green, 0, 0.45, 0);     // big head
-  aHead.scale.set(1, 1.15, 0.95);
-  box(alien, 0.09, 0.13, 0.04, mat(0x101418), -0.1, 0.48, 0.21);       // left eye
-  box(alien, 0.09, 0.13, 0.04, mat(0x101418), 0.1, 0.48, 0.21);        // right eye
-  for (const s of [-1, 1]) {                                            // arms on console
-    const arm = box(alien, 0.05, 0.05, 0.3, green, s * 0.16, 0.2, 0.22);
-    arm.rotation.x = -0.35;
-  }
 
   // ---- Tinted glass dome (unique material — ufo.js may pulse it).
   const domeMat = new THREE.MeshLambertMaterial({
@@ -1999,5 +1992,179 @@ export function createCar() {
     add(g, cylXGeo(0.42, 0.3, 10), mat(0x263238, true), x, 0.42, z);
     add(g, cylXGeo(0.18, 0.34, 8), mat(0xcfd8dc, true), x, 0.42, z);
   }
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createWaterMill — ~3 wide x ~3.5 tall stone/plank mill house with a
+ *  big vertical water wheel on the -X side. Front faces +Z.
+ *  userData: { wheel } — a pivot Group centered on the wheel's axle;
+ *  spin it with wheel.rotation.x. The wheel is a hub + 8 spokes + outer
+ *  rim (8 arc segments) + 8 paddle boards. A plank sluice/chute pours
+ *  over the top of the wheel. ≤ ~45 meshes.
+ * ------------------------------------------------------------------ */
+
+export function createWaterMill() {
+  const g = new THREE.Group();
+  const stone = mat(COLORS.stone, false, 'stone');
+  const plank = mat(COLORS.wood, false, 'planks');
+  const woodD = mat(COLORS.woodDark);
+  const roof = mat(COLORS.roof, false, 'shingles');
+  const trim = mat(COLORS.barnTrim);
+
+  // Stone base + plank upper storey, ridge along Z so the wheel clears it.
+  box(g, 2.6, 1.4, 2.6, stone, 0, 0.7, 0);                  // stone ground floor
+  box(g, 2.4, 1.1, 2.4, plank, 0, 1.95, 0);                 // plank upper storey
+  box(g, 2.0, 0.6, 2.4, plank, 0, 2.75, 0);                 // gable fill (to ridge)
+
+  // Pitched shingle roof, ridge along Z at y≈3.4. Slope run 1.2, rise 0.9.
+  for (const s of [-1, 1]) {
+    const slab = box(g, 1.7, 0.14, 2.7, roof, s * 0.7, 2.95, 0);
+    slab.rotation.z = -s * 0.64;
+  }
+  box(g, 0.3, 0.16, 2.8, mat(0x553b32), 0, 3.42, 0);        // ridge cap
+
+  // Door on the +Z face + a small shuttered window beside it.
+  box(g, 0.62, 1.2, 0.1, woodD, 0.5, 0.6, 1.31);            // door panel
+  box(g, 0.66, 0.08, 0.12, trim, 0.5, 1.18, 1.33);          // door lintel
+  box(g, 0.06, 0.06, 0.04, mat(0xd9d9d9), 0.7, 0.6, 1.37);  // door knob
+  box(g, 0.5, 0.5, 0.1, trim, -0.55, 0.8, 1.31);            // window frame
+  box(g, 0.36, 0.36, 0.06, emat(0xffd98c, 0xff9d3c, 0.7), -0.55, 0.8, 1.35); // warm pane
+  box(g, 0.36, 0.07, 0.07, woodD, -0.55, 0.8, 1.38);        // window mullion H
+
+  // Wheel axle support beams jutting from the -X wall.
+  for (const sz of [-1, 1]) {
+    box(g, 0.6, 0.16, 0.16, woodD, -1.55, 1.5, sz * 0.55);
+  }
+
+  // ---- The water wheel — a pivot Group on the axle (x = -1.85, y = 1.5).
+  //      Spin with wheel.rotation.x. Built in the wheel's local Y-Z plane.
+  const wheel = pivot(g, -1.85, 1.5, 0);
+  const R = 1.15;                                            // outer radius
+  const wgrey = mat(0x6f5a47);
+  // Axle through the hub (axis along X) + hub disc.
+  add(wheel, cylXGeo(0.12, 0.7, 8), mat(0x4a3a30, true), 0, 0, 0);
+  add(wheel, cylXGeo(0.28, 0.32, 8), wgrey, 0, 0, 0);       // hub
+  // 8 spokes radiating out in the Y-Z plane.
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * PI2;
+    const spoke = box(wheel, 0.16, R, 0.1, woodD, 0, Math.cos(a) * R * 0.5, Math.sin(a) * R * 0.5);
+    spoke.rotation.x = -a;
+  }
+  // Outer rim: 8 arc segments forming the wheel ring.
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * PI2 + Math.PI / 8;
+    const seg = box(wheel, 0.16, 0.16, 0.96, wgrey, 0, Math.cos(a) * R, Math.sin(a) * R);
+    seg.rotation.x = -a;
+  }
+  // 8 paddle boards on the rim (slightly proud, catch the water).
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * PI2;
+    const paddle = box(wheel, 0.8, 0.06, 0.34, plank, 0, Math.cos(a) * (R + 0.04), Math.sin(a) * (R + 0.04));
+    paddle.rotation.x = -a;
+  }
+
+  // ---- Wooden sluice / chute pouring over the TOP of the wheel.
+  const chute = box(g, 0.7, 0.12, 1.3, plank, -1.85, 2.85, 0.4);
+  chute.rotation.x = 0.4;                                    // sloped down toward the wheel
+  for (const sz of [-1, 1]) {                                // chute side boards
+    const side = box(g, 0.06, 0.3, 1.3, woodD, -1.85, 2.95, 0.4);
+    side.position.x = -1.85 + sz * 0.34;
+    side.rotation.x = 0.4;
+  }
+  box(g, 0.66, 0.2, 0.3, woodD, -1.85, 2.45, -0.2);         // chute spout over the wheel top
+
+  g.userData = { wheel };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createDock — wooden jetty/pier ~6 long (+X) x ~2 wide. Plank deck at
+ *  y≈0.6 on 6 piling posts that descend to y≈-2 (so it stands in water).
+ *  Side posts carry a rope rail; a fat mooring post stands at the far end.
+ *  ≤ ~30 meshes.
+ * ------------------------------------------------------------------ */
+
+export function createDock() {
+  const g = new THREE.Group();
+  const plank = mat(COLORS.wood, false, 'planks');
+  const woodD = mat(COLORS.woodDark);
+  const post = mat(0x4a3327);
+  const rope = mat(0x9c7a4f);
+  const deckY = 0.6;
+  const len = 6, wid = 2, hw = wid / 2;
+
+  // Six pilings (two rows of three) descending below the waterline.
+  const pileX = [0.5, len / 2, len - 0.5];
+  for (const px of pileX) {
+    for (const s of [-1, 1]) {
+      box(g, 0.24, 2.7, 0.24, post, px, deckY - 1.35, s * (hw - 0.25));
+    }
+  }
+
+  // Solid deck base + lengthwise stringer beams under the planks.
+  box(g, len, 0.16, wid, woodD, len / 2, deckY - 0.08, 0);
+  for (const s of [-1, 1]) {
+    box(g, len, 0.18, 0.18, woodD, len / 2, deckY - 0.16, s * (hw - 0.22));
+  }
+  // Cross-plank deck boards laid edge to edge along the length.
+  const n = 9, step = len / n;
+  for (let i = 0; i < n; i++) {
+    box(g, step + 0.04, 0.1, wid - 0.06, i % 2 ? plank : mat(0x99756a),
+      (i + 0.5) * step, deckY + 0.03, 0);
+  }
+
+  // Rail posts down both sides + a top rope rail strung between them.
+  const railPostX = [0.5, len / 2, len - 0.5];
+  for (const s of [-1, 1]) {
+    const rz = s * (hw - 0.18);
+    for (const px of railPostX) {
+      box(g, 0.1, 0.85, 0.1, woodD, px, deckY + 0.42, rz);
+    }
+    // Rope rail (two slack spans, faint sag).
+    const rA = box(g, len / 2, 0.06, 0.06, rope, len * 0.25, deckY + 0.72, rz);
+    rA.rotation.z = -0.04;
+    const rB = box(g, len / 2, 0.06, 0.06, rope, len * 0.75, deckY + 0.72, rz);
+    rB.rotation.z = 0.04;
+  }
+
+  // Fat mooring post at the far end with a coiled rope ring.
+  box(g, 0.3, 1.3, 0.3, post, len - 0.5, deckY + 0.55, 0);
+  const ring = add(g, torusGeo(0.16, 0.04, 5, 10), rope, len - 0.5, deckY + 0.95, 0.16);
+  ring.rotation.x = Math.PI / 2;
+
+  g.userData = {};
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createLog — a single floating tree log ~2.6 long lying along +X,
+ *  ~0.45 diameter. Centered at the waterline (origin near y=0 so the log
+ *  floats half-submerged). Brown bark, darker end-rings, a knot/branch
+ *  stub and a patch of moss. ≤ ~10 meshes.
+ * ------------------------------------------------------------------ */
+
+export function createLog() {
+  const g = new THREE.Group();
+  const bark = mat(0x6d4c41, true);
+  const ring = mat(0x4a3327, true);
+  const moss = mat(0x6aa84f);
+  const r = 0.225;
+
+  // Main log barrel lying along X, centered on the waterline.
+  add(g, cylXGeo(r, 2.6, 10), bark, 0, 0.04, 0);
+  // Darker end-ring caps at both ends.
+  for (const s of [-1, 1]) {
+    add(g, cylXGeo(r * 0.98, 0.1, 10), ring, s * 1.3, 0.04, 0);
+  }
+  // A broken branch stub angling up off the side.
+  const stub = add(g, cylXGeo(0.09, 0.5, 6), bark, 0.45, 0.18, 0.12);
+  stub.rotation.z = -0.7;
+  add(g, cylXGeo(0.092, 0.07, 6), ring, 0.6, 0.36, 0.12);   // stub end-ring
+  // A small knot on the bark + a moss patch on top.
+  box(g, 0.1, 0.1, 0.08, ring, -0.5, 0.18, 0.14);           // knot
+  const patch = box(g, 0.7, 0.05, 0.26, moss, 0.1, 0.24, -0.02);
+  patch.castShadow = false;
+
   return g;
 }

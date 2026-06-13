@@ -70,13 +70,14 @@ function starShadows(count, maxX, maxY) {
 }
 
 export class UI {
-  constructor({ onStart, onResume, onRestart, onQuitToMenu, onToggleMute, controls } = {}) {
+  constructor({ onStart, onResume, onRestart, onQuitToMenu, onToggleMute, onSelectMode, controls } = {}) {
     this.cb = {
       onStart: onStart || (() => {}),
       onResume: onResume || (() => {}),
       onRestart: onRestart || (() => {}),
       onQuitToMenu: onQuitToMenu || (() => {}),
       onToggleMute: onToggleMute || (() => {}),
+      onSelectMode: onSelectMode || (() => {}),
     };
     // Controls instance (binds / bindLabels / rebind / resetBinds /
     // gamepadConnected). Optional & duck-typed so the UI degrades gracefully
@@ -88,6 +89,7 @@ export class UI {
     this._endVisible = false;
     this._startArmed = false; // guards double-starts
     this._muted = false;
+    this._startView = 'title'; // 'title' | 'modes' — start-overlay sub-view
     this._pauseView = 'root'; // 'root' | 'settings'
     this._capturing = false;  // true while a key-rebind capture is active
 
@@ -121,9 +123,16 @@ export class UI {
 
     const panel = el('div', 'mf-start-panel', s);
 
+    // The start overlay hosts two sub-views that swap with a slide/flip:
+    //   • title  — logo / tagline / PLAY
+    //   • modes  — the three mode cards
+    // Both live inside the same panel so the hyperspace exit still wraps them.
+    const titleView = el('div', 'mf-startview mf-startview-title', panel);
+    this._startTitleView = titleView;
+
     // CSS-art scene: the UFO sweeps in from off-screen on a curve, settles
     // into its bob, then switches on the beam that loops the cow.
-    const scene = el('div', 'mf-title-scene', panel);
+    const scene = el('div', 'mf-title-scene', titleView);
     const ufoFly = el('div', 'mf-ufo-fly', scene); // entrance-sweep wrapper
     const ufo = el('div', 'mf-ufo-art', ufoFly);
     el('div', 'mf-ufo-dome', ufo);
@@ -149,7 +158,7 @@ export class UI {
     el('div', 'mf-cow-tail', cow);
 
     // Logo: chunky letters, staggered boing-in, layered glow.
-    const logo = el('h1', 'mf-logo', panel);
+    const logo = el('h1', 'mf-logo', titleView);
     logo.setAttribute('aria-label', 'MOO-FO');
     'MOO-FO'.split('').forEach((ch, i) => {
       const span = el('span', ch === '-' ? 'mf-logo-ch mf-logo-dash' : 'mf-logo-ch', logo, ch);
@@ -158,13 +167,18 @@ export class UI {
 
     // Tagline, revealed by a beam-of-light wipe sweeping across it.
     // (Controls now live in Settings — no instruction clutter here.)
-    const tagWrap = el('div', 'mf-tagline-wrap', panel);
+    const tagWrap = el('div', 'mf-tagline-wrap', titleView);
     el('div', 'mf-tagline', tagWrap, 'ABDUCT ALL THE COWS');
     el('div', 'mf-tagline-beam', tagWrap);
 
-    this._bestEl = el('div', 'mf-best mf-hidden', panel);
+    this._bestEl = el('div', 'mf-best mf-hidden', titleView);
 
-    this._startBtn = button('mf-btn-primary mf-btn-start', panel, 'START', () => this._pressStart());
+    // PLAY no longer starts the game directly — it opens the mode selector.
+    this._startBtn = button('mf-btn-primary mf-btn-start', titleView, 'PLAY',
+      () => this._pressPlay());
+
+    // Mode-select sub-view (built once, hidden until PLAY is pressed).
+    this._buildModeSelect(panel);
 
     el('div', 'mf-hyper-flash', s); // hyperspace white flash (exit only)
     el('div', 'mf-vignette-static', s);
@@ -173,8 +187,108 @@ export class UI {
     this._startEl = s;
   }
 
+  /**
+   * Mode-select sub-view: three rectangular mode cards. FREE PLAY is playable
+   * and runs the normal start flow; CAMPAIGN / MULTIPLAYER are locked and show
+   * a "coming soon" pulse instead of starting. Built once, lives in the panel
+   * beside the title view, toggled by .mf-startview-on.
+   */
+  _buildModeSelect(panel) {
+    const view = el('div', 'mf-startview mf-startview-modes', panel);
+    this._startModesView = view;
+
+    const head = el('div', 'mf-modes-head', view);
+    this._modesBackBtn = button('mf-btn-back mf-modes-back', head, '◀ BACK',
+      () => this._setStartView('title'));
+    el('h2', 'mf-panel-title mf-modes-title', head, 'SELECT MODE');
+
+    const grid = el('div', 'mf-mode-grid', view);
+
+    const MODES = [
+      { key: 'campaign',    name: 'CAMPAIGN',    sub: 'Story missions across the galaxy', locked: true },
+      { key: 'multiplayer', name: 'MULTIPLAYER', sub: 'Beam-off against your friends',    locked: true },
+      { key: 'freeplay',    name: 'FREE PLAY',   sub: '90-second high-score rush',         locked: false },
+    ];
+
+    this._modeCards = {};
+    for (const m of MODES) {
+      const card = el('button', `mf-mode-card mf-mode-${m.key}${m.locked ? ' mf-mode-locked' : ''}`, grid);
+      card.type = 'button';
+      el('div', 'mf-mode-scrim', card);
+      const txt = el('div', 'mf-mode-text', card);
+      el('div', 'mf-mode-name', txt, m.name);
+      el('div', 'mf-mode-sub', txt, m.sub);
+      if (m.locked) {
+        const ribbon = el('div', 'mf-mode-ribbon', card, 'COMING SOON');
+        card.addEventListener('click', (e) => {
+          e.preventDefault();
+          this._comingSoon(card, ribbon, m.key);
+        });
+      } else {
+        card.addEventListener('click', (e) => {
+          e.preventDefault();
+          this._selectMode(m.key);
+        });
+        this._freePlayCard = card;
+      }
+      this._modeCards[m.key] = card;
+    }
+  }
+
+  /** Swap between the title and mode-select sub-views (slide/flip). */
+  _setStartView(name) {
+    if (name === this._startView) return;
+    this._startView = name;
+    const toModes = name === 'modes';
+    this._startTitleView.classList.toggle('mf-startview-on', !toModes);
+    this._startModesView.classList.toggle('mf-startview-on', toModes);
+    if (toModes) {
+      // Restart the entrance animation for the cards every time.
+      this._startModesView.classList.remove('mf-startview-anim');
+      void this._startModesView.offsetWidth;
+      this._startModesView.classList.add('mf-startview-anim');
+      (this._freePlayCard || this._modesBackBtn).focus({ preventScroll: true });
+    } else {
+      this._startBtn.focus({ preventScroll: true });
+    }
+  }
+
+  /** Locked card tapped → flash the ribbon + a brief toast, do NOT start. */
+  _comingSoon(card, ribbon, key) {
+    this.cb.onSelectMode(key); // harmless hook; does not start the game
+    ribbon.classList.remove('mf-ribbon-pulse');
+    void ribbon.offsetWidth;
+    ribbon.classList.add('mf-ribbon-pulse');
+    this._showToast('Coming soon!');
+  }
+
+  /** FREE PLAY chosen → run the normal start flow (same as old PLAY/START). */
+  _selectMode(key) {
+    this.cb.onSelectMode(key);
+    this._pressStart();
+  }
+
+  /** Brief inline toast inside the start overlay (auto-dismisses). */
+  _showToast(msg) {
+    if (!this._toastEl) {
+      this._toastEl = el('div', 'mf-toast', this._startEl);
+    }
+    const t = this._toastEl;
+    t.textContent = msg;
+    t.classList.remove('mf-toast-show');
+    void t.offsetWidth;
+    t.classList.add('mf-toast-show');
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => t.classList.remove('mf-toast-show'), 1400);
+  }
+
   showStart(highscore = 0) {
     this._startEl.classList.remove('mf-hidden', 'mf-exit');
+    // Always reset to the TITLE view (so quit-to-menu re-entry starts clean).
+    this._startView = 'title';
+    this._startTitleView.classList.add('mf-startview-on');
+    this._startModesView.classList.remove('mf-startview-on', 'mf-startview-anim');
+    if (this._toastEl) this._toastEl.classList.remove('mf-toast-show');
     if (highscore > 0) {
       this._bestEl.textContent = `🏆 BEST ${fmt(highscore)}`;
       this._bestEl.classList.remove('mf-hidden');
@@ -207,6 +321,13 @@ export class UI {
     });
   }
 
+  /** PLAY pressed → open the mode selector (does NOT start the game). */
+  _pressPlay() {
+    if (!this._startArmed) return;
+    this._setStartView('modes');
+  }
+
+  /** Actually begin the game (FREE PLAY card, or Enter on the focused card). */
   _pressStart() {
     if (!this._startArmed) return;
     this._startArmed = false;
@@ -540,7 +661,19 @@ export class UI {
       if (!confirm) return;
       if (this._startVisible) {
         e.preventDefault();
-        this._pressStart();
+        if (this._startView === 'modes') {
+          // If a specific card is focused, honour it (locked → coming soon);
+          // otherwise default to starting Free Play.
+          const focused = document.activeElement;
+          if (focused && focused.classList && focused.classList.contains('mf-mode-card')) {
+            focused.click();
+          } else {
+            this._selectMode('freeplay');
+          }
+        } else {
+          // Title view: PLAY → open the mode selector.
+          this._pressPlay();
+        }
       } else if (this._pauseVisible) {
         // A rebind capture owns the keyboard entirely.
         if (this._capturing) return;

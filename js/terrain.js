@@ -47,6 +47,23 @@ export function riverW(z) {
 const RIVER_BED = -1.8;   // channel floor, well below WATER_LEVEL
 const RIVER_BANK = 7;     // horizontal run for the bank to rise to base ground
 
+// Giant landmark mountain (NW). Too tall to fly over — the lower slopes are
+// climbable but pushing too high crashes you into the rock (see ufo.js). The
+// waterfall pours from a notch on its SE face into a plunge pool, and a short
+// stream carries that water into the reservoir lake.
+export const MOUNTAIN = { x: -300, z: -300, r: 124, peak: 108 };
+export const WFALL_POOL = { x: -232, z: -244, rx: 22, rz: 17 };
+export const WFALL_STREAM = { x1: -222, z1: -236, x2: -188, z2: -210, w: 9 };
+
+function distToSeg(px, pz, x1, z1, x2, z2) {
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const l2 = dx * dx + dz * dz || 1;
+  let t = ((px - x1) * dx + (pz - z1) * dz) / l2;
+  t = clamp01(t);
+  return Math.hypot(px - (x1 + dx * t), pz - (z1 + dz * t));
+}
+
 // Gentle interior hills — rounded bumps in the middle of the playable map
 // (NOT the big edge mountains). Added on top of the base before the flats are
 // applied, so building/pasture zones still get flattened over them.
@@ -108,6 +125,17 @@ export function terrainHeight(x, z) {
     }
   }
 
+  // giant landmark mountain — a steep cone (steeper toward the peak) with a
+  // rocky fbm texture; rises well above everything else.
+  {
+    const d = Math.hypot(x - MOUNTAIN.x, z - MOUNTAIN.z);
+    if (d < MOUNTAIN.r) {
+      const t = clamp01(1 - d / MOUNTAIN.r);
+      const cone = Math.pow(t, 1.7);
+      h += MOUNTAIN.peak * cone * (0.88 + fbm(x * 0.03 + 90, z * 0.03 + 90) * 0.24);
+    }
+  }
+
   // flatten plateaus
   for (let i = 0; i < FLATS.length; i++) {
     const f = FLATS[i];
@@ -136,6 +164,26 @@ export function terrainHeight(x, z) {
     if (d < 1) {
       const t = smooth(clamp01(1 - d));
       h = h + (-1.6 - h) * t;
+    }
+  }
+
+  // waterfall plunge pool at the mountain's foot
+  {
+    const d = Math.hypot((x - WFALL_POOL.x) / (WFALL_POOL.rx + 10),
+                         (z - WFALL_POOL.z) / (WFALL_POOL.rz + 10));
+    if (d < 1) {
+      const t = smooth(clamp01(1 - d));
+      h = h + (-1.9 - h) * t;
+    }
+  }
+
+  // stream carrying the pool's overflow into the reservoir lake
+  {
+    const s = WFALL_STREAM;
+    const dd = distToSeg(x, z, s.x1, s.z1, s.x2, s.z2);
+    if (dd < s.w / 2 + RIVER_BANK) {
+      const t = dd <= s.w / 2 ? 1 : smooth(clamp01(1 - (dd - s.w / 2) / RIVER_BANK));
+      h = h + (RIVER_BED - h) * t;
     }
   }
 

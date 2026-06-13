@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { CFG, COLORS, ENABLE_SHADOWS } from './config.js';
-import { terrainHeight, riverX, riverW, WATER_LEVEL } from './terrain.js';
+import { terrainHeight, riverX, riverW, WATER_LEVEL, MOUNTAIN, WFALL_POOL, WFALL_STREAM } from './terrain.js';
 import * as M from './models.js';
 
 const H = CFG.MAP_HALF;
@@ -45,6 +45,30 @@ function makeFlowTexture() {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(1, 6);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Vertical whitewater streaks for the waterfall sheet — opaque so the sheet
+// stays bright; scrolled downward fast for a rushing-water read.
+function makeFallTexture() {
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#dff1ff';
+  ctx.fillRect(0, 0, 32, 64);
+  for (let i = 0; i < 10; i++) {
+    ctx.strokeStyle = i % 2 ? '#ffffff' : '#b6dcf7';
+    ctx.lineWidth = 1 + Math.random() * 2;
+    const x = Math.random() * 32;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + (Math.random() - 0.5) * 4, 64);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 4);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
@@ -109,7 +133,9 @@ export class World {
     this._buildFields();
     this._buildPastures();
     this._buildForestRing();
+    this._buildMountainDecor();
     this._buildScatter();
+    this._buildRiverDetail();
     this._buildGrass();
     this._buildRoadLanterns();
     this._buildTractor();
@@ -249,7 +275,136 @@ export class World {
       this.duckAreas.push({ x: p.x, z: p.z, rx: p.r * 0.7, rz: p.r * 0.55 });
     }
     this.duckAreas.push({ x: lake.x, z: lake.z, rx: lake.rx * 0.6, rz: lake.rz * 0.55 });
+
+    // waterfall plunge pool + the stream that carries its overflow to the lake
+    this._addEllipseWater(WFALL_POOL.x, WFALL_POOL.z, WFALL_POOL.rx, WFALL_POOL.rz, waterMat);
+    this._map.ponds.push({ x: WFALL_POOL.x, z: WFALL_POOL.z, r: WFALL_POOL.rx });
+    this._addStreamWater(WFALL_STREAM, waterMat, flowTex);
+    this._buildWaterfall();
+
     this._ponds = ponds;
+  }
+
+  // A straight water strip along a segment (the pool→lake stream).
+  _addStreamWater(s, mat, flowTex) {
+    const dx = s.x2 - s.x1;
+    const dz = s.z2 - s.z1;
+    const len = Math.hypot(dx, dz);
+    const ux = dx / len;
+    const uz = dz / len;
+    const nx = -uz;
+    const nz = ux;
+    const half = s.w / 2 + 0.5;
+    const steps = Math.max(2, Math.ceil(len / 5));
+    const pos = [];
+    const uv = [];
+    const idx = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const cx = s.x1 + dx * t;
+      const cz = s.z1 + dz * t;
+      pos.push(cx + nx * half, WATER_Y, cz + nz * half, cx - nx * half, WATER_Y, cz - nz * half);
+      uv.push(0, (len * t) / 12, 1, (len * t) / 12);
+      if (i > 0) {
+        const a = (i - 1) * 2;
+        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+      this._stampWaterCircle(cx, cz, half + 1, 4);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat);
+    m.receiveShadow = ENABLE_SHADOWS;
+    this.scene.add(m);
+  }
+
+  // The waterfall: a cascading sheet down the mountain's SE face into the pool,
+  // foam crest at the top, and a persistent splash + mist cloud at the base.
+  _buildWaterfall() {
+    const top = { x: -276, z: -280 };          // a notch high on the SE face
+    const base = { x: WFALL_POOL.x, z: WFALL_POOL.z };
+    const topY = terrainHeight(top.x, top.z);   // high up the cone
+    const baseY = WATER_Y;
+    const dx = base.x - top.x;
+    const dz = base.z - top.z;
+    const horiz = Math.hypot(dx, dz);
+    const ux = dx / horiz;
+    const uz = dz / horiz;
+    const nx = -uz;                              // across-flow
+    const nz = ux;
+
+    const sheetMat = new THREE.MeshLambertMaterial({
+      color: 0xdff1ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide,
+    });
+    sheetMat.emissive = new THREE.Color(0xbfe2ff);
+    sheetMat.emissiveIntensity = 0.5;
+    this._wfallMat = sheetMat;
+
+    // cascade hugging the slope from the notch down to the pool
+    const steps = 16;
+    const width = 6;
+    const pos = [];
+    const uv = [];
+    const idx = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const cx = top.x + dx * t;
+      const cz = top.z + dz * t;
+      const groundHere = terrainHeight(cx, cz);
+      const y = (i === steps) ? baseY + 0.4 : Math.max(groundHere + 0.35, baseY + 0.4);
+      pos.push(cx + nx * width / 2, y, cz + nz * width / 2, cx - nx * width / 2, y, cz - nz * width / 2);
+      uv.push(0, t * 6, 1, t * 6);
+      if (i > 0) {
+        const a = (i - 1) * 2;
+        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const fallTex = makeFallTexture();
+    this._wfallTex = fallTex;
+    sheetMat.map = fallTex;
+    const sheet = new THREE.Mesh(geo, sheetMat);
+    this.scene.add(sheet);
+
+    // persistent splash: a puff of white particles bobbing at the base
+    const N = 60;
+    const sp = new Float32Array(N * 3);
+    this._splashBase = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * 6;
+      const x = base.x + Math.cos(a) * r;
+      const z = base.z + Math.sin(a) * r;
+      sp[i * 3] = this._splashBase[i * 3] = x;
+      sp[i * 3 + 1] = this._splashBase[i * 3 + 1] = baseY + Math.random() * 4;
+      sp[i * 3 + 2] = this._splashBase[i * 3 + 2] = z;
+    }
+    const sgeo = new THREE.BufferGeometry();
+    sgeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+    const smat = new THREE.PointsMaterial({
+      color: 0xffffff, size: 4, sizeAttenuation: true, transparent: true,
+      opacity: 0.85, depthWrite: false,
+    });
+    this._splash = new THREE.Points(sgeo, smat);
+    this.scene.add(this._splash);
+
+    // mist column hint
+    const mist = new THREE.Mesh(
+      new THREE.CylinderGeometry(5.5, 3, 9, 10, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xeaf6ff, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide })
+    );
+    mist.position.set(base.x, baseY + 4.5, base.z);
+    this.scene.add(mist);
+
+    // sound anchor for main.js proximity loop
+    this.waterfallPos = { x: base.x, y: baseY + 2, z: base.z };
   }
 
   _addEllipseWater(x, z, rx, rz, mat) {
@@ -788,11 +943,11 @@ export class World {
       tufts.push({ x, z, rotY: Math.random() * Math.PI * 2, s: 0.7 + Math.random() * 0.9 });
     };
     // loose fill
-    for (let i = 0; i < 900; i++) {
+    for (let i = 0; i < 1400; i++) {
       tryAdd((Math.random() * 2 - 1) * (H - 20), (Math.random() * 2 - 1) * (H - 20));
     }
     // denser clumps
-    for (let p = 0; p < 40; p++) {
+    for (let p = 0; p < 64; p++) {
       const cx = (Math.random() * 2 - 1) * (H - 60);
       const cz = (Math.random() * 2 - 1) * (H - 60);
       const n = 6 + ((Math.random() * 8) | 0);
@@ -801,6 +956,131 @@ export class World {
       }
     }
     this._instance(makeGrassTuft(), tufts);
+  }
+
+  // Clothe the giant mountain: pines + a few oaks on the lower slopes, boulders
+  // on the mid slopes, bare rock/snow up top (from the ground shader). Steep
+  // colliders near the base so a low pass clips the rock.
+  _buildMountainDecor() {
+    const pines = [];
+    const oaks = [];
+    const rocks = [];
+    for (let i = 0; i < 240; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = 18 + Math.random() * (MOUNTAIN.r - 24);
+      const x = MOUNTAIN.x + Math.cos(a) * rr;
+      const z = MOUNTAIN.z + Math.sin(a) * rr;
+      if (Math.abs(x) > H - 6 || Math.abs(z) > H - 6) continue;
+      if (this.isWater(x, z)) continue;
+      const h = terrainHeight(x, z);
+      if (h < 4) continue;
+      if (h < 30) {
+        (Math.random() < 0.78 ? pines : oaks).push(
+          { x, z, rotY: Math.random() * Math.PI * 2, s: 0.7 + Math.random() * 0.55 });
+        if (rr < 40) this.colliders.push({ x, z, r: 1.5, h: h + 8 });
+      } else if (h < 64) {
+        rocks.push({ x, z, rotY: Math.random() * Math.PI * 2, s: 1.3 + Math.random() * 1.8 });
+      }
+    }
+    this._instance(M.createTree(1), pines);
+    this._instance(M.createTree(0), oaks);
+    this._instance(M.createRock(0), rocks);
+  }
+
+  // More life and craft along the water: a working water mill beside the dam,
+  // docks on the lake and a pond, drifting logs in the river, reed clusters,
+  // and a railed dam crest with a spillway sheet on the downstream face.
+  _buildRiverDetail() {
+    const dam = this._map.dam;
+
+    // water mill on the bank just beside the dam, wheel over the spillway
+    const millX = dam.x + dam.len / 2 + 3;
+    const millZ = dam.z + 2;
+    const mill = M.createWaterMill();
+    mill.position.set(millX, terrainHeight(millX, millZ), millZ);
+    mill.rotation.y = -Math.PI / 2;
+    this.scene.add(mill);
+    this._blockers.push({ x: millX, z: millZ, r: 3 });
+    this.colliders.push({ x: millX, z: millZ, r: 2.4, h: terrainHeight(millX, millZ) + 4 });
+    this._anim.watermillWheel = mill.userData.wheel || null;
+    this._map.buildings.push({ x: millX, z: millZ, w: 4, d: 4, color: '#9c7a4d' });
+
+    // dam railing + downstream spillway sheet
+    this._buildDamDetail(dam);
+
+    // docks reaching into the lake and the SE pond
+    const lake = this._map.lake;
+    this._placeDock(lake.x + lake.rx * 0.5, lake.z + lake.rz * 0.4, Math.atan2(-lake.rx, -lake.rz));
+    if (this._ponds[0]) this._placeDock(this._ponds[0].x - this._ponds[0].r * 0.6, this._ponds[0].z, Math.PI / 2);
+
+    // drifting + bobbing logs in the river
+    this._anim.logs = [];
+    for (let i = 0; i < 5; i++) {
+      const z = -260 + i * 110 + (Math.random() - 0.5) * 40;
+      const log = M.createLog();
+      log.rotation.y = Math.random() * Math.PI * 2;
+      this.scene.add(log);
+      const e = { group: log, z, speed: 3 + Math.random() * 2.5, phase: Math.random() * 6 };
+      this._placeLog(e, 0);
+      this._anim.logs.push(e);
+    }
+
+    // reed clusters hugging the banks
+    const reeds = [];
+    for (let z = -H + 60; z < H - 60; z += 26) {
+      for (const side of [-1, 1]) {
+        const x = riverX(z) + side * (riverW(z) / 2 + 1.5 + Math.random() * 2);
+        if (!this.isWater(x, z) && terrainHeight(x, z) < 2) {
+          reeds.push({ x, z, rotY: Math.random() * Math.PI, s: 0.8 + Math.random() * 0.5 });
+        }
+      }
+    }
+    this._instance(M.createCattail(), reeds);
+  }
+
+  _placeDock(x, z, rotY) {
+    const dock = M.createDock();
+    dock.position.set(x, WATER_Y, z);
+    dock.rotation.y = rotY;
+    this.scene.add(dock);
+    this._blockers.push({ x, z, r: 3 });
+  }
+
+  _placeLog(e, dt) {
+    e.z += e.speed * dt;
+    if (e.z > H - 40) e.z = -H + 40;
+    const x = riverX(e.z);
+    e.group.position.set(x, WATER_Y, e.z);
+  }
+
+  _buildDamDetail(dam) {
+    const y = this.groundY(dam.x, dam.z);   // riverbed under the dam
+    const crestY = y + 9;
+    const railMat = M.mat(COLORS.woodDark);
+    const n = Math.floor(dam.len / 3);
+    for (let i = 0; i <= n; i++) {
+      const x = dam.x - dam.len / 2 + i * 3;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 0.2), railMat);
+      post.position.set(x, crestY + 0.6, dam.z + 4.2);
+      this.scene.add(post);
+    }
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(dam.len, 0.16, 0.16), railMat);
+    rail.position.set(dam.x, crestY + 1.1, dam.z + 4.2);
+    this.scene.add(rail);
+
+    // spillway sheet pouring down the downstream face
+    const spillMat = new THREE.MeshLambertMaterial({
+      color: 0xdff1ff, transparent: true, opacity: 0.85, side: THREE.DoubleSide,
+    });
+    spillMat.emissive = new THREE.Color(0xbfe2ff);
+    spillMat.emissiveIntensity = 0.5;
+    const tex = makeFallTexture();
+    spillMat.map = tex;
+    this._anim.spillTex = tex;
+    const spill = new THREE.Mesh(new THREE.PlaneGeometry(dam.len - 4, 9), spillMat);
+    spill.position.set(dam.x, crestY - 4, dam.z + 3.6);
+    spill.rotation.x = -0.18;
+    this.scene.add(spill);
   }
 
   // ---------------------------------------------------------------- tractor
@@ -869,6 +1149,28 @@ export class World {
       { x: 244, z: -240 },
       { x: -190, z: -80 },
     ];
+  }
+
+  // A fresh open spawn each round: dry, low ground, clear of props, water,
+  // the mountain and farmer patrols.
+  randomSpawn() {
+    for (let i = 0; i < 80; i++) {
+      const x = (Math.random() * 2 - 1) * 260;
+      const z = (Math.random() * 2 - 1) * 260;
+      if (this.isWater(x, z)) continue;
+      if (terrainHeight(x, z) > 16) continue;          // not up the mountain
+      let ok = true;
+      for (const b of this._blockers) {
+        if ((x - b.x) ** 2 + (z - b.z) ** 2 < (b.r + 5) ** 2) { ok = false; break; }
+      }
+      if (!ok) continue;
+      for (const f of this.farmerSpawns) {
+        if ((x - f.x) ** 2 + (z - f.z) ** 2 < 32 * 32) { ok = false; break; }
+      }
+      if (!ok) continue;
+      return { x, z };
+    }
+    return { x: 0, z: 40 };
   }
 
   goldenCowSpot() {
@@ -962,6 +1264,25 @@ export class World {
     if (this._flowTex) {
       this._flowTex.offset.y = (this._flowTex.offset.y - dt * 0.35) % 1;
       this._flowTex.offset.x = Math.sin(elapsed * 0.6) * 0.04;
+    }
+    // waterfall sheet + dam spillway rush downward; splash bobs at the base
+    if (this._wfallTex) this._wfallTex.offset.y = (this._wfallTex.offset.y - dt * 2.4) % 1;
+    if (this._anim.spillTex) this._anim.spillTex.offset.y = (this._anim.spillTex.offset.y - dt * 2.1) % 1;
+    if (this._splash) {
+      const arr = this._splash.geometry.attributes.position.array;
+      const base = this._splashBase;
+      for (let i = 1; i < arr.length; i += 3) {
+        arr[i] = base[i] + Math.abs(Math.sin(elapsed * 3 + i)) * 1.7;
+      }
+      this._splash.geometry.attributes.position.needsUpdate = true;
+    }
+    if (this._anim.watermillWheel) this._anim.watermillWheel.rotation.x += dt * 1.1;
+    if (this._anim.logs) {
+      for (const e of this._anim.logs) {
+        this._placeLog(e, dt);
+        e.group.position.y = WATER_Y + Math.sin(elapsed * 1.4 + e.phase) * 0.13; // bob
+        e.group.rotation.z = Math.sin(elapsed * 0.9 + e.phase) * 0.06;
+      }
     }
     for (const l of a.lilies) {
       l.mesh.position.y = WATER_Y + 0.06 + Math.sin(elapsed * 1.6 + l.phase) * 0.05;

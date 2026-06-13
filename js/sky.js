@@ -46,7 +46,7 @@ export class Sky {
     this.scene = scene;
 
     scene.background = new THREE.Color(COLORS.night);
-    scene.fog = new THREE.Fog(COLORS.fog, 60, 420);
+    scene.fog = new THREE.Fog(COLORS.fog, 90, 720);  // far enough to see the giant mountain loom
 
     // ------------------------------------------------------------ lighting
     this.hemi = new THREE.HemisphereLight(COLORS.hemiSky, COLORS.hemiGround, 0.85);

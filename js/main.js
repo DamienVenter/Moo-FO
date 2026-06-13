@@ -72,7 +72,6 @@ let comboTimer = 0;
 
 let shake = 0;
 let endDelay = 0;
-let dangerLevel = -1;        // last music chase-layer bucket pushed to audio
 
 const HS_KEY = 'moofo-highscore';
 const getHighscore = () => Number(localStorage.getItem(HS_KEY) || 0);
@@ -145,9 +144,12 @@ function resetRound() {
   comboCount = 0;
   comboTimer = 0;
   shake = 0;
-  ufo.reset(0, 40);
-  ufo.heading = Math.PI;       // face north, camera settles behind
-  camYaw = Math.PI;
+  // Fresh random spawn over open ground every round.
+  const sp = world.randomSpawn();
+  ufo.reset(sp.x, sp.z);
+  const faceCenter = Math.atan2(-sp.x, -sp.z);  // look roughly toward the farm
+  ufo.heading = faceCenter;
+  camYaw = faceCenter;
   orbitOffset = 0;
   spawnEntities();
 }
@@ -171,7 +173,6 @@ const hud = new HUD(world);
 async function startGame() {
   await audio.init();
   audio.play('start', { volume: 0.9 });
-  audio.playMusic('music_title', { fade: 0.4 });   // theme rides the hyperspace exit
   await ui.hideStart();
   beginRound();
 }
@@ -180,9 +181,6 @@ async function beginRound() {
   resetRound();
   hud.show();
   hud.update({ score, timeLeft, health: ufo.health, combo: 0, warpEnergy: ufo.warpEnergy, cows: 0 });
-  audio.playMusic('music_play', { fade: 1.0 });     // crossfade theme → gameplay groove
-  audio.setMusicIntensity(0, { fade: 0.2 });
-  dangerLevel = -1;
   state = State.COUNTDOWN;
   await ui.countdown();
   state = State.PLAYING;
@@ -194,8 +192,7 @@ function togglePause() {
     state = State.PAUSED;
     ufo.forceStopBeam();
     audio.play('click', { volume: 0.6 });
-    audio.setMusicIntensity(0, { fade: 0.3 });   // drop the tension layer while paused
-    dangerLevel = -1;
+    audio.stopLoop('waterfall');
     ui.showPause(audio.muted);
     controls.setTouchVisible(false);
   } else if (state === State.PAUSED) {
@@ -212,9 +209,7 @@ function quitToMenu() {
   hud.hide();
   controls.setTouchVisible(false);
   ufo.forceStopBeam();
-  audio.playMusic('music_title', { fade: 0.8 });   // back to the theme on the menu
-  audio.setMusicIntensity(0, { fade: 0.3 });
-  dangerLevel = -1;
+  audio.stopLoop('waterfall');
   state = State.MENU;
   resetRound();
   ui.showStart(getHighscore());
@@ -223,9 +218,7 @@ function quitToMenu() {
 function finishRound(won) {
   hud.hide();
   controls.setTouchVisible(false);
-  audio.playMusic('music_title', { fade: 0.6 });   // theme returns under the results
-  audio.setMusicIntensity(0, { fade: 0.3 });
-  dangerLevel = -1;
+  audio.stopLoop('waterfall');
   const best = getHighscore();
   const isNewBest = score > best;
   if (isNewBest) setHighscore(score);
@@ -248,6 +241,30 @@ function finishRound(won) {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state === State.PLAYING) togglePause();
 });
+
+// Iconic boot jingle: play it the instant the player first interacts (the
+// earliest moment the browser lets us make sound) on the title screen.
+let _bootJingle = false;
+function bootJingle() {
+  if (_bootJingle) return;
+  _bootJingle = true;
+  audio.init().then(() => audio.play('jingle', { volume: 0.85 })).catch(() => {});
+}
+window.addEventListener('pointerdown', bootJingle, { once: true });
+window.addEventListener('keydown', bootJingle, { once: true });
+
+// Waterfall ambience: a proximity loop that swells as you near the falls.
+function updateWaterfallSound() {
+  const wf = world.waterfallPos;
+  if (!wf) return;
+  let vol = 0;
+  if (state === State.PLAYING || state === State.COUNTDOWN) {
+    const d = Math.hypot(ufo.group.position.x - wf.x, ufo.group.position.z - wf.z);
+    vol = Math.max(0, 1 - d / 72) * 0.7;
+  }
+  if (vol > 0.02) audio.startLoop('waterfall', { volume: vol });
+  else audio.stopLoop('waterfall');
+}
 
 // ---------------------------------------------------------------------------
 // Chase camera with manual orbit (Q/E, right stick, mouse drag)
@@ -296,12 +313,13 @@ function updateCamera(dt) {
 
   camPos.set(
     p.x - fx * CFG.CAM_DIST,
-    p.y + CFG.CAM_HEIGHT * 0.82 + (state === State.ESCAPE ? p.y * 0.4 : 0),
+    p.y + CFG.CAM_HEIGHT * 0.72 + (state === State.ESCAPE ? p.y * 0.4 : 0),
     p.z - fz * CFG.CAM_DIST
   );
   camera.position.lerp(camPos, 1 - Math.exp(-dt * 5));
 
-  camTarget.lerp(new THREE.Vector3(p.x + fx * 5, p.y - 3, p.z + fz * 5), 1 - Math.exp(-dt * 6));
+  // Look a touch above the ship so the horizon (and the giant mountain) show.
+  camTarget.lerp(new THREE.Vector3(p.x + fx * 9, p.y + 3, p.z + fz * 9), 1 - Math.exp(-dt * 6));
 
   if (shake > 0.001) {
     shake *= Math.exp(-dt * 6);
@@ -369,15 +387,6 @@ function frame() {
       if (comboTimer <= 0) comboCount = 0;
     }
 
-    // Music tension layer follows how many farmers are after you.
-    let aggro = 0;
-    for (const f of farmers.farmers) if (f.state === 'shoot' || f.state === 'chase') aggro++;
-    const lvl = aggro >= 2 ? 1 : aggro === 1 ? 0.55 : 0;
-    if (lvl !== dangerLevel) {
-      dangerLevel = lvl;
-      audio.setMusicIntensity(lvl);
-    }
-
     timeLeft -= dt;
     const sec = Math.ceil(timeLeft);
     if (timeLeft <= CFG.TICK_WARN_TIME && sec !== lastTickSecond && sec > 0) {
@@ -432,6 +441,7 @@ function frame() {
     if (endDelay > 2.2) finishRound(true);
   }
 
+  updateWaterfallSound();
   updateCamera(dt);
   renderer.render(scene, camera);
 }

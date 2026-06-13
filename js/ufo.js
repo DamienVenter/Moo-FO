@@ -322,11 +322,21 @@ export class UFO {
     this.group.position.z = pz;
 
     // ---- altitude: terrain-following + hover bob + warp rise - hit dip ----
+    // Capped at UFO_MAX_ALT so foothills are climbable but the giant mountain
+    // can't be flown over; if the real terrain rises within MOUNTAIN_CLEARANCE
+    // of the hull, you've flown into the rock — crash.
     const gTarget = terrainMaxAround(px, pz, 3);
     this._groundY += (gTarget - this._groundY) * Math.min(1, dt * (gTarget > this._groundY ? 7 : 2.5));
     this._warpRise += ((this.warping ? 1.5 : 0) - this._warpRise) * Math.min(1, dt * 3);
-    this.group.position.y =
-      this._groundY + CFG.UFO_ALTITUDE + Math.sin(this._t * 1.7) * 0.35 + this._warpRise - this._bobKick;
+    const bob = Math.sin(this._t * 1.7) * 0.35;
+    let desiredY = this._groundY + CFG.UFO_ALTITUDE + bob + this._warpRise - this._bobKick;
+    const capY = CFG.UFO_MAX_ALT + bob + this._warpRise;
+    if (desiredY > capY) desiredY = capY;
+    this.group.position.y = desiredY;
+    if (gTarget > this.group.position.y - CFG.MOUNTAIN_CLEARANCE) {
+      this.startCrash();
+      return;
+    }
 
     // ---- heading (minimap arrow), shortest-arc smoothing ----
     if (speed > 1.2) {

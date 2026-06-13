@@ -23,6 +23,8 @@ export const CFG = Object.freeze({
 
   // UFO
   UFO_ALTITUDE: 11,          // height above the terrain underneath
+  UFO_MAX_ALT: 42,           // hard altitude ceiling — you can climb foothills,
+  MOUNTAIN_CLEARANCE: 3.4,   // but terrain rising within this of the ship = crash
   UFO_SPEED: 26,             // max speed, units/s
   UFO_ACCEL: 60,
   UFO_FRICTION: 4.5,         // velocity damping /s when no input
