@@ -339,12 +339,20 @@ const camPos = new THREE.Vector3();
 let camYaw = Math.PI;        // yaw the camera sits behind
 let orbitOffset = 0;         // player's manual offset from the chase yaw
 let menuAngle = 0;
+let freeCam = null;          // cinematic camera override for promo captures
 
 function wrapAngle(a) {
   return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
 }
 
 function updateCamera(dt) {
+  if (freeCam) {   // debug/cinematic override (used for capturing promo art)
+    camera.position.set(freeCam.pos[0], freeCam.pos[1], freeCam.pos[2]);
+    camera.lookAt(freeCam.look[0], freeCam.look[1], freeCam.look[2]);
+    camera.fov = freeCam.fov || BASE_FOV;
+    camera.updateProjectionMatrix();
+    return;
+  }
   if (state === State.MENU) {
     menuAngle += dt * 0.08;
     const r = 70;
@@ -549,6 +557,8 @@ window.__MOOFO = {
   get target() { return target; },
   get campaign() { return campaign; },
   addScore(n) { score += n; },   // test hook
+  setFreeCam(pos, look, fov) { freeCam = { pos, look, fov }; },
+  clearFreeCam() { freeCam = null; },
 };
 
 resetRound();

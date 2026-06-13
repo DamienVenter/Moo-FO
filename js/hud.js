@@ -13,6 +13,23 @@ import { CFG } from './config.js';
 
 const HEALTH_SEGS = 10;
 
+// Crisp inline-SVG icons (no emojis anywhere in the HUD).
+const COW_SVG =
+  '<svg width="20" height="17" viewBox="0 0 20 17" aria-hidden="true">' +
+  '<path d="M3 3 Q1 1 2 5 Z" fill="#2b2b2b"/><path d="M17 3 Q19 1 18 5 Z" fill="#2b2b2b"/>' +
+  '<ellipse cx="10" cy="9" rx="6.6" ry="5.4" fill="#f5f5f0"/>' +
+  '<ellipse cx="6.4" cy="6.6" rx="2" ry="1.5" fill="#2b2b2b"/>' +
+  '<ellipse cx="13.8" cy="10.8" rx="1.5" ry="1.1" fill="#2b2b2b"/>' +
+  '<circle cx="8" cy="8.4" r="0.9" fill="#2b2b2b"/><circle cx="12" cy="8.4" r="0.9" fill="#2b2b2b"/>' +
+  '<ellipse cx="10" cy="12" rx="3.2" ry="2.2" fill="#f2a9b8"/>' +
+  '<circle cx="8.7" cy="12.1" r="0.6" fill="#c97a8c"/><circle cx="11.3" cy="12.1" r="0.6" fill="#c97a8c"/>' +
+  '</svg>';
+const TARGET_SVG =
+  '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="vertical-align:-2px;margin-right:5px">' +
+  '<circle cx="8" cy="8" r="7" fill="none" stroke="#7cfc9a" stroke-width="2"/>' +
+  '<circle cx="8" cy="8" r="3.4" fill="none" stroke="#7cfc9a" stroke-width="2"/>' +
+  '<circle cx="8" cy="8" r="1.1" fill="#7cfc9a"/></svg>';
+
 // Day-phase tints — forwarded to end-screen backdrops via --mf-phase-glow.
 const CLOCK_TINTS = {
   NIGHT: '#7aa2ff',   // soft blue
@@ -66,7 +83,8 @@ export class HUD {
     this._scoreEl = el('div', 'mf-score', scoreWrap, '0');
     const chipRow = el('div', 'mf-chip-row', scoreWrap);
     const chip = el('div', 'mf-cow-chip', chipRow);
-    el('span', 'mf-cow-chip-ico', chip, '🐄');
+    const cowIco = el('span', 'mf-cow-chip-ico', chip);
+    cowIco.innerHTML = COW_SVG;
     this._cowsEl = el('span', 'mf-cow-chip-n', chip, '×0');
     this._comboEl = el('div', 'mf-combo mf-hidden', chipRow, '×2');
 
@@ -84,6 +102,8 @@ export class HUD {
       padding: '5px 12px', whiteSpace: 'nowrap', pointerEvents: 'none',
       textShadow: '0 1px 2px rgba(0,0,0,0.6)',
     });
+    this._goalEl.innerHTML = TARGET_SVG;
+    this._goalTxt = el('span', '', this._goalEl, '');
 
     // --- Bars (bottom-left) ---
     const bars = el('div', 'mf-bars', root);
@@ -148,35 +168,6 @@ export class HUD {
     this._mctx.drawImage(this._mapStatic, 0, 0, size, size);
   }
 
-  /**
-   * Day-cycle clock — a small semicircular arc dial. Lives OUTSIDE the HUD
-   * root (own element on document.body) so it stays visible through menus,
-   * pause and end screens; z-index sits above every overlay, pointer-events
-   * none. Hidden until the first updateClock() call arrives.
-   */
-  _buildClock() {
-    const root = el('div', 'mf-clock mf-clock-idle');
-    root.id = 'mf-clock';
-
-    const dial = el('div', 'mf-clock-dial', root);
-    el('div', 'mf-clock-horizon', dial);
-    this._sunEl = el('div', 'mf-clock-marker mf-clock-sun', dial, '☀️');
-    this._moonEl = el('div', 'mf-clock-marker mf-clock-moon', dial, '🌙');
-
-    const label = el('div', 'mf-clock-name', root);
-    this._clockIconEl = el('span', 'mf-clock-ico', label, '');
-    this._clockNameEl = el('span', 'mf-clock-txt', label, '');
-
-    // Desktop docking: directly below the minimap (wrap = size + 12px chrome,
-    // top 10px, 8px gap). Small screens reposition via media query in CSS.
-    root.style.setProperty('--mf-clock-top', `${10 + this._mapSize + 12 + 8}px`);
-
-    document.body.appendChild(root);
-    this._clockEl = root;
-    this._clockQ = null;     // last phase, quantized to CLOCK_STEP
-    this._clockName = null;  // last phase name
-  }
-
   // ======================================================================
   // Public API
   // ======================================================================
@@ -188,7 +179,7 @@ export class HUD {
   update({ score, timeLeft, health, combo, warpEnergy, cows, goal } = {}) {
     const p = this._prev;
 
-    // Campaign goal pill: "🎯 score / target", greener once the goal is hit.
+    // Campaign goal pill (target icon + "score / target"); greener once hit.
     if (typeof goal === 'number') {
       const on = goal > 0;
       if (on !== p.goalOn) {
@@ -198,7 +189,7 @@ export class HUD {
       }
       if (on) {
         const sc = typeof score === 'number' ? score : 0;
-        this._goalEl.textContent = `🎯 ${sc.toLocaleString('en-US')} / ${goal.toLocaleString('en-US')}`;
+        this._goalTxt.textContent = `${sc.toLocaleString('en-US')} / ${goal.toLocaleString('en-US')}`;
         const hit = sc >= goal;
         if (hit !== p.goalHit) {
           p.goalHit = hit;

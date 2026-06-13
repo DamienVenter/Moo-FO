@@ -246,11 +246,11 @@ export class Controls {
     this._btnWarp = document.createElement('button');
     this._btnWarp.type = 'button';
     this._btnWarp.className = 'mf-hold-btn mf-hold-warp';
-    this._btnWarp.innerHTML = '<span class="mf-hold-ico">⚡</span><span class="mf-hold-txt">WARP</span>';
+    this._btnWarp.innerHTML = '<span class="mf-hold-ico"><svg width="16" height="22" viewBox="0 0 16 22" aria-hidden="true"><polygon points="9,0 1,12 7,12 5,22 15,8 9,8" fill="#ffe14d"/></svg></span><span class="mf-hold-txt">WARP</span>';
     this._btnBeam = document.createElement('button');
     this._btnBeam.type = 'button';
     this._btnBeam.className = 'mf-hold-btn mf-hold-beam';
-    this._btnBeam.innerHTML = '<span class="mf-hold-ico">🛸</span><span class="mf-hold-txt">BEAM</span>';
+    this._btnBeam.innerHTML = '<span class="mf-hold-ico"><svg width="28" height="18" viewBox="0 0 28 18" aria-hidden="true"><ellipse cx="14" cy="11" rx="13" ry="4.6" fill="#9aa7b8"/><ellipse cx="14" cy="8" rx="6.5" ry="4.8" fill="#7ce8ff"/><circle cx="6" cy="11.4" r="1.2" fill="#7cfc9a"/><circle cx="14" cy="12.6" r="1.2" fill="#7cfc9a"/><circle cx="22" cy="11.4" r="1.2" fill="#7cfc9a"/></svg></span><span class="mf-hold-txt">BEAM</span>';
     btns.appendChild(this._btnWarp);
     btns.appendChild(this._btnBeam);
 
@@ -258,7 +258,7 @@ export class Controls {
     this._btnPause.type = 'button';
     this._btnPause.className = 'mf-touch-pause';
     this._btnPause.setAttribute('aria-label', 'Pause');
-    this._btnPause.textContent = '⏸';
+    this._btnPause.innerHTML = '<svg width="20" height="22" viewBox="0 0 20 22" aria-hidden="true"><rect x="3" y="2" width="5" height="18" rx="1.5" fill="#fff"/><rect x="12" y="2" width="5" height="18" rx="1.5" fill="#fff"/></svg>';
     root.appendChild(this._btnPause);
 
     document.body.appendChild(root);
