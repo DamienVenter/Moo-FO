@@ -145,8 +145,52 @@ button {
   box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35);
 }
 
-.mf-btn-mute { border-color: rgba(179, 136, 255, 0.6); }
+.mf-btn-mute {
+  border-color: rgba(179, 136, 255, 0.6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
 .mf-btn-mute.mf-muted { filter: saturate(0.4) brightness(0.85); }
+.mf-mute-txt { line-height: 1; }
+
+/* drawn speaker icon (CSS art) — replaces the old speaker emoji.
+   A trapezoid cone + a body, plus sound waves (on) or a cross-out (off). */
+.mf-spk {
+  position: relative;
+  width: 18px;
+  height: 16px;
+  flex: 0 0 18px;
+}
+.mf-spk::before {          /* speaker body + cone */
+  content: '';
+  position: absolute;
+  left: 0; top: 4px;
+  width: 5px; height: 8px;
+  background: currentColor;
+  border-radius: 1px;
+  box-shadow: 5px -3px 0 -1px currentColor;   /* approximate cone flare */
+  clip-path: polygon(0 0, 100% -40%, 100% 140%, 0 100%);
+}
+.mf-spk::after {           /* sound waves (visible when ON) */
+  content: '';
+  position: absolute;
+  left: 9px; top: 3px;
+  width: 6px; height: 10px;
+  border: 2px solid currentColor;
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  opacity: 0.95;
+}
+.mf-spk.mf-spk-off::after {  /* OFF: hide waves, show a slash */
+  border: none;
+  border-radius: 0;
+  width: 14px; height: 2px;
+  left: 3px; top: 7px;
+  background: var(--mf-danger);
+  transform: rotate(-32deg);
+}
 
 .mf-btn-col {
   display: flex;
@@ -1057,6 +1101,9 @@ button {
 }
 
 .mf-best {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 18px;
   border: 2px solid rgba(255, 213, 79, 0.55);
   border-radius: 999px;
@@ -1067,6 +1114,34 @@ button {
   color: var(--mf-gold);
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
   box-shadow: 0 0 14px rgba(255, 213, 79, 0.25);
+}
+.mf-best-txt { line-height: 1; }
+/* drawn mini trophy (CSS art) — replaces the old trophy emoji */
+.mf-best-cup {
+  position: relative;
+  width: 15px;
+  height: 16px;
+  flex: 0 0 15px;
+}
+.mf-best-cup::before {     /* cup bowl */
+  content: '';
+  position: absolute;
+  left: 2px; top: 0; width: 11px; height: 9px;
+  background: var(--mf-gold);
+  border-radius: 3px 3px 7px 7px;
+  box-shadow: 0 0 6px rgba(255, 213, 79, 0.7);
+}
+.mf-best-cup::after {      /* handles + stem + base */
+  content: '';
+  position: absolute;
+  left: 6px; top: 9px; width: 3px; height: 4px;
+  background: var(--mf-gold);
+  box-shadow:
+    -6px -7px 0 -1px var(--mf-gold),   /* left handle ring (approx) */
+    6px -7px 0 -1px var(--mf-gold),    /* right handle ring (approx) */
+    0 5px 0 -1px var(--mf-gold),       /* base */
+    -3px 6px 0 -1px var(--mf-gold),
+    3px 6px 0 -1px var(--mf-gold);
 }
 
 .mf-btn-start {
@@ -1178,26 +1253,20 @@ button {
 
 /* per-card background images + a tasteful gradient FALLBACK colour behind
    each (shown if the image is missing — paths are relative to /css). */
+/* The cinematic photo is the hero; .mf-mode-scrim handles text legibility.
+   The solid background-color only shows if the image fails to load. */
 .mf-mode-campaign {
   background-color: #2b1d4d;
-  background-image:
-    linear-gradient(150deg, #4a2d7a 0%, #1a1136 100%),
-    url('../assets/img/mode-campaign.png');
+  background-image: url('../assets/img/mode-campaign.png');
 }
 .mf-mode-multiplayer {
   background-color: #123a4d;
-  background-image:
-    linear-gradient(150deg, #1f6f8b 0%, #0c2433 100%),
-    url('../assets/img/mode-multiplayer.png');
+  background-image: url('../assets/img/mode-multiplayer.png');
 }
 .mf-mode-freeplay {
   background-color: #14402a;
-  background-image:
-    linear-gradient(150deg, #2aa15e 0%, #0d3a22 100%),
-    url('../assets/img/mode-freeplay.png');
+  background-image: url('../assets/img/mode-freeplay.png');
 }
-/* once the image loads it should win over the fallback gradient */
-.mf-mode-card { background-blend-mode: normal; }
 
 /* dark gradient scrim for legibility under the text */
 .mf-mode-scrim {
@@ -1439,6 +1508,20 @@ button {
   padding: 6px 16px;
   font-size: 14px;
   border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.mf-back-txt { line-height: 1; }
+/* drawn left-chevron (CSS art) — replaces the old arrow glyph */
+.mf-chevron {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-left: 3px solid currentColor;
+  border-bottom: 3px solid currentColor;
+  border-radius: 1px;
+  transform: rotate(45deg);
 }
 
 .mf-set-title {
@@ -1567,6 +1650,40 @@ button {
 .mf-recap-ico { font-size: 15px; line-height: 1.2; }
 .mf-recap-txt { line-height: 1.45; }
 
+/* drawn recap icons (CSS art) — replace the old hand / gamepad emoji */
+.mf-recap-ico { position: relative; width: 18px; height: 18px; flex: 0 0 18px; margin-top: 1px; }
+/* touch / hand: a fingertip dot over a rounded "pad" */
+.mf-ico-touch::before {
+  content: '';
+  position: absolute;
+  left: 2px; bottom: 0; width: 14px; height: 8px;
+  border: 2px solid currentColor;
+  border-radius: 8px 8px 4px 4px;
+}
+.mf-ico-touch::after {
+  content: '';
+  position: absolute;
+  left: 7px; top: 0; width: 4px; height: 8px;
+  background: currentColor;
+  border-radius: 4px 4px 0 0;
+}
+/* gamepad: a rounded body with two d-pad/button nubs */
+.mf-ico-pad::before {
+  content: '';
+  position: absolute;
+  left: 1px; top: 4px; width: 16px; height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 7px;
+}
+.mf-ico-pad::after {
+  content: '';
+  position: absolute;
+  left: 5px; top: 8px; width: 2.5px; height: 2.5px;
+  background: currentColor;
+  border-radius: 50%;
+  box-shadow: 6px 0 0 currentColor;
+}
+
 /* ==========================================================================
    END SCREENS
    ========================================================================== */
@@ -1691,10 +1808,13 @@ button {
   border: 4px solid;
 }
 
-.mf-medal-star {
-  font-size: 40px;
-  color: rgba(255, 255, 255, 0.9);
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+/* drawn (SVG) star on the medal disc */
+.mf-medal-star { width: 42px; height: 42px; }
+.mf-medal-star path {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: rgba(0, 0, 0, 0.25);
+  stroke-width: 0.6;
+  filter: none;
 }
 
 .mf-medal-gold .mf-medal-disc {
@@ -1737,9 +1857,11 @@ button {
 /* new record ribbon */
 
 .mf-ribbon {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   margin: 4px 0 8px;
-  padding: 9px 26px;
+  padding: 9px 22px;
   border-radius: 999px;
   background: var(--mf-gold);
   color: #3a2c00;
@@ -1750,6 +1872,10 @@ button {
   box-shadow: 0 0 26px rgba(255, 213, 79, 0.7), 0 4px 0 rgba(0, 0, 0, 0.35);
   animation: mf-ribbon-flash 0.8s ease-in-out infinite;
 }
+.mf-ribbon-txt { line-height: 1; }
+/* drawn stars flanking the ribbon text (dark fill on the gold ribbon) */
+.mf-ribbon-star { width: 16px; height: 16px; flex: 0 0 16px; }
+.mf-ribbon-star path { fill: #3a2c00; stroke: none; filter: none; }
 
 /* stats */
 
@@ -1785,60 +1911,54 @@ button {
 }
 
 /* ==========================================================================
-   LEVEL SELECT — Mario / Candy-Crush style world map
+   LEVEL SELECT — illustrated, scrolling canvas minimap of the farm world
+   The world is painted ONCE to an offscreen cache; a sticky <canvas> blits
+   the visible slice on scroll. 20 numbered UFO nodes ride a winding dirt road
+   (drawn on the canvas in main-map style); a locked BEACH world teases above.
    ========================================================================== */
 
 .mf-levelsel {
   z-index: 72;                /* above the start overlay (70) */
   flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
+  align-items: center;        /* centre the big framed panel */
+  justify-content: center;
   padding: calc(10px + var(--sat)) calc(10px + var(--sar))
            calc(10px + var(--sab)) calc(10px + var(--sal));
   background:
-    radial-gradient(ellipse at 50% 18%, rgba(8, 11, 28, 0.35) 0%, rgba(6, 8, 22, 0.86) 70%),
-    linear-gradient(180deg, #0b1430 0%, #142a1c 100%);
+    radial-gradient(ellipse at 50% 18%, rgba(8, 11, 28, 0.30) 0%, rgba(6, 8, 22, 0.7) 80%),
+    linear-gradient(180deg, #0b1430 0%, #102219 100%);
   overflow: hidden;
+}
+
+/* The whole campaign chrome (header + framed map) is one centred column that
+   is exactly the panel width — so the header lines up with the map frame. */
+.mf-ls-shell {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: min(820px, 94vw);
+  max-height: 96vh;
+  min-height: 0;
 }
 
 .mf-levelsel.mf-anim { animation: mf-ls-fade 0.34s ease-out both; }
 
-/* DAY-CYCLE sky tint — re-points with --mf-phase-glow (set on :root by HUD) */
+/* DAY-CYCLE scrim over the whole screen — re-points with --mf-phase-glow.
+   (The canvas itself also gets a phase-tinted scrim when blitting.) */
 .mf-ls-sky {
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse at 50% 0%, var(--mf-phase-glow) 0%, transparent 58%),
-    linear-gradient(180deg, var(--mf-phase-glow) 0%, transparent 46%);
-  opacity: 0.28;
+    radial-gradient(ellipse at 50% 0%, var(--mf-phase-glow) 0%, transparent 52%),
+    linear-gradient(180deg, var(--mf-phase-glow) 0%, transparent 40%);
+  opacity: 0.20;
   mix-blend-mode: screen;
   transition: background 0.8s ease;
 }
 
-.mf-ls-stars { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-.mf-ls-star-a { animation: mf-twinkle 2.8s ease-in-out infinite alternate; }
-.mf-ls-star-b { animation: mf-twinkle 3.9s ease-in-out 1s infinite alternate; }
-
-.mf-ls-cloud {
-  position: absolute;
-  top: calc(8% + var(--i) * 16%);
-  left: -22%;
-  width: 160px;
-  height: 46px;
-  border-radius: 40px;
-  background: rgba(255, 255, 255, 0.16);
-  box-shadow:
-    34px 8px 0 -6px rgba(255, 255, 255, 0.14),
-    -30px 10px 0 -8px rgba(255, 255, 255, 0.12);
-  filter: blur(0.5px);
-  pointer-events: none;
-  animation: mf-ls-cloud 38s linear infinite;
-  animation-delay: calc(var(--i) * -12s);
-}
-.mf-ls-cloud-1 { transform: scale(0.8); opacity: 0.8; }
-.mf-ls-cloud-2 { transform: scale(1.25); opacity: 0.6; }
-
+/* --- header --- */
 .mf-ls-head {
   position: relative;
   z-index: 3;
@@ -1849,90 +1969,138 @@ button {
 }
 
 .mf-ls-back { flex: 0 0 auto; }
-.mf-ls-headspacer { flex: 0 0 auto; width: 86px; }  /* mirrors back btn → centred title */
+
+.mf-ls-titlewrap { flex: 1; min-width: 0; text-align: center; }
 
 .mf-ls-title {
-  flex: 1;
   margin: 0;
   font-size: clamp(28px, 6vw, 44px);
-  text-align: center;
   color: var(--mf-gold);
   text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5), 0 0 22px rgba(255, 213, 79, 0.5);
 }
 
-/* scrollable viewport for the tall map */
+/* worlds indicator (FARM active / BEACH locked) — drawn marks, no emoji */
+.mf-ls-worlds {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+.mf-ls-world {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(10, 14, 34, 0.55);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: rgba(238, 246, 255, 0.7);
+}
+.mf-ls-world-on {
+  border-color: var(--mf-green);
+  color: var(--mf-green);
+  box-shadow: 0 0 12px rgba(124, 252, 154, 0.3);
+}
+.mf-ls-world-locked { filter: saturate(0.4); opacity: 0.7; }
+.mf-ls-world-name { line-height: 1; }
+.mf-ls-world-mark { position: relative; width: 14px; height: 14px; flex: 0 0 14px; }
+/* drawn check (two strokes) */
+.mf-ls-world-check::before,
+.mf-ls-world-check::after {
+  content: '';
+  position: absolute;
+  background: var(--mf-green);
+  border-radius: 2px;
+}
+.mf-ls-world-check::before { left: 2px; top: 7px; width: 5px; height: 2.5px; transform: rotate(45deg); }
+.mf-ls-world-check::after  { left: 5px; top: 4px; width: 9px; height: 2.5px; transform: rotate(-50deg); }
+/* drawn padlock */
+.mf-ls-world-lock::before {
+  content: '';
+  position: absolute;
+  left: 3px; top: 6px; width: 8px; height: 6px;
+  border-radius: 1.5px;
+  background: rgba(238, 246, 255, 0.75);
+}
+.mf-ls-world-lock::after {
+  content: '';
+  position: absolute;
+  left: 4.5px; top: 2px; width: 5px; height: 5px;
+  border: 1.6px solid rgba(238, 246, 255, 0.75);
+  border-bottom: none;
+  border-radius: 3px 3px 0 0;
+}
+
+/* --- scroll viewport + canvas stage ---
+   The scroll viewport IS the big framed map panel: it fills most of the
+   screen (the shell sets the width; height ≈ 88vh) with a tasteful rounded
+   wood/parchment frame, and the canvas inside fills the full panel width so
+   there are NO dead navy gutters left or right. */
 .mf-ls-scroll {
   position: relative;
   z-index: 2;
   flex: 1 1 auto;
+  width: 100%;
+  height: 88vh;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 6px 0 calc(20px + var(--sab));
   scrollbar-width: thin;
+  touch-action: pan-y;
+  cursor: grab;
+  /* warm wood / parchment frame around the map */
+  border-radius: 20px;
+  padding: 0;
+  border: 6px solid #6b4a2a;
+  outline: 2px solid rgba(255, 233, 178, 0.18);
+  outline-offset: -10px;
+  background: #0e2417;
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.6),
+    0 0 0 2px rgba(0, 0, 0, 0.4) inset,
+    0 2px 10px rgba(255, 233, 178, 0.12) inset;
 }
+.mf-ls-scroll:active { cursor: grabbing; }
 
-.mf-ls-map {
+/* the stage now fills the full panel width — no centred narrow column */
+.mf-ls-stage {
   position: relative;
-  width: min(560px, 94vw);
-  margin: 0 auto;
-  /* height locked to the SVG aspect ratio so % node coords map cleanly */
-  aspect-ratio: var(--mf-ls-ratio, 100 / 1200);
-}
-
-.mf-ls-svg {
-  position: absolute;
-  inset: 0;
   width: 100%;
-  height: 100%;
-  overflow: visible;
+  margin: 0;
 }
 
-/* the winding trail */
-.mf-ls-trail-shadow {
-  fill: none;
-  stroke: rgba(0, 0, 0, 0.4);
-  stroke-width: 6;
-  stroke-linecap: round;
-}
-.mf-ls-trail {
-  fill: none;
-  stroke: rgba(255, 213, 79, 0.85);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-dasharray: 1 7;
-  filter: drop-shadow(0 0 4px rgba(255, 213, 79, 0.6));
-}
-
-/* doodads (scaled in viewBox units) */
-.mf-ls-trunk { fill: #6e4a2c; }
-.mf-ls-leaf  { fill: #3fae5e; }
-.mf-ls-post  { fill: rgba(120, 86, 54, 0.9); }
-.mf-ls-doodad { opacity: 0.85; }
-
-/* START / FINISH flag chips */
-.mf-ls-flag {
+/* the painted minimap canvas — sticky to the viewport, JS translates it so it
+   tracks scrollTop while we blit the matching slice (cached → cheap). Fills
+   the full panel width. */
+.mf-ls-canvas {
   position: absolute;
-  z-index: 2;
-  transform: translate(-50%, -50%);
-  padding: 4px 12px;
-  border: 2px solid;
-  border-radius: 999px;
-  background: rgba(10, 14, 34, 0.85);
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.18em;
-  white-space: nowrap;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+  top: 0;
+  left: 0;
+  z-index: 0;
+  display: block;
+  pointer-events: none;
 }
-.mf-ls-flag-start  { border-color: var(--mf-green); color: var(--mf-green); box-shadow: 0 0 14px rgba(124, 252, 154, 0.4); }
-.mf-ls-flag-finish { border-color: var(--mf-gold);  color: var(--mf-gold);  box-shadow: 0 0 16px rgba(255, 213, 79, 0.5); }
 
-/* --- a level node --- */
+/* gives the scroll container its full virtual height */
+.mf-ls-spacer { width: 100%; }
+
+/* node markers layer (scrolls with the content) */
+.mf-ls-nodes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+
+/* --- a level node (absolute over the canvas, aligned to a road point) --- */
 .mf-ls-node {
   position: absolute;
-  z-index: 3;
+  z-index: 1;
   width: 64px;
   height: 64px;
   transform: translate(-50%, -50%);
@@ -1951,7 +2119,7 @@ button {
   box-shadow: 0 0 0 4px var(--mf-purple), 0 0 22px rgba(179, 136, 255, 0.7);
 }
 
-/* little UFO icon */
+/* UFO marker: dome + body + glowing rim */
 .mf-ls-ufo {
   position: relative;
   width: 54px;
@@ -1959,7 +2127,7 @@ button {
   border-radius: 50%;
   background: linear-gradient(180deg, #d4dde9 0%, #9aa7b8 55%, #66758a 100%);
   box-shadow:
-    0 4px 10px rgba(0, 0, 0, 0.4),
+    0 5px 12px rgba(0, 0, 0, 0.45),
     inset 0 -4px 6px rgba(0, 0, 0, 0.3),
     inset 0 3px 4px rgba(255, 255, 255, 0.55);
   transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
@@ -1975,26 +2143,38 @@ button {
   background: linear-gradient(180deg, #d2f8ff 0%, #7ce8ff 70%);
   box-shadow: inset 0 -3px 6px rgba(0, 80, 130, 0.35), 0 0 10px rgba(124, 232, 255, 0.5);
 }
-.mf-ls-ufo-body {
+.mf-ls-ufo-body { position: absolute; inset: 0; border-radius: 50%; }
+/* glowing rim of running lights around the body */
+.mf-ls-ufo-rim {
   position: absolute;
-  inset: 0;
-  border-radius: 50%;
+  left: 50%;
+  bottom: 3px;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 6px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 16% 50%, var(--mf-green) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 50% 50%, var(--mf-green) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 84% 50%, var(--mf-green) 0 2px, transparent 2.5px);
+  filter: drop-shadow(0 0 4px var(--mf-green));
+  opacity: 0.9;
 }
 
 .mf-ls-num {
   position: absolute;
   z-index: 1;
   left: 50%;
-  top: 50%;
+  top: 48%;
   transform: translate(-50%, -50%);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 900;
   color: #fff;
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.7), 0 0 8px rgba(0, 0, 0, 0.6);
   pointer-events: none;
 }
 
-/* tiny goal pill below the node */
+/* tiny goal label below the node */
 .mf-ls-goal {
   position: absolute;
   z-index: 1;
@@ -2003,69 +2183,70 @@ button {
   transform: translateX(-50%);
   padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(10, 14, 34, 0.82);
+  background: rgba(10, 14, 34, 0.85);
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.04em;
   white-space: nowrap;
-  color: rgba(238, 246, 255, 0.85);
+  color: rgba(238, 246, 255, 0.88);
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
   pointer-events: none;
 }
 
-/* completed: green glow + checkmark + stars */
+/* completed: green glow + drawn check + drawn stars */
 .mf-ls-done .mf-ls-ufo {
   filter: saturate(1.1);
   box-shadow:
-    0 4px 10px rgba(0, 0, 0, 0.4),
+    0 5px 12px rgba(0, 0, 0, 0.45),
     0 0 18px rgba(124, 252, 154, 0.7),
     inset 0 3px 4px rgba(255, 255, 255, 0.55);
 }
+/* drawn check (SVG) */
 .mf-ls-check {
   position: absolute;
   z-index: 2;
-  right: -4px;
+  right: -5px;
   top: -10px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--mf-green);
-  color: #06321a;
-  font-size: 13px;
-  font-weight: 900;
-  line-height: 20px;
-  text-align: center;
-  box-shadow: 0 0 10px rgba(124, 252, 154, 0.8);
+  width: 22px;
+  height: 22px;
   pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(124, 252, 154, 0.8));
 }
+.mf-ls-check-bg { fill: var(--mf-green); }
+.mf-ls-check-tick { fill: none; stroke: #06321a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+
 .mf-ls-stars {
   position: absolute;
   z-index: 1;
   left: 50%;
-  top: -22px;
+  top: -24px;
   transform: translateX(-50%);
   display: flex;
   gap: 1px;
   pointer-events: none;
 }
-.mf-ls-star {
-  font-size: 12px;
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.22);
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
-}
-.mf-ls-star-on {
-  color: var(--mf-gold);
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6), 0 0 8px rgba(255, 213, 79, 0.85);
+/* drawn star (SVG) — used in level select AND results/medals */
+.mf-ls-star { width: 13px; height: 13px; }
+.mf-ls-star path { fill: rgba(255, 255, 255, 0.22); stroke: rgba(0, 0, 0, 0.5); stroke-width: 0.6; }
+.mf-ls-star-on path {
+  fill: var(--mf-gold);
+  filter: drop-shadow(0 0 4px rgba(255, 213, 79, 0.85));
 }
 
 /* current (next playable, not yet done): purple highlight + gentle pulse */
 .mf-ls-current .mf-ls-ufo {
   box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.4),
+    0 5px 14px rgba(0, 0, 0, 0.45),
     0 0 22px rgba(179, 136, 255, 0.85),
     inset 0 3px 4px rgba(255, 255, 255, 0.55);
   animation: mf-ls-ufo-pulse 1.5s ease-in-out infinite;
+}
+.mf-ls-current .mf-ls-ufo-rim {
+  background:
+    radial-gradient(circle at 16% 50%, var(--mf-purple) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 50% 50%, var(--mf-purple) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 84% 50%, var(--mf-purple) 0 2px, transparent 2.5px);
+  filter: drop-shadow(0 0 4px var(--mf-purple));
 }
 .mf-ls-current::after {
   content: 'PLAY';
@@ -2073,7 +2254,7 @@ button {
   left: 50%;
   bottom: -30px;
   transform: translateX(-50%);
-  padding: 2px 9px;
+  padding: 2px 10px;
   border-radius: 999px;
   background: linear-gradient(180deg, #c79bff, #8e5bff);
   font-size: 10px;
@@ -2085,7 +2266,7 @@ button {
   pointer-events: none;
   animation: mf-ls-pulse 1.5s ease-in-out infinite;
 }
-.mf-ls-current .mf-ls-goal { bottom: -16px; opacity: 0; }  /* PLAY badge takes the slot */
+.mf-ls-current .mf-ls-goal { opacity: 0; }  /* PLAY badge takes the slot */
 
 /* open (unlocked, not current, not done): plain bright */
 .mf-ls-open .mf-ls-ufo { filter: brightness(1.05); }
@@ -2094,7 +2275,7 @@ button {
 .mf-ls-node:not(.mf-ls-locked):hover .mf-ls-ufo { transform: translateY(-3px) scale(1.06); }
 .mf-ls-node:not(.mf-ls-locked):active .mf-ls-ufo { transform: translateY(1px) scale(0.96); }
 
-/* locked: dimmed + padlock */
+/* locked: dimmed + drawn padlock */
 .mf-ls-locked .mf-ls-ufo { filter: saturate(0.25) brightness(0.5); }
 .mf-ls-locked .mf-ls-num { opacity: 0.4; }
 .mf-ls-lock {
@@ -2102,11 +2283,14 @@ button {
   z-index: 2;
   left: 50%;
   top: 50%;
+  width: 22px;
+  height: 22px;
   transform: translate(-50%, -50%);
-  font-size: 18px;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
   pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
 }
+.mf-ls-lock-body { fill: var(--mf-gold); }
+.mf-ls-lock-shackle { fill: none; stroke: #d8d8e0; stroke-width: 2.2; stroke-linecap: round; }
 
 /* ==========================================================================
    LEVEL RESULT — campaign round results (shares the .mf-end shell)
@@ -2125,22 +2309,20 @@ button {
 
 .mf-lr-title { margin-top: 2px; }
 
-/* three star slots; earned ones pop in on a stagger */
+/* three drawn (SVG) star slots; earned ones pop in on a stagger */
 .mf-lr-stars {
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   margin: 14px 0 6px;
 }
-.mf-lr-star {
-  font-size: 52px;
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.18);
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+.mf-lr-star { width: 52px; height: 52px; }
+.mf-lr-star path { fill: rgba(255, 255, 255, 0.18); stroke: rgba(0, 0, 0, 0.5); stroke-width: 0.5; }
+.mf-lr-star-on path {
+  fill: var(--mf-gold);
+  filter: drop-shadow(0 0 10px rgba(255, 213, 79, 0.85));
 }
 .mf-lr-star-on {
-  color: var(--mf-gold);
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5), 0 0 22px rgba(255, 213, 79, 0.85);
   animation: mf-lr-star-pop 0.5s cubic-bezier(0.2, 1.8, 0.4, 1) both;
   animation-delay: calc(0.25s + var(--i) * 0.22s);
 }
@@ -2379,12 +2561,6 @@ button {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* drifting clouds across the world map */
-@keyframes mf-ls-cloud {
-  from { transform: translateX(0); }
-  to   { transform: translateX(150vw); }
-}
-
 /* current-level PLAY badge gentle pulse (translateX keeps it centred) */
 @keyframes mf-ls-pulse {
   0%, 100% { transform: translateX(-50%) scale(1); }
@@ -2430,11 +2606,22 @@ button {
   .mf-set-row { gap: 8px; }
   .mf-set-label { font-size: 13px; }
   /* level select / result tuned for small screens */
-  .mf-ls-map { width: 96vw; }
   .mf-ls-node { width: 56px; height: 56px; }
   .mf-ls-ufo { width: 48px; height: 27px; }
-  .mf-ls-headspacer { width: 64px; }
-  .mf-lr-star { font-size: 42px; }
+  .mf-ls-title { font-size: clamp(24px, 7vw, 34px); }
+  .mf-ls-worlds { gap: 3px; }
+  .mf-ls-world { padding: 2px 7px; font-size: 10px; }
+  /* on phones the panel fills nearly the full screen with a slim frame */
+  .mf-levelsel { justify-content: stretch; }
+  .mf-ls-shell { width: 100%; max-height: none; flex: 1 1 auto; }
+  .mf-ls-scroll {
+    height: auto;
+    flex: 1 1 auto;
+    border-width: 4px;
+    border-radius: 14px;
+    outline-offset: -8px;
+  }
+  .mf-lr-star { width: 42px; height: 42px; }
   .mf-lr-scoreline { font-size: 26px; }
 }
 
@@ -2473,10 +2660,7 @@ button {
   .mf-start.mf-anim .mf-btn-start,
   .mf-start.mf-anim .mf-beam-cone,
   .mf-start.mf-anim .mf-beam-rider,
-  .mf-ls-cloud,
   .mf-ls-current .mf-ls-ufo,
   .mf-ls-current::after,
-  .mf-ls-star-a,
-  .mf-ls-star-b,
   .mf-timer.mf-warn { animation-iteration-count: 1; }
 }
