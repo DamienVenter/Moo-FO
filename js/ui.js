@@ -139,8 +139,9 @@ export class UI {
     // if it isn't wired up yet.
     this.controls = controls || null;
     // Campaign model: { levels:[{index,target,time}], unlockedCount (getter),
-    // isCompleted(i), bestScore(i), starsFor(i) }. Fully optional — every
-    // access is guarded so a missing campaign just yields an empty map.
+    // isCompleted(i), bestScore(i) }. Levels are pass/fail — there are no
+    // stars. Fully optional — every access is guarded so a missing campaign
+    // just yields an empty map.
     this.campaign = campaign || null;
 
     this._startVisible = false;
@@ -194,13 +195,6 @@ export class UI {
   _bestScore(i) {
     try { return Number(this.campaign?.bestScore?.(i)) || 0; }
     catch (_) { return 0; }
-  }
-
-  _starsFor(i) {
-    let s = 0;
-    try { s = this.campaign?.starsFor?.(i) | 0; }
-    catch (_) { s = 0; }
-    return Math.max(0, Math.min(3, s));
   }
 
   // ======================================================================
@@ -453,14 +447,17 @@ export class UI {
   }
 
   // ======================================================================
-  // LEVEL SELECT — a hand-illustrated, scrolling minimap of the MOO-FO farm
-  // world, richer than the in-game minimap. A hi-res <canvas> (DPR-scaled)
-  // paints the world ONCE into an offscreen cache; we only re-blit the
-  // visible slice on scroll / day-phase change. 20 numbered UFO nodes are
-  // absolutely-positioned DOM buttons aligned to a worn dirt road that
-  // winds — uniquely per segment — up the map; a locked BEACH world teases
-  // beyond the FINISH. Own overlay so it floats over the start screen and
-  // re-tints with the live day cycle.
+  // LEVEL SELECT — a hand-illustrated, scrolling WORLD MAP in the MOO-FO art
+  // style (a designed landscape, NOT a scaled-down copy of the 3D farm). A
+  // hi-res <canvas> (DPR-scaled) paints the world ONCE into an offscreen
+  // cache; we only re-blit the visible slice on scroll / day-phase change.
+  // A single smooth dirt road is the hero, winding bottom→top; all scenery
+  // (a meandering river crossed only by little wooden bridges, crop fields,
+  // pastures with grazing cows, a farm hamlet, trees) is composed AROUND it,
+  // and a hazy mountain range backdrops the summit at the very top. 20
+  // numbered UFO nodes ride the road as absolutely-positioned DOM buttons; a
+  // locked BEACH world teases beyond the FINISH. Own overlay so it floats
+  // over the start screen and re-tints with the live day cycle.
   // ======================================================================
 
   _buildLevelSelect() {
@@ -563,10 +560,18 @@ export class UI {
     scroll.addEventListener('touchend', onUp);
   }
 
-  // -- geometry: compute node points + a windy, per-segment-unique road -----
+  // -- geometry: compute node points + a smooth, flowing journey road -------
   // Returns layout in CSS px for the current viewport width. ~3 nodes per
   // screen-height: nodeStep = visibleHeight / 3 (clamped). Map runs bottom
   // (level 1, near START) → top (FINISH → BEACH teaser).
+  //
+  // PHILOSOPHY (not a scaled-down 3D farm): the ROAD is the hero. It is a
+  // single ribbon winding bottom→top in gentle S-curves; ALL scenery is then
+  // composed AROUND it. The road never crosses a building or water — water is
+  // a meandering river/ponds laid on the OPPOSITE side of the road from the
+  // current bend, and where the road must cross it we place an intentional
+  // little wooden bridge. A hazy mountain range sits ONLY as the far backdrop
+  // at the very top (the campaign's summit).
   _lsComputeLayout() {
     const scroll = this._lsScroll;
     // The scroll viewport now IS the framed panel, so its client box already
@@ -581,50 +586,135 @@ export class UI {
     // ~3 nodes visible per screen → short road between levels. Scale the step
     // to the viewport so exactly ~3 nodes show regardless of panel height.
     const nodeStep = Math.max(150, Math.min(300, vh / 3));
-    // Top padding must reserve room ABOVE the last level for the FINISH chip
-    // (~0.7 step up) AND the full BEACH "coming soon" teaser band (~1.6 steps
-    // higher) — otherwise the beach renders off-canvas. So scale it to the
-    // step, not just the viewport.
-    const topPad = Math.max(vh * 0.40, nodeStep * 2.6);
+    // Top padding reserves room ABOVE the last level for the FINISH chip and
+    // the hazy mountain backdrop + BEACH teaser band; scale to the step.
+    const topPad = Math.max(vh * 0.42, nodeStep * 2.8);
     const botPad = Math.max(130, vh * 0.24);  // room below level 1 / START
     const H = topPad + botPad + (n - 1) * nodeStep;
 
     const midX = W * 0.5;
-    const margin = 46;                         // keep the 64px markers on-canvas
-    const maxSway = Math.max(20, W * 0.36);    // wider maps lean more gracefully
-    const amp = W * 0.24;                       // base sway amplitude
+    const margin = 48;                         // keep the 64px markers on-canvas
+    const amp = W * 0.26;                       // base lean amplitude
+    const maxSway = Math.max(20, W * 0.30);    // wider maps lean more gracefully
     const clampX = (x) => Math.max(margin, Math.min(W - margin, x));
-    // Per-node x derived from the level index so each stretch is unique:
-    // two interfering sine waves of different freq → varied lean & S-bends.
-    const seed = rng(20240613);
-    const phase = seed() * 6.283;
+
+    // Smooth, flowing node x-offsets: a single low-frequency sine plus a
+    // slower second harmonic gives gentle S-bends and NO sharp kinks (the
+    // jittery high-freq term that made the old road choppy is gone). A fixed
+    // phase keeps it deterministic.
+    const phase = 0.6;
     const pts = [];
     for (let i = 0; i < n; i++) {
       const y = H - botPad - i * nodeStep;
-      const a = Math.sin(i * 0.9 + phase);
-      const b = Math.sin(i * 0.41 + 1.7);
-      const c = Math.sin(i * 2.3 + 0.6) * 0.32;   // occasional sharper kink
-      let sway = (a * 0.62 + b * 0.5 + c) * amp;
+      const a = Math.sin(i * 0.62 + phase);
+      const b = Math.sin(i * 0.29 + 2.1) * 0.55;
+      let sway = (a * 0.7 + b) * amp;
       sway = Math.max(-maxSway, Math.min(maxSway, sway));
       pts.push({ x: clampX(midX + sway), y, index: levels[i].index ?? i + 1, target: Number(levels[i].target) || 0 });
     }
-    const finish = { x: clampX(midX + Math.sin(n * 0.9 + phase) * amp * 0.4), y: H - botPad - (n - 1 + 0.7) * nodeStep };
-    const start = { x: pts[0].x, y: pts[0].y + nodeStep * 0.7 };
-    const beach = { x: midX, y: finish.y - nodeStep * 1.25 };
+    // START a little below level 1, FINISH gently above level n.
+    const finish = { x: clampX(midX + Math.sin((n - 0.6) * 0.62 + phase) * amp * 0.6), y: H - botPad - (n - 1 + 0.8) * nodeStep };
+    const start = { x: pts[0].x, y: pts[0].y + nodeStep * 0.72 };
+    const beach = { x: midX, y: finish.y - nodeStep * 1.45 };
 
-    return { W, H, vw, vh, pts, start, finish, beach, nodeStep, topPad, botPad, midX, amp };
+    // Build the smooth Catmull-Rom centreline through start→nodes→finish and
+    // sample it densely. Everything downstream (road rendering, where the
+    // river runs, where bridges/cows/props sit) keys off this one path so the
+    // whole composition stays cohesive and the road is never crossed wrongly.
+    const ctrl = [start, ...pts, finish];
+    const samples = this._lsSampleSpline(ctrl, 14); // {x,y} densely along road
+
+    // Quick road-x lookup by height (nearest sample) so the river can be built
+    // road-AWARE: it hugs whichever side of the road has the most room, then
+    // smoothly swings ACROSS the road at a couple of chosen crossing heights.
+    // This GUARANTEES water meets the road only where we place a bridge.
+    const roadXAtY = (y) => {
+      let bx = samples[0].x, bd = 1e9;
+      for (const s of samples) { const d = Math.abs(s.y - y); if (d < bd) { bd = d; bx = s.x; } }
+      return bx;
+    };
+    const top = samples[0].y, bot = samples[samples.length - 1].y;
+    const span = bot - top || 1;
+    // two crossing fractions, well spaced along the journey (deterministic).
+    const crossF = [0.34, 0.72];
+    const crossY = crossF.map((f) => bot - f * span);
+    // gap (px) the river keeps from the road centreline when NOT crossing.
+    const gap = Math.max(70, W * 0.18);
+    const riverPath = [];
+    for (let s = 0; s <= 1; s += 0.02) {
+      const y = bot - s * span;
+      const rx = roadXAtY(y);
+      // baseline side: left if there's more room left of the road, else right.
+      const side = rx > midX ? -1 : 1;
+      // crossing blend: 0 normally, →1 right at a crossing height (so the
+      // river sweeps from its side, through the road, and back).
+      let cross = 0, csign = 1;
+      for (let k = 0; k < crossY.length; k++) {
+        const t = 1 - Math.min(1, Math.abs(y - crossY[k]) / (nodeStep * 0.9));
+        if (t > cross) { cross = t; csign = k % 2 ? -1 : 1; }
+      }
+      // off-road offset (eased), flipping to the far side as we cross.
+      const e = cross * cross * (3 - 2 * cross); // smoothstep
+      const off = side * gap * (1 - e) + (-side) * gap * e;
+      let x = rx + off + Math.sin(s * 6.0 + 0.7) * (W * 0.04) * (1 - cross);
+      x = Math.max(W * 0.06, Math.min(W * 0.94, x));
+      riverPath.push({ x, y });
+    }
+
+    // bridges sit exactly at the crossing heights, angled to the road tangent.
+    const bridges = crossY.map((cy) => {
+      // nearest sample index for the tangent
+      let bi = 0, bd = 1e9;
+      for (let i = 0; i < samples.length; i++) {
+        const d = Math.abs(samples[i].y - cy); if (d < bd) { bd = d; bi = i; }
+      }
+      const a = samples[Math.min(samples.length - 1, bi + 1)];
+      const b = samples[Math.max(0, bi - 1)];
+      return { x: samples[bi].x, y: samples[bi].y, angle: Math.atan2(a.y - b.y, a.x - b.x) };
+    });
+
+    return {
+      W, H, vw, vh, pts, start, finish, beach, samples, riverPath, bridges,
+      nodeStep, topPad, botPad, midX, amp,
+    };
+  }
+
+  // Catmull-Rom spline sampler → flat array of {x,y} points. `per` controls
+  // how many samples per control segment (more = smoother). Endpoints are
+  // duplicated so the curve passes exactly through the first/last control pt.
+  _lsSampleSpline(ctrl, per = 12) {
+    const out = [];
+    const P = (i) => ctrl[Math.max(0, Math.min(ctrl.length - 1, i))];
+    for (let i = 0; i < ctrl.length - 1; i++) {
+      const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+      for (let j = 0; j < per; j++) {
+        const t = j / per, t2 = t * t, t3 = t2 * t;
+        const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t +
+          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+        const y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t +
+          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+        out.push({ x, y });
+      }
+    }
+    out.push({ x: ctrl[ctrl.length - 1].x, y: ctrl[ctrl.length - 1].y });
+    return out;
   }
 
   /**
    * Paint the full illustrated world ONCE into the offscreen cache at the
-   * current width/height (DPR-scaled). Layered: grass base → soft patches →
-   * crop fields → forest border → river+lake+dam+waterfall → mountain →
-   * ponds → pastures → farm cluster → the winding dirt road → vignette.
-   * Beach teaser is painted at the very top.
+   * current width/height (DPR-scaled). This is a DESIGNED world-map landscape
+   * (not a scaled 3D farm): a tiled lush grass texture with rolling-hill
+   * shading is laid down first, then a meandering river kept to the far side
+   * of the road, then crop fields / pastures / a farm hamlet / trees / cows
+   * all composed BESIDE the hero road, then the smooth dirt road itself with
+   * its bridge decks, a hazy mountain-range backdrop at the very top, the
+   * BEACH teaser, and finally soft global lighting (haze + vignette).
    */
   _lsPaintWorld(layout) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const { W, H } = layout;
+    const { W, H, samples, riverPath, bridges } = layout;
     const cache = this._lsCache;
     cache.width = Math.round(W * dpr);
     cache.height = Math.round(H * dpr);
@@ -633,227 +723,96 @@ export class UI {
     g.clearRect(0, 0, W, H);
     const R = rng(0x5eed1234);
 
-    // 1) LUSH GRASS BASE — vertical gradient between the palette greens.
-    const base = g.createLinearGradient(0, 0, 0, H);
-    base.addColorStop(0, shade(COLORS.grassC, 0.96));
-    base.addColorStop(0.5, hex(COLORS.grassA));
-    base.addColorStop(1, shade(COLORS.grassB, 0.92));
-    g.fillStyle = base;
-    g.fillRect(0, 0, W, H);
+    // 1) LUSH GRASS BASE — a real tileable texture (built once, cached) filled
+    // across the whole land, then gentle rolling-hill light/shadow banding so
+    // the ground has form rather than reading as a flat sheet of green.
+    const pat = this._lsGrassPattern(g);
+    if (pat) { g.fillStyle = pat; g.fillRect(0, 0, W, H); }
+    else { g.fillStyle = hex(COLORS.grassA); g.fillRect(0, 0, W, H); }
 
-    // soft multi-tone grass patches (big translucent blobs)
-    const patchCols = [COLORS.grassC, COLORS.grassB, 0x9fbf4a, 0x57b98a, 0x2f7d3a];
-    for (let i = 0; i < Math.round(H / 26); i++) {
-      const x = R() * W, y = R() * H, r = 26 + R() * 70;
-      const col = patchCols[(R() * patchCols.length) | 0];
-      const rad = g.createRadialGradient(x, y, 0, x, y, r);
-      rad.addColorStop(0, mix(col, 0xffffff, 0.04));
-      rad.addColorStop(1, 'rgba(0,0,0,0)');
-      g.globalAlpha = 0.5;
-      g.fillStyle = rad;
-      g.beginPath(); g.ellipse(x, y, r, r * 0.7, R() * 3.14, 0, 6.283); g.fill();
-    }
-    g.globalAlpha = 1;
-
-    // faint gentle texture: short grass flecks
-    g.globalAlpha = 0.10;
-    for (let i = 0; i < Math.round(W * H / 1400); i++) {
-      const x = R() * W, y = R() * H;
-      g.strokeStyle = R() < 0.5 ? shade(COLORS.grassB, 0.8) : mix(COLORS.grassC, 0xffffff, 0.2);
-      g.lineWidth = 1;
-      g.beginPath(); g.moveTo(x, y); g.lineTo(x + (R() - 0.5) * 3, y - 2 - R() * 2); g.stroke();
-    }
-    g.globalAlpha = 1;
-
-    // gentle TERRAIN CONTOURS — faint rolling-hill bands so the ground reads
-    // as sculpted land, not a flat sheet of green.
+    // rolling-hill shading: soft horizontal bands of light (top of each swell)
+    // and shadow (the dip below) following a slow wave → sculpted meadow.
     g.save();
-    g.globalAlpha = 0.06;
-    g.strokeStyle = '#06321a';
-    g.lineWidth = 6;
-    for (let cy = H * 0.05; cy < H; cy += 46 + (cy % 90)) {
+    for (let i = 0; i < Math.ceil(H / 120) + 1; i++) {
+      const cy = i * 120 - (i % 2) * 30;
+      // shadow trough
+      const sh = g.createLinearGradient(0, cy, 0, cy + 120);
+      sh.addColorStop(0, 'rgba(6,42,22,0.16)');
+      sh.addColorStop(0.4, 'rgba(6,42,22,0)');
+      sh.addColorStop(1, 'rgba(6,42,22,0)');
+      g.fillStyle = sh;
       g.beginPath();
-      for (let x = -10; x <= W + 10; x += 18) {
-        const yy = cy + Math.sin(x * 0.012 + cy * 0.02) * 10;
-        x < 0 ? g.moveTo(x, yy) : g.lineTo(x, yy);
-      }
-      g.stroke();
-    }
-    g.restore();
-    // matching faint highlight contours just above each shade band
-    g.save();
-    g.globalAlpha = 0.05;
-    g.strokeStyle = mix(COLORS.grassC, 0xffffff, 0.5);
-    g.lineWidth = 3;
-    for (let cy = H * 0.05; cy < H; cy += 46 + (cy % 90)) {
+      g.moveTo(0, cy);
+      for (let x = 0; x <= W; x += 22) g.lineTo(x, cy + Math.sin(x * 0.008 + i) * 14);
+      g.lineTo(W, cy + 120); g.lineTo(0, cy + 120); g.closePath(); g.fill();
+      // sunlit crown just above the trough
+      const lt = g.createLinearGradient(0, cy - 60, 0, cy);
+      lt.addColorStop(0, 'rgba(220,255,190,0)');
+      lt.addColorStop(1, 'rgba(220,255,190,0.14)');
+      g.fillStyle = lt;
       g.beginPath();
-      for (let x = -10; x <= W + 10; x += 18) {
-        const yy = cy - 3 + Math.sin(x * 0.012 + cy * 0.02) * 10;
-        x < 0 ? g.moveTo(x, yy) : g.lineTo(x, yy);
-      }
-      g.stroke();
+      g.moveTo(0, cy - 60);
+      for (let x = 0; x <= W; x += 22) g.lineTo(x, cy - 6 + Math.sin(x * 0.008 + i) * 14);
+      g.lineTo(W, cy - 60); g.closePath(); g.fill();
     }
     g.restore();
 
-    // helper: soft drop-shadow blob
-    const shadow = (x, y, w, h) => {
-      g.save(); g.globalAlpha = 0.20; g.fillStyle = '#000';
+    // global directional-light wash (sun upper-left → soft warm gradient).
+    const sun = g.createLinearGradient(0, 0, W, H);
+    sun.addColorStop(0, 'rgba(255,250,210,0.10)');
+    sun.addColorStop(0.5, 'rgba(255,250,210,0)');
+    sun.addColorStop(1, 'rgba(10,30,18,0.10)');
+    g.fillStyle = sun; g.fillRect(0, 0, W, H);
+
+    // helper: soft ambient-occlusion shadow blob (down-right of everything).
+    const shadow = (x, y, w, h, a = 0.20) => {
+      g.save(); g.globalAlpha = a; g.fillStyle = '#0a1f10';
       g.beginPath(); g.ellipse(x, y, w, h, 0, 0, 6.283); g.fill(); g.restore();
     };
 
-    // 2) TILLED CROP FIELDS — must always read as a ploughed field, never a
-    // blank rounded box. Built from: a soil base, raised furrow ridges
-    // (alternating light/dark bands = tilled rows), thin seed-row dashes along
-    // the crown of each ridge, a few crop dots, and a dark earthy outline.
-    // `crop` tints the rows so corn/pumpkin/veg patches read differently.
-    const drawField = (x, y, w, h, rot, stripe, crop) => {
-      g.save();
-      g.translate(x, y); g.rotate(rot);
-      // soft cast shadow so the field sits ON the grass, not floating
-      g.save(); g.globalAlpha = 0.18; g.fillStyle = '#000';
-      this._roundRect(g, -w / 2 + 3, -h / 2 + 4, w, h, 9); g.fill(); g.restore();
-      // soil base
-      g.fillStyle = shade(COLORS.field, 0.92);
-      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.fill();
-      g.save();
-      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.clip();
-      // raised furrow RIDGES across the field (vertical bands, sunlit + shade)
-      let band = 0;
-      for (let fx = -w / 2; fx < w / 2; fx += stripe, band++) {
-        // lit crown of the ridge
-        g.fillStyle = shade(COLORS.field, band % 2 ? 1.18 : 1.06);
-        g.fillRect(fx, -h / 2, stripe * 0.62, h);
-        // shaded trough between ridges
-        g.fillStyle = shade(COLORS.field, 0.74);
-        g.fillRect(fx + stripe * 0.62, -h / 2, stripe * 0.38, h);
-        // thin seed-row dash line down the ridge crown
-        g.strokeStyle = crop ? this._withAlpha(crop, 0.55) : 'rgba(60,40,20,0.5)';
-        g.lineWidth = 1.4;
-        g.setLineDash([5, 4]);
-        g.beginPath();
-        g.moveTo(fx + stripe * 0.30, -h / 2 + 3);
-        g.lineTo(fx + stripe * 0.30, h / 2 - 3);
-        g.stroke();
-        g.setLineDash([]);
-      }
-      // scattered little crop dots (rows of plants) for a hint of growth
-      if (crop) {
-        g.fillStyle = crop;
-        for (let cx = -w / 2 + stripe * 0.3; cx < w / 2; cx += stripe) {
-          for (let cy = -h / 2 + 5; cy < h / 2 - 2; cy += 7) {
-            g.beginPath(); g.arc(cx, cy + (R() - 0.5) * 2, 1.3, 0, 6.283); g.fill();
-          }
-        }
-      }
-      g.restore();
-      // dark earthy outline so the patch reads as a bordered, tilled plot
-      g.strokeStyle = shade(COLORS.field, 0.5); g.lineWidth = 2.2;
-      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.stroke();
-      g.restore();
+    // --- side helper: which side of the road this x sits on, at height y ----
+    const roadXAt = (y) => {
+      // nearest sample by y
+      let best = samples[0], bd = 1e9;
+      for (const s of samples) { const d = Math.abs(s.y - y); if (d < bd) { bd = d; best = s; } }
+      return best.x;
     };
-    drawField(W * 0.70, H * 0.30, W * 0.30, H * 0.085, -0.05, 11, '#f2d24a'); // corn
-    drawField(W * 0.22, H * 0.60, W * 0.22, H * 0.06, 0.08, 10, '#e8923a');   // pumpkin
-    drawField(W * 0.78, H * 0.74, W * 0.24, H * 0.05, 0.04, 10, '#7dbf4a'); // veg
-    drawField(W * 0.16, H * 0.21, W * 0.20, H * 0.05, -0.03, 10, '#5fae3a');  // veg (top-left)
-    drawField(W * 0.52, H * 0.84, W * 0.22, H * 0.05, 0.05, 11, '#cf6f3a');   // squash (low)
-
-    // 3) DARK FOREST BORDER RING — little tree blobs around the edge.
-    const treeBlob = (x, y, s, deep) => {
-      shadow(x + s * 0.2, y + s * 0.7, s * 0.9, s * 0.4);
-      g.fillStyle = deep ? shade(0x2f7d3a, 0.85) : '#3fae5e';
-      g.beginPath(); g.arc(x - s * 0.5, y, s * 0.62, 0, 6.283);
-      g.arc(x + s * 0.5, y, s * 0.62, 0, 6.283);
-      g.arc(x, y - s * 0.5, s * 0.7, 0, 6.283); g.fill();
-      g.fillStyle = deep ? '#2f7d3a' : '#4cbf68';
-      g.beginPath(); g.arc(x - s * 0.2, y - s * 0.3, s * 0.5, 0, 6.283); g.fill();
+    // keep scenery clear of the road ribbon and the river ribbon
+    const clearOfRoad = (x, y, pad = W * 0.12) => Math.abs(x - roadXAt(y)) > pad;
+    const riverXAt = (y) => {
+      let best = riverPath[0], bd = 1e9;
+      for (const r of riverPath) { const d = Math.abs(r.y - y); if (d < bd) { bd = d; best = r; } }
+      return best.x;
     };
-    const ring = 16;
-    for (let y = ring; y < H; y += 30 + R() * 14) {
-      treeBlob(ring + R() * 10, y, 10 + R() * 5, true);
-      treeBlob(W - ring - R() * 10, y + 14, 10 + R() * 5, true);
-    }
-    for (let x = ring; x < W; x += 34 + R() * 14) {
-      treeBlob(x, ring + R() * 8, 9 + R() * 4, true);
-    }
+    const clearOfRiver = (x, y, pad = W * 0.07) => Math.abs(x - riverXAt(y)) > pad;
+    const onLand = (x, y, rp = W * 0.13, vp = W * 0.07) =>
+      clearOfRoad(x, y, rp) && clearOfRiver(x, y, vp) && x > 18 && x < W - 18;
 
-    // 4) RIVER → LAKE → DAM → WATERFALL. A winding blue ribbon down the map,
-    // a lake near the top fed by a thin waterfall off the mountain.
-    // River hugs the LEFT third of the map so it never shares a column with
-    // the centred dirt road — blue ribbon left, tan path centre = no confusion.
-    const riverX = (t) => W * (0.20 + Math.sin(t * 7.5 + 1.1) * 0.10 + Math.sin(t * 3.1) * 0.04);
+    // 2) THE RIVER — a soft meandering ribbon kept on the FAR side from the
+    // road. It is crossed only at the deliberate bridge points (drawn later
+    // on top of the road). Banks → water body → ripples → ponds.
     g.lineCap = 'round'; g.lineJoin = 'round';
-    // river bed / bank toe
-    g.strokeStyle = shade(COLORS.water, 0.55); g.lineWidth = 26;
-    g.beginPath();
-    for (let t = 0; t <= 1; t += 0.02) { const x = riverX(t), y = t * H; t ? g.lineTo(x, y) : g.moveTo(x, y); }
-    g.stroke();
-    // water body
+    const traceRiver = () => {
+      g.beginPath();
+      riverPath.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+    };
+    // sandy bank toe
+    g.strokeStyle = mix(COLORS.sand, 0x6fae5a, 0.4); g.lineWidth = 30; traceRiver(); g.stroke();
+    g.strokeStyle = shade(COLORS.waterDeep, 0.8); g.lineWidth = 24; traceRiver(); g.stroke();
+    // water body — gradient across the panel for a sunlit sheen
     const riverGrad = g.createLinearGradient(0, 0, W, 0);
     riverGrad.addColorStop(0, shade(COLORS.water, 0.85));
     riverGrad.addColorStop(0.5, hex(COLORS.water));
-    riverGrad.addColorStop(1, mix(COLORS.water, 0xffffff, 0.15));
-    g.strokeStyle = riverGrad; g.lineWidth = 19;
-    g.beginPath();
-    for (let t = 0; t <= 1; t += 0.02) { const x = riverX(t), y = t * H; t ? g.lineTo(x, y) : g.moveTo(x, y); }
-    g.stroke();
-    // ripple highlights
-    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2;
-    for (let t = 0.04; t < 1; t += 0.05) {
-      const x = riverX(t), y = t * H;
-      g.beginPath(); g.moveTo(x - 5, y); g.quadraticCurveTo(x, y - 3, x + 5, y); g.stroke();
+    riverGrad.addColorStop(1, mix(COLORS.water, 0xffffff, 0.18));
+    g.strokeStyle = riverGrad; g.lineWidth = 18; traceRiver(); g.stroke();
+    // ripple highlights along the flow
+    g.strokeStyle = 'rgba(255,255,255,0.32)'; g.lineWidth = 1.6;
+    for (let i = 3; i < riverPath.length - 1; i += 3) {
+      const p = riverPath[i];
+      g.beginPath(); g.moveTo(p.x - 5, p.y); g.quadraticCurveTo(p.x, p.y - 3, p.x + 5, p.y); g.stroke();
     }
 
-    // lake near the top
-    const lake = { x: riverX(0.14), y: H * 0.14, rx: W * 0.16, ry: H * 0.05 };
-    g.fillStyle = shade(COLORS.water, 0.6);
-    g.beginPath(); g.ellipse(lake.x, lake.y + 3, lake.rx + 4, lake.ry + 3, 0, 0, 6.283); g.fill();
-    const lakeGrad = g.createRadialGradient(lake.x - lake.rx * 0.3, lake.y - lake.ry * 0.4, 2, lake.x, lake.y, lake.rx);
-    lakeGrad.addColorStop(0, mix(COLORS.water, 0xffffff, 0.25));
-    lakeGrad.addColorStop(1, hex(COLORS.waterDeep));
-    g.fillStyle = lakeGrad;
-    g.beginPath(); g.ellipse(lake.x, lake.y, lake.rx, lake.ry, 0, 0, 6.283); g.fill();
-    // dam wall across the lake outflow
-    g.fillStyle = shade(COLORS.stone, 1.0);
-    this._roundRect(g, lake.x - lake.rx * 0.7, lake.y + lake.ry - 3, lake.rx * 1.4, 8, 2); g.fill();
-    g.fillStyle = shade(COLORS.stone, 1.25);
-    g.fillRect(lake.x - lake.rx * 0.7, lake.y + lake.ry - 3, lake.rx * 1.4, 2);
-
-    // 5) GIANT MOUNTAIN in the top-left corner (rocky body + snow cap +
-    // a thin waterfall line feeding the lake).
-    const mtn = { x: W * 0.12, y: H * 0.055, w: W * 0.34, h: H * 0.10 };
-    shadow(mtn.x + mtn.w * 0.1, mtn.y + mtn.h, mtn.w * 0.6, mtn.h * 0.25);
-    g.fillStyle = shade(COLORS.rockGray, 0.8);
-    g.beginPath();
-    g.moveTo(mtn.x - mtn.w / 2, mtn.y + mtn.h);
-    g.lineTo(mtn.x - mtn.w * 0.12, mtn.y - mtn.h * 0.4);
-    g.lineTo(mtn.x + mtn.w * 0.18, mtn.y + mtn.h * 0.1);
-    g.lineTo(mtn.x + mtn.w * 0.5, mtn.y + mtn.h);
-    g.closePath(); g.fill();
-    g.fillStyle = hex(COLORS.rockGray);   // sunlit face
-    g.beginPath();
-    g.moveTo(mtn.x - mtn.w * 0.12, mtn.y - mtn.h * 0.4);
-    g.lineTo(mtn.x + mtn.w * 0.18, mtn.y + mtn.h * 0.1);
-    g.lineTo(mtn.x + mtn.w * 0.5, mtn.y + mtn.h);
-    g.lineTo(mtn.x + mtn.w * 0.08, mtn.y + mtn.h);
-    g.closePath(); g.fill();
-    // snow cap
-    g.fillStyle = hex(COLORS.snow);
-    g.beginPath();
-    g.moveTo(mtn.x - mtn.w * 0.12, mtn.y - mtn.h * 0.4);
-    g.lineTo(mtn.x - mtn.w * 0.02, mtn.y - mtn.h * 0.05);
-    g.lineTo(mtn.x + mtn.w * 0.02, mtn.y - mtn.h * 0.18);
-    g.lineTo(mtn.x + mtn.w * 0.07, mtn.y - mtn.h * 0.02);
-    g.lineTo(mtn.x + mtn.w * 0.18, mtn.y + mtn.h * 0.1);
-    g.lineTo(mtn.x - mtn.w * 0.12, mtn.y - mtn.h * 0.05);
-    g.closePath(); g.fill();
-    // thin waterfall line into the lake
-    g.strokeStyle = 'rgba(223,241,255,0.9)'; g.lineWidth = 3;
-    g.beginPath();
-    g.moveTo(mtn.x + mtn.w * 0.16, mtn.y + mtn.h * 0.2);
-    g.quadraticCurveTo(lake.x - lake.rx * 0.4, (mtn.y + lake.y) / 2, lake.x - lake.rx * 0.2, lake.y - lake.ry);
-    g.stroke();
-
-    // 6) PONDS dotted around — with floating lily pads + a tiny bloom dot.
+    // a couple of PONDS tucked beside the river, with lily pads.
     const lilyDots = (cx, cy, rx, ry, count) => {
       for (let k = 0; k < count; k++) {
         const a = R() * 6.283, rr = R();
@@ -865,41 +824,93 @@ export class UI {
         if (R() < 0.4) { g.fillStyle = '#ffd9ef'; g.beginPath(); g.arc(lx, ly - lr * 0.3, lr * 0.4, 0, 6.283); g.fill(); }
       }
     };
-    for (const p of [{ x: W * 0.82, y: H * 0.52, r: W * 0.07 }, { x: W * 0.18, y: H * 0.83, r: W * 0.05 }]) {
-      g.fillStyle = shade(COLORS.water, 0.6);
-      g.beginPath(); g.ellipse(p.x, p.y + 2, p.r + 2, p.r * 0.7 + 2, 0, 0, 6.283); g.fill();
-      g.fillStyle = hex(COLORS.water);
-      g.beginPath(); g.ellipse(p.x, p.y, p.r, p.r * 0.7, 0, 0, 6.283); g.fill();
-      g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 1.5;
-      g.beginPath(); g.ellipse(p.x, p.y, p.r * 0.6, p.r * 0.42, 0, 0, 3.14); g.stroke();
-      lilyDots(p.x, p.y, p.r, p.r * 0.7, 5);
+    const pond = (px, py, pr) => {
+      shadow(px, py + pr * 0.7 + 3, pr + 3, pr * 0.55, 0.16);
+      g.fillStyle = shade(COLORS.waterDeep, 0.75);
+      g.beginPath(); g.ellipse(px, py + 2, pr + 2, pr * 0.7 + 2, 0, 0, 6.283); g.fill();
+      const pg = g.createRadialGradient(px - pr * 0.3, py - pr * 0.3, 2, px, py, pr);
+      pg.addColorStop(0, mix(COLORS.water, 0xffffff, 0.25));
+      pg.addColorStop(1, hex(COLORS.waterDeep));
+      g.fillStyle = pg;
+      g.beginPath(); g.ellipse(px, py, pr, pr * 0.7, 0, 0, 6.283); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 1.4;
+      g.beginPath(); g.ellipse(px, py, pr * 0.6, pr * 0.4, 0, 0, 3.14); g.stroke();
+      lilyDots(px, py, pr, pr * 0.7, 5);
+    };
+    // ponds on the river side, well away from the road column
+    for (const fy of [0.30, 0.74]) {
+      const py = H * fy;
+      const rx = riverXAt(py);
+      const px = rx + (rx < W / 2 ? -W * 0.09 : W * 0.09);
+      if (clearOfRoad(px, py, W * 0.14)) pond(px, py, W * 0.055);
     }
-    // a few lily pads on the lake too
-    lilyDots(lake.x, lake.y, lake.rx, lake.ry, 6);
 
-    // 7) FENCED PASTURES — grazed-grass plots with mowed mowing stripes, a few
-    // grass tufts, a post-and-rail fence (posts + connecting rail) and a soft
-    // shadow. Never a flat light-green box.
+    // 3) TILLED CROP FIELDS — read as a ploughed field (soil + furrow ridges +
+    // seed-row dashes + crop dots + earthy outline). Placed BESIDE the road on
+    // whichever side is clear, never under the road or in the water.
+    const drawField = (x, y, w, h, rot, stripe, crop) => {
+      g.save();
+      g.translate(x, y); g.rotate(rot);
+      g.save(); g.globalAlpha = 0.18; g.fillStyle = '#0a1f10';
+      this._roundRect(g, -w / 2 + 3, -h / 2 + 4, w, h, 9); g.fill(); g.restore();
+      g.fillStyle = shade(COLORS.field, 0.92);
+      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.fill();
+      g.save();
+      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.clip();
+      let band = 0;
+      for (let fx = -w / 2; fx < w / 2; fx += stripe, band++) {
+        g.fillStyle = shade(COLORS.field, band % 2 ? 1.18 : 1.06);
+        g.fillRect(fx, -h / 2, stripe * 0.62, h);
+        g.fillStyle = shade(COLORS.field, 0.74);
+        g.fillRect(fx + stripe * 0.62, -h / 2, stripe * 0.38, h);
+        g.strokeStyle = crop ? this._withAlpha(crop, 0.55) : 'rgba(60,40,20,0.5)';
+        g.lineWidth = 1.4; g.setLineDash([5, 4]);
+        g.beginPath();
+        g.moveTo(fx + stripe * 0.30, -h / 2 + 3);
+        g.lineTo(fx + stripe * 0.30, h / 2 - 3);
+        g.stroke(); g.setLineDash([]);
+      }
+      if (crop) {
+        g.fillStyle = crop;
+        for (let cx = -w / 2 + stripe * 0.3; cx < w / 2; cx += stripe) {
+          for (let cy = -h / 2 + 5; cy < h / 2 - 2; cy += 7) {
+            g.beginPath(); g.arc(cx, cy + (R() - 0.5) * 2, 1.3, 0, 6.283); g.fill();
+          }
+        }
+      }
+      g.restore();
+      g.strokeStyle = shade(COLORS.field, 0.5); g.lineWidth = 2.2;
+      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.stroke();
+      g.restore();
+    };
+    // place a field beside the road, on the side AWAY from the river so it is
+    // never under the path or in the water.
+    const placeField = (fy, w, h, rot, stripe, crop) => {
+      const y = H * fy;
+      const rx = roadXAt(y);
+      const away = riverXAt(y) > rx ? -1 : 1;
+      const x = Math.max(w / 2 + 14, Math.min(W - w / 2 - 14, rx + away * (W * 0.16 + w / 2)));
+      drawField(x, y, w, h, rot, stripe, crop);
+    };
+    placeField(0.30, W * 0.26, H * 0.075, -0.04, 11, '#f2d24a'); // corn
+    placeField(0.46, W * 0.22, H * 0.06, 0.05, 10, '#e8923a');   // pumpkin
+    placeField(0.62, W * 0.24, H * 0.055, -0.03, 10, '#7dbf4a'); // veg
+    placeField(0.80, W * 0.22, H * 0.05, 0.04, 11, '#cf6f3a');   // squash
+
+    // 4) FENCED PASTURES — grazed plots with mow stripes, tufts, post-and-rail
+    // fence. These host the grazing cows. Placed beside the road too.
     const pasture = (x, y, w, h) => {
       const x0 = x - w / 2, y0 = y - h / 2;
-      // soft shadow
-      g.save(); g.globalAlpha = 0.14; g.fillStyle = '#000';
-      this._roundRect(g, x0 + 2, y0 + 3, w, h, 7); g.fill(); g.restore();
-      // grazed grass base (a touch lighter / yellower than the wild grass)
+      shadow(x + 2, y + h / 2 + 2, w * 0.5, h * 0.28, 0.14);
       g.fillStyle = mix(COLORS.grassA, 0xeaf6c8, 0.22);
       this._roundRect(g, x0, y0, w, h, 7); g.fill();
       g.save();
       this._roundRect(g, x0, y0, w, h, 7); g.clip();
-      // alternating mowed stripes
       for (let sx = x0, k = 0; sx < x0 + w; sx += 10, k++) {
-        g.fillStyle = k % 2
-          ? mix(COLORS.grassB, 0xffffff, 0.10)
-          : mix(COLORS.grassA, 0x9fbf4a, 0.18);
-        g.globalAlpha = 0.55;
-        g.fillRect(sx, y0, 10, h);
+        g.fillStyle = k % 2 ? mix(COLORS.grassB, 0xffffff, 0.10) : mix(COLORS.grassA, 0x9fbf4a, 0.18);
+        g.globalAlpha = 0.55; g.fillRect(sx, y0, 10, h);
       }
       g.globalAlpha = 1;
-      // little grass tufts
       g.strokeStyle = shade(COLORS.grassB, 0.7); g.lineWidth = 1;
       for (let t = 0; t < (w * h) / 90; t++) {
         const tx = x0 + R() * w, ty = y0 + 2 + R() * (h - 4);
@@ -907,100 +918,266 @@ export class UI {
         g.moveTo(tx, ty); g.lineTo(tx + 1.4, ty - 2.6); g.stroke();
       }
       g.restore();
-      // post-and-rail fence: top + bottom rails then corner/edge posts
       g.strokeStyle = shade(COLORS.wood, 0.85); g.lineWidth = 2;
       this._roundRect(g, x0, y0, w, h, 7); g.stroke();
       g.fillStyle = shade(COLORS.woodDark, 1.0);
       const posts = Math.max(2, Math.round(w / 16));
-      for (let i = 0; i <= posts; i++) {
-        const px = x0 + (w * i) / posts;
-        g.fillRect(px - 1.4, y0 - 1.5, 2.8, h + 3);
-      }
+      for (let i = 0; i <= posts; i++) g.fillRect(x0 + (w * i) / posts - 1.4, y0 - 1.5, 2.8, h + 3);
     };
-    pasture(W * 0.20, H * 0.46, W * 0.17, H * 0.05);
-    pasture(W * 0.80, H * 0.42, W * 0.17, H * 0.055);
-    pasture(W * 0.30, H * 0.90, W * 0.17, H * 0.05);
-    pasture(W * 0.66, H * 0.55, W * 0.15, H * 0.045);
+    const pastures = [];
+    const placePasture = (fy, w, h) => {
+      const y = H * fy, rx = roadXAt(y);
+      const away = riverXAt(y) > rx ? -1 : 1;
+      const x = Math.max(w / 2 + 14, Math.min(W - w / 2 - 14, rx + away * (W * 0.17 + w / 2)));
+      pasture(x, y, w, h); pastures.push({ x, y, w, h });
+    };
+    placePasture(0.38, W * 0.18, H * 0.05);
+    placePasture(0.54, W * 0.17, H * 0.05);
+    placePasture(0.70, W * 0.18, H * 0.05);
+    placePasture(0.88, W * 0.17, H * 0.05);
 
-    // 8) CENTRAL FARM CLUSTER — little top-down building sprites.
-    // Scale to the panel so the cluster reads big on a wide desktop map.
-    this._lsDrawFarm(g, W * 0.46, H * 0.66, Math.max(1, Math.min(1.7, W / 520)));
+    // 5) FARM HAMLET — a little cluster of buildings tucked beside the road,
+    // always on the side AWAY from the river so it never sits on path or water.
+    {
+      const fy = H * 0.30, rx = roadXAt(fy);
+      // push the hamlet to the side opposite the river at this height.
+      const away = riverXAt(fy) > rx ? -1 : 1;
+      const fx = Math.max(W * 0.16, Math.min(W * 0.84, rx + away * W * 0.22));
+      this._lsDrawFarm(g, fx, fy, Math.max(1, Math.min(1.6, W / 560)));
+    }
 
-    // 8b) CRAFTED PROPS — scattered trees, bushes, rocks, hay bales, fence
-    // lines: the hand-painted detail that beats the plain in-game minimap.
-    this._lsDrawProps(g, layout, R);
+    // 6) CRAFTED PROPS — standalone trees, bushes, rocks, hay bales scattered
+    // through the meadows (kept off the road & water by onLand()).
+    this._lsDrawProps(g, layout, R, onLand);
 
-    // 9) THE ROAD — the showpiece, painted in main-map style (see _lsDrawRoad).
+    // 7) GRAZING ANIMALS — drawn holstein cows (and a few sheep) in the
+    // pastures and meadows beside the road, each with a soft shadow.
+    this._lsDrawHerds(g, layout, R, pastures, onLand);
+
+    // 8) THE ROAD — the hero, a smooth dirt spline in main-map style.
     this._lsDrawRoad(g, layout);
 
-    // START / FINISH markers painted on the road.
+    // 8b) BRIDGES — wooden decks where the road deliberately crosses water.
+    for (const b of bridges) this._lsDrawBridge(g, b);
+
+    // 9) START / FINISH markers painted on the road.
     this._lsDrawFlag(g, layout.start.x, layout.start.y, hex(COLORS.uiGreen), 'START');
     this._lsDrawFlag(g, layout.finish.x, layout.finish.y, hex(COLORS.gold), 'FINISH');
 
-    // 10) BEACH — COMING SOON teaser vignette above the FINISH.
+    // 10) MOUNTAIN RANGE BACKDROP — only at the very top, behind a band of
+    // atmospheric haze so it reads as the far summit/destination.
+    this._lsDrawMountains(g, layout);
+
+    // 11) BEACH — COMING SOON teaser above the summit.
     this._lsDrawBeach(g, layout);
 
-    // 11) soft VIGNETTE so the illustration reads as crafted, not flat.
-    const vig = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.2, W / 2, H / 2, Math.max(W, H) * 0.62);
+    // 12) global lighting: a soft vignette, plus atmospheric haze fading in
+    // toward the TOP so distance reads as depth.
+    const haze = g.createLinearGradient(0, layout.topPad * 0.2, 0, layout.topPad * 1.3);
+    haze.addColorStop(0, 'rgba(207,226,235,0.55)');
+    haze.addColorStop(1, 'rgba(207,226,235,0)');
+    g.fillStyle = haze; g.fillRect(0, 0, W, layout.topPad * 1.3);
+
+    const vig = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.62);
     vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, 'rgba(0,0,0,0.28)');
+    vig.addColorStop(1, 'rgba(6,20,12,0.30)');
     g.fillStyle = vig; g.fillRect(0, 0, W, H);
   }
 
-  // Worn DIRT road exactly evoking world.js _road(): a tan body (COLORS.road),
-  // a darker soft edge under it (road*0.85), and TWO wheel-track lines
-  // (road*0.72). Drawn as one smooth bezier through the node points with
-  // rounded caps; windiness already lives in the per-node x offsets.
+  // Build a tileable lush-grass texture ONCE (memoised) and return it as a
+  // CanvasPattern: 2-3 green tones of fine blade/speckle noise + subtle
+  // large-scale mottling + a soft directional-light gradient. This replaces
+  // the old flat-fill + radial blobs with a real repeating texture.
+  _lsGrassPattern(g) {
+    if (this._lsGrassPat) return this._lsGrassPat;
+    const T = 128;
+    const c = document.createElement('canvas');
+    c.width = T; c.height = T;
+    const t = c.getContext('2d');
+    if (!t) return null;
+    const RR = rng(0xBADc0ffe);
+    // base fill — mid grass
+    t.fillStyle = hex(COLORS.grassA);
+    t.fillRect(0, 0, T, T);
+    // subtle large-scale mottling: a few big soft tonal patches (wrap-safe by
+    // drawing at offsets too small to clip noticeably at tile edges).
+    const tones = [COLORS.grassB, COLORS.grassC, 0x9fcf5a, 0x3f9e54];
+    for (let i = 0; i < 26; i++) {
+      const x = RR() * T, y = RR() * T, r = 14 + RR() * 30;
+      const col = tones[(RR() * tones.length) | 0];
+      const rad = t.createRadialGradient(x, y, 0, x, y, r);
+      rad.addColorStop(0, this._withAlpha(hex(col), 0.5));
+      rad.addColorStop(1, this._withAlpha(hex(col), 0));
+      t.fillStyle = rad;
+      t.beginPath(); t.arc(x, y, r, 0, 6.283); t.fill();
+    }
+    // fine blade/speckle noise — tiny upright strokes in light & dark greens.
+    for (let i = 0; i < 1400; i++) {
+      const x = RR() * T, y = RR() * T;
+      const light = RR() < 0.5;
+      t.strokeStyle = light ? this._withAlpha(mix(COLORS.grassC, 0xffffff, 0.35), 0.5)
+                            : this._withAlpha(shade(COLORS.grassB, 0.7), 0.45);
+      t.lineWidth = 1;
+      const h = 1.5 + RR() * 2.5;
+      t.beginPath(); t.moveTo(x, y); t.lineTo(x + (RR() - 0.5) * 1.4, y - h); t.stroke();
+    }
+    // soft directional-light gradient baked into the tile (upper-left lift).
+    const lg = t.createLinearGradient(0, 0, T, T);
+    lg.addColorStop(0, 'rgba(255,255,235,0.12)');
+    lg.addColorStop(0.5, 'rgba(255,255,235,0)');
+    lg.addColorStop(1, 'rgba(0,40,20,0.10)');
+    t.fillStyle = lg; t.fillRect(0, 0, T, T);
+    this._lsGrassPat = g.createPattern(c, 'repeat');
+    return this._lsGrassPat;
+  }
+
+  // Worn DIRT road in world.js _road() style: a tan body (COLORS.road), a
+  // darker soft edge (road*0.85→0.70), TWO wheel-track lines (road*0.72→0.62)
+  // and a faint sunlit crown. Drawn along the SMOOTH Catmull-Rom centreline
+  // (layout.samples) so it flows in gentle S-curves with no kinks or jitter.
+  // The wheel tracks are offset along the local NORMAL so they hug the curve.
   _lsDrawRoad(g, layout) {
-    const all = [layout.start, ...layout.pts, layout.finish];
-    // Trace the road centreline. `nx` shifts the path along its local NORMAL
-    // (perpendicular to travel) so the two wheel tracks hug the curve properly
-    // on bends instead of sliding sideways like a flat x-offset would.
+    const pts = layout.samples;
+    // Trace the (optionally normal-offset) polyline through the dense samples.
     const trace = (nx = 0) => {
       g.beginPath();
-      g.moveTo(all[0].x, all[0].y);
-      for (let i = 1; i < all.length; i++) {
-        const p0 = all[i - 1], p1 = all[i];
-        const lean = Math.sin(i * 1.7 + 0.5) * (layout.W * 0.10);
-        let cx = (p0.x + p1.x) / 2 + lean;
-        let cy = (p0.y + p1.y) / 2;
-        let ex = p1.x, ey = p1.y;
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        let x = p.x, y = p.y;
         if (nx) {
-          // unit normal of this segment (road runs mostly bottom→top)
-          const dx = p1.x - p0.x, dy = p1.y - p0.y;
+          const a = pts[Math.min(pts.length - 1, i + 1)];
+          const b = pts[Math.max(0, i - 1)];
+          const dx = a.x - b.x, dy = a.y - b.y;
           const len = Math.hypot(dx, dy) || 1;
-          const ox = (-dy / len) * nx, oy = (dx / len) * nx;
-          cx += ox; cy += oy; ex += ox; ey += oy;
+          x += (-dy / len) * nx; y += (dx / len) * nx;
         }
-        g.quadraticCurveTo(cx, cy, ex, ey);
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
       }
     };
     g.lineCap = 'round'; g.lineJoin = 'round';
     const road = COLORS.road;                          // 0xc2a25e — warm tan
-    // ground shadow, well offset so the dirt path clearly sits ON the map
-    g.save(); g.globalAlpha = 0.26; g.strokeStyle = '#000'; g.lineWidth = 34;
-    g.translate(0, 3); trace(); g.stroke(); g.restore();
-    // soft DARKER EARTH edge under the path
-    g.strokeStyle = shade(road, 0.70); g.lineWidth = 30; trace(); g.stroke();
-    // tan DIRT BASE — the wide warm body of the road
-    g.strokeStyle = hex(road); g.lineWidth = 24; trace(); g.stroke();
-    // sunlit highlight band so the dirt looks raised, not painted on
-    g.strokeStyle = shade(road, 1.12); g.lineWidth = 17; trace(); g.stroke();
-    g.strokeStyle = hex(road); g.lineWidth = 11; trace(); g.stroke();
+    // soft cast shadow (down-right) so the lane clearly sits ON the meadow
+    g.save(); g.globalAlpha = 0.24; g.strokeStyle = '#0a1f10'; g.lineWidth = 30;
+    g.translate(1.5, 3); trace(); g.stroke(); g.restore();
+    // darker earth edge under the path
+    g.strokeStyle = shade(road, 0.70); g.lineWidth = 28; trace(); g.stroke();
+    // tan dirt base — the warm body of the lane
+    g.strokeStyle = hex(road); g.lineWidth = 22; trace(); g.stroke();
+    // sunlit crown so the dirt reads raised, not painted on
+    g.strokeStyle = shade(road, 1.13); g.lineWidth = 15; trace(); g.stroke();
+    g.strokeStyle = hex(road); g.lineWidth = 10; trace(); g.stroke();
     // TWO darker WHEEL TRACKS along the normals — the signature double-track.
-    g.strokeStyle = shade(road, 0.62); g.lineWidth = 4.5;
-    for (const off of [-6, 6]) { trace(off); g.stroke(); }
-    // faint worn dust between the tracks
-    g.strokeStyle = shade(road, 1.2); g.lineWidth = 2; trace(); g.stroke();
+    g.strokeStyle = shade(road, 0.64); g.lineWidth = 4;
+    for (const off of [-5.5, 5.5]) { trace(off); g.stroke(); }
+    // faint worn dust strip down the crown between the tracks
+    g.strokeStyle = shade(road, 1.22); g.lineWidth = 1.8; trace(); g.stroke();
+  }
+
+  // A little wooden BRIDGE deck spanning the river where the road crosses it.
+  // Drawn as planks across the flow with two side rails + a soft shadow.
+  _lsDrawBridge(g, b) {
+    g.save();
+    g.translate(b.x, b.y);
+    g.rotate(b.angle); // align the deck across the road's direction of travel
+    const len = 30, half = 15;
+    // soft shadow on the water
+    g.globalAlpha = 0.28; g.fillStyle = '#0a1f10';
+    this._roundRect(g, -half + 2, -13 + 3, len, 26, 4); g.fill();
+    g.globalAlpha = 1;
+    // deck base
+    g.fillStyle = shade(COLORS.wood, 0.7);
+    this._roundRect(g, -half, -13, len, 26, 4); g.fill();
+    // planks across the deck (perpendicular to travel)
+    g.strokeStyle = shade(COLORS.woodDark, 1.0); g.lineWidth = 1.4;
+    for (let px = -half + 3; px < half; px += 4) {
+      g.beginPath(); g.moveTo(px, -12); g.lineTo(px, 12); g.stroke();
+    }
+    // plank highlights
+    g.strokeStyle = mix(COLORS.wood, 0xffffff, 0.25); g.lineWidth = 0.8;
+    for (let px = -half + 5; px < half; px += 4) {
+      g.beginPath(); g.moveTo(px, -11); g.lineTo(px, 11); g.stroke();
+    }
+    // two side rails
+    g.fillStyle = shade(COLORS.woodDark, 1.05);
+    g.fillRect(-half, -14, len, 3);
+    g.fillRect(-half, 11, len, 3);
+    g.restore();
+  }
+
+  // The hazy MOUNTAIN RANGE backdrop at the very top — the campaign's summit.
+  // Layered ridgelines fading into haze so they read as far distance, never a
+  // random corner blob. Sits between the FINISH and the BEACH crest.
+  _lsDrawMountains(g, layout) {
+    const { W } = layout;
+    // foot of the range a touch above the FINISH chip; peaks rise toward the
+    // beach so the range reads as the summit you have climbed toward.
+    const baseY = layout.finish.y - layout.nodeStep * 0.55;
+    g.save();
+    // farthest, palest ridge
+    const ridge = (yOff, col, alpha, jag) => {
+      g.globalAlpha = alpha;
+      g.fillStyle = col;
+      g.beginPath();
+      g.moveTo(-10, baseY + yOff + 60);
+      let up = true;
+      for (let x = -10, k = 0; x <= W + 10; x += W / 7, k++) {
+        const peak = baseY + yOff - (up ? jag : jag * 0.4) * (0.6 + ((k * 53) % 7) / 10);
+        g.lineTo(x, peak);
+        up = !up;
+      }
+      g.lineTo(W + 10, baseY + yOff + 60);
+      g.closePath(); g.fill();
+    };
+    ridge(34, mix(COLORS.rockGray, 0xeaf2ff, 0.55), 0.55, 46);   // distant haze-blue
+    ridge(54, mix(COLORS.rockGray, 0xc9d6e6, 0.35), 0.7, 64);    // mid range
+    // nearest range with snow caps + sunlit faces
+    g.globalAlpha = 0.92;
+    const peaks = 5;
+    for (let p = 0; p < peaks; p++) {
+      const cx = (W / peaks) * (p + 0.5);
+      const pw = (W / peaks) * 0.95;
+      const ph = 70 + ((p * 37) % 30);
+      const topY = baseY + 70 - ph;
+      // shadow face
+      g.fillStyle = shade(COLORS.rockGray, 0.78);
+      g.beginPath();
+      g.moveTo(cx - pw / 2, baseY + 70);
+      g.lineTo(cx, topY);
+      g.lineTo(cx + pw / 2, baseY + 70);
+      g.closePath(); g.fill();
+      // sunlit (left) face
+      g.fillStyle = mix(COLORS.rockGray, 0xffffff, 0.18);
+      g.beginPath();
+      g.moveTo(cx - pw / 2, baseY + 70);
+      g.lineTo(cx, topY);
+      g.lineTo(cx - pw * 0.12, baseY + 70);
+      g.closePath(); g.fill();
+      // snow cap
+      g.fillStyle = hex(COLORS.snow);
+      g.beginPath();
+      g.moveTo(cx, topY);
+      g.lineTo(cx - pw * 0.16, topY + ph * 0.26);
+      g.lineTo(cx - pw * 0.06, topY + ph * 0.16);
+      g.lineTo(cx + pw * 0.05, topY + ph * 0.28);
+      g.lineTo(cx + pw * 0.16, topY + ph * 0.18);
+      g.closePath(); g.fill();
+    }
+    g.restore();
+    // a band of atmospheric haze across the foot of the range so it sits back.
+    const haze = g.createLinearGradient(0, baseY + 10, 0, baseY + 90);
+    haze.addColorStop(0, 'rgba(214,230,238,0)');
+    haze.addColorStop(0.6, 'rgba(214,230,238,0.65)');
+    haze.addColorStop(1, 'rgba(214,230,238,0)');
+    g.fillStyle = haze; g.fillRect(0, baseY + 10, W, 80);
   }
 
   // Crafted hand-painted props scattered over the world: standalone trees,
-  // bushes, rocks, hay bales and a couple of split-rail fence lines. Placed
-  // deterministically (shared R) and kept clear of the central road column.
-  _lsDrawProps(g, layout, R) {
+  // bushes, rocks and hay bales. Placed deterministically (shared R) and kept
+  // clear of the road AND the river via the onLand() predicate.
+  _lsDrawProps(g, layout, R, onLand) {
     const { W, H } = layout;
     const shadow = (x, y, w, h, a = 0.2) => {
-      g.save(); g.globalAlpha = a; g.fillStyle = '#000';
+      g.save(); g.globalAlpha = a; g.fillStyle = '#0a1f10';
       g.beginPath(); g.ellipse(x, y, w, h, 0, 0, 6.283); g.fill(); g.restore();
     };
     // a leafy round tree with a trunk + sunlit canopy
@@ -1050,45 +1227,110 @@ export class UI {
       this._roundRect(g, -s, -s * 0.62, s * 2, s * 1.24, s * 0.55); g.stroke();
       g.restore();
     };
-    // a split-rail fence LINE between two points
-    const fence = (x1, y1, x2, y2) => {
-      const segs = Math.max(2, Math.round(Math.hypot(x2 - x1, y2 - y1) / 16));
-      g.strokeStyle = shade(COLORS.wood, 0.8); g.lineWidth = 2;
-      g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
-      g.fillStyle = shade(COLORS.woodDark, 1.0);
-      for (let i = 0; i <= segs; i++) {
-        const t = i / segs;
-        g.fillRect(x1 + (x2 - x1) * t - 1.3, y1 + (y2 - y1) * t - 4, 2.6, 8);
-      }
-    };
+    const ok = (x, y) => (onLand ? onLand(x, y) : true);
 
-    // Keep props off the central road band (|x-mid| within roadHalf).
-    const mid = W * 0.5, roadHalf = W * 0.16;
-    const offRoad = (x) => Math.abs(x - mid) > roadHalf;
-
-    // scattered trees across the field, denser near the edges
-    for (let i = 0; i < Math.round(H / 70); i++) {
-      const edge = R() < 0.6;
-      const x = edge ? (R() < 0.5 ? W * (0.04 + R() * 0.12) : W * (0.84 + R() * 0.12))
+    // scattered trees, clustered toward the panel edges to frame the journey.
+    for (let i = 0; i < Math.round(H / 64); i++) {
+      const edge = R() < 0.62;
+      const x = edge ? (R() < 0.5 ? W * (0.04 + R() * 0.13) : W * (0.83 + R() * 0.13))
                      : R() * W;
       const y = H * 0.06 + R() * H * 0.9;
-      if (!offRoad(x)) continue;
+      if (!ok(x, y)) continue;
       tree(x, y, 8 + R() * 6);
     }
-    // bushes & rocks dotted around
-    for (let i = 0; i < Math.round(H / 90); i++) {
+    // bushes & rocks dotted around the meadows
+    for (let i = 0; i < Math.round(H / 80); i++) {
       const x = R() * W, y = H * 0.08 + R() * H * 0.88;
-      if (!offRoad(x)) continue;
-      (R() < 0.6 ? bush : rock)(x, y, 5 + R() * 4);
+      if (!ok(x, y)) continue;
+      (R() < 0.62 ? bush : rock)(x, y, 5 + R() * 4);
     }
-    // a couple of hay bales near the farm fields
-    hay(W * 0.62, H * 0.33, 7);
-    hay(W * 0.67, H * 0.345, 7);
-    hay(W * 0.30, H * 0.66, 6);
-    // a few fence lines along field/pasture edges
-    fence(W * 0.58, H * 0.27, W * 0.84, H * 0.27);
-    fence(W * 0.10, H * 0.55, W * 0.10, H * 0.66);
-    fence(W * 0.40, H * 0.80, W * 0.66, H * 0.82);
+    // a few hay bales out in the meadows beside the road
+    for (let i = 0; i < 4; i++) {
+      const x = R() * W, y = H * 0.18 + R() * H * 0.7;
+      if (!ok(x, y)) continue;
+      hay(x, y, 6 + R() * 2);
+    }
+  }
+
+  // Grazing herds: drawn black-&-white holstein cows (body, head, legs, spots)
+  // plus a few sheep, scattered in the pastures and meadows beside the road.
+  // Each gets a soft down-right shadow. NO emoji — all path-drawn.
+  _lsDrawHerds(g, layout, R, pastures, onLand) {
+    const { W, H } = layout;
+    const shadow = (x, y, w, h) => {
+      g.save(); g.globalAlpha = 0.20; g.fillStyle = '#0a1f10';
+      g.beginPath(); g.ellipse(x, y, w, h, 0, 0, 6.283); g.fill(); g.restore();
+    };
+    // a top-down holstein cow, facing roughly down the meadow.
+    const cow = (x, y, s) => {
+      shadow(x + s * 0.18, y + s * 0.62, s * 1.05, s * 0.42);
+      g.save(); g.translate(x, y); g.rotate((R() - 0.5) * 0.5);
+      // legs (four little dark stubs)
+      g.fillStyle = hex(COLORS.cowBlack);
+      for (const lx of [-s * 0.5, s * 0.5]) for (const ly of [-s * 0.4, s * 0.45])
+        g.fillRect(lx - s * 0.1, ly - s * 0.1, s * 0.2, s * 0.32);
+      // body
+      g.fillStyle = hex(COLORS.cowWhite);
+      this._roundRect(g, -s * 0.72, -s * 0.5, s * 1.44, s * 1.0, s * 0.4); g.fill();
+      // black spots (clipped to the body)
+      g.save();
+      this._roundRect(g, -s * 0.72, -s * 0.5, s * 1.44, s * 1.0, s * 0.4); g.clip();
+      g.fillStyle = hex(COLORS.cowBlack);
+      g.beginPath(); g.ellipse(-s * 0.3, -s * 0.1, s * 0.32, s * 0.26, 0.3, 0, 6.283); g.fill();
+      g.beginPath(); g.ellipse(s * 0.32, s * 0.18, s * 0.26, s * 0.22, -0.4, 0, 6.283); g.fill();
+      g.beginPath(); g.ellipse(s * 0.1, -s * 0.34, s * 0.16, s * 0.13, 0, 0, 6.283); g.fill();
+      g.restore();
+      // soft top highlight on the white hide
+      g.fillStyle = 'rgba(255,255,255,0.45)';
+      g.beginPath(); g.ellipse(-s * 0.1, -s * 0.28, s * 0.5, s * 0.2, 0, 0, 6.283); g.fill();
+      // head poking out the top
+      g.fillStyle = hex(COLORS.cowWhite);
+      this._roundRect(g, -s * 0.26, -s * 0.86, s * 0.52, s * 0.42, s * 0.18); g.fill();
+      g.fillStyle = hex(COLORS.cowPink);   // snout
+      this._roundRect(g, -s * 0.16, -s * 0.6, s * 0.32, s * 0.16, s * 0.07); g.fill();
+      g.fillStyle = hex(COLORS.cowBlack);  // ears
+      g.beginPath(); g.ellipse(-s * 0.28, -s * 0.78, s * 0.12, s * 0.08, -0.5, 0, 6.283); g.fill();
+      g.beginPath(); g.ellipse(s * 0.28, -s * 0.78, s * 0.12, s * 0.08, 0.5, 0, 6.283); g.fill();
+      g.restore();
+    };
+    // a fluffy sheep: cream cloud body + dark face.
+    const sheep = (x, y, s) => {
+      shadow(x + s * 0.18, y + s * 0.6, s * 0.95, s * 0.38);
+      g.save(); g.translate(x, y); g.rotate((R() - 0.5) * 0.5);
+      g.fillStyle = hex(COLORS.cowBlack);
+      for (const lx of [-s * 0.35, s * 0.35]) g.fillRect(lx - s * 0.08, s * 0.2, s * 0.16, s * 0.3);
+      // wool cloud (overlapping pillows)
+      g.fillStyle = hex(COLORS.wool);
+      for (const [ox, oy, rr] of [[-s * 0.4, 0, s * 0.42], [s * 0.4, 0, s * 0.42], [0, -s * 0.2, s * 0.5], [0, s * 0.18, s * 0.42]]) {
+        g.beginPath(); g.arc(ox, oy, rr, 0, 6.283); g.fill();
+      }
+      g.fillStyle = mix(COLORS.wool, 0xffffff, 0.4);
+      g.beginPath(); g.arc(-s * 0.1, -s * 0.22, s * 0.28, 0, 6.283); g.fill();
+      // dark face at the top
+      g.fillStyle = shade(COLORS.cowBlack, 1.4);
+      g.beginPath(); g.ellipse(0, -s * 0.5, s * 0.22, s * 0.2, 0, 0, 6.283); g.fill();
+      g.restore();
+    };
+
+    // herd inside each pasture (2-4 cows), packed within the fence.
+    for (const p of pastures) {
+      const count = 2 + ((R() * 3) | 0);
+      for (let k = 0; k < count; k++) {
+        const cx = p.x + (R() - 0.5) * (p.w - 16);
+        const cy = p.y + (R() - 0.5) * (p.h - 10);
+        cow(cx, cy, 7);
+      }
+    }
+    // a few free-grazing cows + sheep out in the open meadows beside the road.
+    const ok = (x, y) => (onLand ? onLand(x, y, W * 0.15, W * 0.08) : true);
+    let placed = 0;
+    for (let i = 0; i < 60 && placed < 9; i++) {
+      const x = R() * W, y = H * 0.12 + R() * H * 0.8;
+      if (!ok(x, y)) continue;
+      if (R() < 0.7) cow(x, y, 6.5 + R() * 1.5);
+      else sheep(x, y, 6);
+      placed++;
+    }
   }
 
   // Little top-down farm sprites: barn (+roof), silo, windmill, farmhouse.
@@ -1255,7 +1497,6 @@ export class UI {
       const completed = this._isCompleted(index);
       const isCurrent = !completed && index === unlocked;
       const locked = index > unlocked;
-      const stars = completed ? this._starsFor(index) : 0;
 
       let cls = 'mf-ls-node';
       if (locked) cls += ' mf-ls-locked';
@@ -1269,13 +1510,8 @@ export class UI {
       node.style.top = `${p.y}px`;
       node.dataset.index = String(index);
 
-      // drawn stars row (completed only) — small SVG stars, no emoji
-      if (completed) {
-        const sw = el('div', 'mf-ls-stars', node);
-        for (let k = 0; k < 3; k++) {
-          sw.appendChild(this._svgStar(k < stars));
-        }
-      }
+      // NOTE: levels are pass/fail — there are NO stars on nodes. Completed
+      // levels show only a drawn CHECK mark (appended below).
 
       // UFO marker (CSS art: dome + body + glowing rim) with the level NUMBER.
       const ufo = el('div', 'mf-ls-ufo', node);
@@ -1813,16 +2049,17 @@ export class UI {
 
   /**
    * @param {object} o
-   *   won, index, score, target, time, isNewBest, starsEarned, hasNext
+   *   won, index, score, target, time, isNewBest, hasNext
+   *   (NOTE: levels are pass/fail — no stars. `starsEarned` is accepted for
+   *   backward-compat but ignored.)
    */
   showLevelResult({
     won = false, index = 1, score = 0, target = 0, time = 0,
-    isNewBest = false, starsEarned = 0, hasNext = false,
+    isNewBest = false, hasNext = false,
   } = {}) {
     // The level-select map (if open) should give way to the result.
     if (this._levelSelectVisible) this.hideLevelSelect();
 
-    const stars = Math.max(0, Math.min(3, starsEarned | 0));
     const s = this._endEl;
     s.textContent = '';
     s.className = `mf-screen mf-end mf-levelresult ${won ? 'mf-theme-win mf-lr-won' : 'mf-theme-over mf-lr-fail'}`;
@@ -1834,15 +2071,11 @@ export class UI {
       won ? 'MISSION COMPLETE' : 'MISSION FAILED');
 
     if (won) {
-      // Three drawn (SVG) star slots; the earned ones pop in on a stagger.
-      const sw = el('div', 'mf-lr-stars', panel);
-      for (let k = 0; k < 3; k++) {
-        const svg = this._svgStar(k < stars);
-        svg.classList.add('mf-lr-star');
-        if (k < stars) svg.classList.add('mf-lr-star-on');
-        svg.style.setProperty('--i', k);
-        sw.appendChild(svg);
-      }
+      // A big satisfying CHECK mark stamps in (NO stars — pass/fail only).
+      const badge = el('div', 'mf-lr-checkwrap', panel);
+      const check = this._svgCheck();
+      check.classList.add('mf-lr-check');
+      badge.appendChild(check);
       if (isNewBest) el('div', 'mf-ribbon mf-lr-best', panel, 'NEW BEST!');
     } else {
       el('div', 'mf-end-sub mf-lr-sub', panel, 'The herd got away. Try again!');
