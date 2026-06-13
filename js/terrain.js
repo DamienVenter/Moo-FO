@@ -68,13 +68,23 @@ function distToSeg(px, pz, x1, z1, x2, z2) {
 // (NOT the big edge mountains). Added on top of the base before the flats are
 // applied, so building/pasture zones still get flattened over them.
 const HILLS = [
-  { x: 120, z: -165, r: 52, h: 12 },
-  { x: -78, z: -150, r: 46, h: 10 },
-  { x: 135, z: 232, r: 48, h: 11 },
-  { x: -150, z: 70, r: 50, h: 12 },
-  { x: 250, z: -95, r: 44, h: 9 },
-  { x: -40, z: 250, r: 40, h: 8 },
-  { x: 300, z: 250, r: 46, h: 10 },
+  { x: 120, z: -165, r: 52, h: 13 },
+  { x: -78, z: -150, r: 46, h: 11 },
+  { x: 135, z: 232, r: 48, h: 12 },
+  { x: -150, z: 70, r: 50, h: 13 },
+  { x: 250, z: -95, r: 44, h: 10 },
+  { x: -40, z: 250, r: 40, h: 9 },
+  { x: 300, z: 250, r: 46, h: 11 },
+  // more rolling elevation across the open country
+  { x: 250, z: 150, r: 50, h: 14 },
+  { x: -260, z: -60, r: 46, h: 12 },
+  { x: 60, z: 210, r: 44, h: 10 },
+  { x: -210, z: 130, r: 42, h: 10 },
+  { x: 300, z: -200, r: 50, h: 15 },
+  { x: -300, z: 40, r: 46, h: 12 },
+  { x: 95, z: 300, r: 44, h: 10 },
+  { x: 250, z: 30, r: 46, h: 13 },
+  { x: -150, z: -280, r: 44, h: 11 },
 ];
 
 // Flat plateaus (farm compound, crop fields, pastures, meadows). Each blends
@@ -104,8 +114,8 @@ const BASINS = [
 function clamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
 
 export function terrainHeight(x, z) {
-  // base rolling hills, 0..7
-  let h = 0.6 + fbm(x * 0.012, z * 0.012) * 6.5;
+  // base rolling hills (broader + taller now for more elevation variety)
+  let h = 0.6 + fbm(x * 0.011, z * 0.011) * 8.5;
 
   // mountain ring beyond the playable bound, peaking at the very edge
   const edge = Math.max(Math.abs(x), Math.abs(z));

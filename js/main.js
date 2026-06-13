@@ -291,13 +291,12 @@ function finishLevel() {
   controls.setTouchVisible(false);
   audio.stopLoop('waterfall');
   const won = score >= target;
-  const stars = won ? campaign.starCount(score, target) : 0;
-  const isNewBest = won ? campaign.complete(level, score, stars) : false;
+  const isNewBest = won ? campaign.complete(level, score) : false;
   if (won) submitScore(score, 'campaign');
   audio.play(won ? 'win' : 'lose', { volume: 0.9 });
   ui.showLevelResult({
     won, index: level, score, target, time: timeLimit,
-    isNewBest, starsEarned: stars,
+    isNewBest, starsEarned: 0,   // stars removed — pass/fail only (0 keeps old UI safe)
     hasNext: won && level < campaign.levels.length,
   });
   state = won ? State.WIN : State.GAMEOVER;
