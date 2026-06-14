@@ -258,6 +258,37 @@ function torusGeo(r, t, a = 6, b = 12) {
   return _geo(`to${r},${t},${a},${b}`, () => new THREE.TorusGeometry(r, t, a, b));
 }
 
+// Prism extruded along X from a closed 2D cross-section in the Y-Z plane.
+// `profile` is an array of [y, z] points (CCW), `len` is the X extrusion.
+// Used for solid pitched gable / gambrel roof masses so the roofline reads
+// as one continuous triangular/angled form with no rectangular block beneath.
+function prismXGeo(profile, len) {
+  const key = `pr${len}|${profile.map((p) => p.join(',')).join(';')}`;
+  return _geo(key, () => {
+    // Author the shape so it maps cleanly to world axes after the rotateY
+    // below: shape (x=-z, y=y) extruded along z, then rotated so the
+    // extrusion runs along X and the profile lands at its intended (y, z).
+    const pts = profile.map((p) => [-p[1], p[0]]);   // [y,z] → shape (x,y)
+    // ExtrudeGeometry wants a CCW outer contour for outward-facing normals;
+    // reverse if the authored profile came out clockwise so end caps and
+    // walls always face out regardless of point order.
+    let area = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      area += a[0] * b[1] - b[0] * a[1];
+    }
+    if (area < 0) pts.reverse();
+    const shape = new THREE.Shape();
+    shape.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
+    shape.closePath();
+    const g = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false });
+    g.translate(0, 0, -len / 2);                    // center the extrusion on X
+    g.rotateY(Math.PI / 2);                          // extrusion axis → world X
+    return g;
+  });
+}
+
 /* ------------------------------------------------------------------ *
  *  Small builder helpers
  * ------------------------------------------------------------------ */
@@ -1123,11 +1154,16 @@ export function createBarn() {
   // Stone foundation strip.
   box(g, 12.3, 0.55, 10.3, mat(COLORS.stone, false, 'stone'), 0, 0.27, 0);
 
-  // Walls: lower box + gambrel-profile gable fill (stepped, inset 0.02
-  // from the foundation/roof planes to avoid z-fighting).
+  // Walls: lower box + a single gambrel-PRISM gable mass whose cross-section
+  // traces the gambrel roofline itself — eave(z=±5,y=4.85) → knuckle(z=±4,
+  // y=7.0) → ridge(z=0,y=8.5) — so the steep lower and shallow upper roof
+  // panels sit flush on angled faces and the gable end reads as one clean
+  // gambrel silhouette instead of two stacked rectangular blocks. Length
+  // inset to 9.92 to avoid z-fighting the front/back wall planes.
   box(g, 12, 4.3, 10, red, 0, 2.7, 0);                 // main wall (eave at 4.85)
-  box(g, 8.0, 2.15, 9.96, red, 0, 5.93, 0);            // mid gable fill (to knuckle)
-  box(g, 4.0, 1.5, 9.96, red, 0, 7.75, 0);             // upper gable fill (to ridge)
+  add(g, prismXGeo([
+    [4.85, -5], [7.0, -4.0], [8.5, 0], [7.0, 4.0], [4.85, 5],
+  ], 9.92), red, 0, 0, 0);                             // gambrel gable mass
 
   // Gambrel roof: steep LOWER panels (eave→knuckle) + shallow UPPER
   // panels (knuckle→ridge) that meet cleanly under a single ridge cap.
@@ -1228,11 +1264,13 @@ export function createFarmhouse() {
   const shutterM = mat(0x3f6e58);
   const glow = emat(0xffd98c, 0xff9d3c, 0.9);
 
-  // Main walls + stepped gable fill (kept under the roof planes; fill is
-  // inset 0.02 so it never z-fights the wall or roof).
+  // Main walls + a single TRIANGULAR-PRISM gable mass. The prism's
+  // cross-section is the gable triangle itself (eaves z=±3.5,y=4.6 →
+  // ridge z=0,y=6.5), so its two faces lie flush under the roof slabs and
+  // its end caps form clean triangles — no rectangular block pokes out
+  // beneath the pitched roof. Inset 0.04 in length/depth to avoid z-fighting.
   box(g, 10, 4.6, 7, wall, 0, 2.3, 0);
-  box(g, 9.96, 1.0, 3.5, wall, 0, 5.1, 0);             // gable fill mid
-  box(g, 9.96, 0.95, 1.3, wall, 0, 5.95, 0);           // gable fill upper (to ridge)
+  add(g, prismXGeo([[4.6, -3.46], [4.6, 3.46], [6.5, 0]], 9.92), wall, 0, 0, 0);
 
   // Gable roof: ridge along X at y=6.5, eaves at (z=±3.5, y=4.6). Slope
   // run 3.5, rise 1.9 → angle atan(1.9/3.5)=0.497. Slabs sized to give a

@@ -233,10 +233,9 @@ export class CowManager {
               ratejitter: 0.15,
             });
           } else if (c.kind === 'sheep') {
-            // a sped-up moo reads as a chunky little bleat
-            this.audio.play(MOOS[(Math.random() * 3) | 0], {
-              volume: THREE.MathUtils.clamp(0.6 - d / 90, 0.1, 0.5),
-              rate: 1.55, ratejitter: 0.1,
+            this.audio.play('baa', {
+              volume: THREE.MathUtils.clamp(0.7 - d / 90, 0.1, 0.6),
+              ratejitter: 0.12,
             });
           } else {
             this.audio.play(MOOS[(Math.random() * 3) | 0], {
@@ -356,10 +355,12 @@ export class CowManager {
     c.state = 'lift';
     c.spin = 2;
     c.vy = 0;
-    // startled noise on grab
+    // startled noise on grab — each species its own voice
     const d = Math.hypot(c.group.position.x - up.x, c.group.position.z - up.z);
     if (c.kind === 'chicken') {
       this.audio.play('chicken', { volume: 0.6, rate: 1.2, ratejitter: 0.12 });
+    } else if (c.kind === 'sheep') {
+      this.audio.play('baa', { volume: 0.7, rate: 1.12, ratejitter: 0.1 });
     } else if (d < MOO_RANGE) {
       this.audio.play(MOOS[(Math.random() * 3) | 0], { volume: 0.7, rate: 1.18, ratejitter: 0.08 });
     }
@@ -589,7 +590,7 @@ export class CowManager {
     if (c.mooT <= 0) {
       c.mooT = 5 + Math.random() * 10;
       const d = Math.hypot(dux, duz);
-      if (d < 50) this.audio.play('chicken', { volume: 0.4, rate: 0.68, ratejitter: 0.1 });
+      if (d < 50) this.audio.play('quack', { volume: 0.45, ratejitter: 0.14 });
     } else {
       c.mooT -= dt;
     }

@@ -264,6 +264,7 @@ function togglePause() {
     ufo.forceStopBeam();
     audio.play('click', { volume: 0.6 });
     audio.stopLoop('waterfall');
+    audio.stopLoop('tractor');
     ui.showPause(audio.muted);
     controls.setTouchVisible(false);
   } else if (state === State.PAUSED) {
@@ -281,6 +282,7 @@ function quitToMenu() {
   controls.setTouchVisible(false);
   ufo.forceStopBeam();
   audio.stopLoop('waterfall');
+  audio.stopLoop('tractor');
   state = State.MENU;
   mode = 'free'; level = 0; target = 0; timeLimit = CFG.GAME_DURATION;
   resetRound();
@@ -298,10 +300,18 @@ function finishRound(won) {
   hud.hide();
   controls.setTouchVisible(false);
   audio.stopLoop('waterfall');
+  audio.stopLoop('tractor');
   const best = getHighscore();
   const isNewBest = score > best;
   if (isNewBest) setHighscore(score);
-  const payload = { score, cows: cowsGrabbed, highscore: Math.max(best, score), isNewBest };
+  // Free play pays Cow Coins: 10 per full 1000 points.
+  const coinsEarned = Math.floor(score / 1000) * 10;
+  const prevBalance = wallet.getBalance();
+  const newBalance = coinsEarned > 0 ? wallet.add(coinsEarned) : prevBalance;
+  const payload = {
+    score, cows: cowsGrabbed, highscore: Math.max(best, score), isNewBest,
+    coinsEarned, prevBalance, newBalance,
+  };
   submitScore(score, 'free');   // local board now; global once /server is deployed
   if (won) {
     let medal = null;
@@ -322,6 +332,7 @@ function finishLevel() {
   hud.hide();
   controls.setTouchVisible(false);
   audio.stopLoop('waterfall');
+  audio.stopLoop('tractor');
   const L = campaign.levels[level - 1];
   const evalRes = evaluateLevel(L, score, tracker);
   const won = evalRes.scoreDone;
@@ -369,6 +380,19 @@ function updateWaterfallSound() {
   }
   if (vol > 0.02) audio.startLoop('waterfall', { volume: vol });
   else audio.stopLoop('waterfall');
+}
+
+// Tractor engine: a positional diesel loop that swells as you near it.
+function updateTractorSound() {
+  const tp = world.tractorPos;
+  if (!tp) return;
+  let vol = 0;
+  if (state === State.PLAYING || state === State.COUNTDOWN) {
+    const d = Math.hypot(ufo.group.position.x - tp.x, ufo.group.position.z - tp.z);
+    vol = Math.max(0, 1 - d / 58) * 0.5;
+  }
+  if (vol > 0.02) audio.startLoop('tractor', { volume: vol });
+  else audio.stopLoop('tractor');
 }
 
 // ---------------------------------------------------------------------------
@@ -548,6 +572,7 @@ function frame() {
       endDelay = 0;
       controls.setTouchVisible(false);
       audio.stopLoop('waterfall');
+      audio.stopLoop('tractor');
     }
   } else if (state === State.MENU) {
     if (cows) cows.update(dt, ufo);
@@ -576,6 +601,7 @@ function frame() {
   }
 
   updateWaterfallSound();
+  updateTractorSound();
   updateCamera(dt);
   renderer.render(scene, camera);
 }

@@ -17,6 +17,8 @@ const SOUND_NAMES = [
   'tick', 'combo', 'click',
   'start', 'win', 'lose',
   'jingle', 'waterfall',
+  'bark', 'baa', 'quack',
+  'scream', 'tractor', 'hoot',
 ];
 
 const MUTE_KEY = 'moofo-muted';

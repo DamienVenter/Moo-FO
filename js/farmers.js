@@ -123,6 +123,10 @@ export class FarmerManager {
         f.aggroed = true;
         f.bangT = 0;
         f.bang.visible = true;
+        // farmer hollers when he spots you
+        this.audio.play('scream', {
+          volume: THREE.MathUtils.clamp(1 - d / 90, 0.2, 0.8), ratejitter: 0.14,
+        });
       } else if (st === 'patrol' && f.aggroed) {
         f.aggroed = false;
       }
@@ -193,6 +197,7 @@ export class FarmerManager {
     best.bangT = 0;            // trigger the "!" pop
     best.bang.visible = true;
     best.fireT = Math.max(best.fireT, 0.25);
+    this.audio.play('scream', { volume: 0.6, ratejitter: 0.14 });
   }
 
   // ============================== states ==============================

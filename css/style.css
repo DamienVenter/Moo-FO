@@ -1014,17 +1014,22 @@ button {
 .mf-cow-leg-2 { left: 40px; }
 .mf-cow-leg-3 { left: 51px; }
 
+/* tail: anchored ON the cow's rear (the body's left edge sits at 6px, top 9px).
+   It springs from just inside the rump so it reads as attached, drapes down
+   and ends in a dark tuft (the box-shadow). transform-origin at the TOP keeps
+   the rotation pivot right at the attachment point on the body. */
 .mf-cow-tail {
   position: absolute;
-  left: 0;
-  top: 12px;
+  left: 7px;
+  top: 11px;
   width: 5px;
   height: 18px;
-  border-radius: 4px;
+  border-radius: 3px 3px 4px 4px;
   background: #f5f5f0;
   transform-origin: top center;
-  transform: rotate(14deg);
-  box-shadow: 0 17px 0 -1px #2b2b2b;
+  transform: rotate(20deg);
+  box-shadow: 0 16px 0 -1px #2b2b2b;
+  z-index: 0;
 }
 
 /* --- logo --- */
@@ -1216,21 +1221,26 @@ button {
   text-align: center;
 }
 
-/* row of BIG hero tiles filling most of the screen (stack on narrow screens) */
+/* row of TALL PORTRAIT poster tiles. The cards are deliberately portrait
+   (taller than wide) so the replacement poster art shows well with very
+   little crop. They fill most of the screen height. */
 .mf-mode-grid {
   display: flex;
   gap: 20px;
-  width: min(1280px, 92vw);
-  height: min(62vh, 620px);
+  width: min(1180px, 94vw);
+  height: min(80vh, 760px);
   justify-content: center;
   align-items: stretch;
 }
 
-/* --- a single mode card: large hero tile --- */
+/* --- a single mode card: TALL PORTRAIT poster tile --- */
 .mf-mode-card {
   position: relative;
   flex: 1 1 0;
   min-width: 0;
+  /* portrait: cap each card's width relative to its (tall) height so the
+     tiles read as upright posters, not wide banners. */
+  max-width: min(34vh, 360px);
   min-height: 300px;
   padding: 0;
   overflow: hidden;
@@ -1240,8 +1250,10 @@ button {
   border-radius: 24px;
   color: #fff;
   text-align: left;
+  /* show the TALL PORTRAIT poster art well: cover the card, centred, so the
+     poster fills the frame with minimal over-crop. */
   background-size: cover;
-  background-position: center;
+  background-position: center center;
   background-repeat: no-repeat;
   box-shadow:
     0 0 22px rgba(124, 252, 154, 0.24),
@@ -1286,20 +1298,10 @@ button {
 }
 
 .mf-mode-name {
-  font-size: clamp(26px, 3.2vw, 44px);
+  font-size: clamp(24px, 2.8vw, 40px);
   font-weight: 900;
   letter-spacing: 0.06em;
   text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6), 0 0 18px rgba(0, 0, 0, 0.5);
-}
-
-.mf-mode-sub {
-  margin-top: 6px;
-  font-size: clamp(14px, 1.4vw, 19px);
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  line-height: 1.35;
-  color: rgba(238, 246, 255, 0.88);
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
 }
 
 .mf-mode-card:hover {
@@ -1393,18 +1395,28 @@ button {
   transform: translateX(-50%) translateY(0);
 }
 
-/* stack the cards vertically on narrow / mobile screens — still BIG tiles */
+/* narrow / mobile screens: keep the three portrait posters side-by-side in a
+   horizontally-scrollable row so each stays UPRIGHT (portrait) rather than
+   flattening into wide banners. */
 @media (max-width: 700px) {
   .mf-mode-grid {
-    flex-direction: column;
-    width: min(560px, 94vw);
-    height: auto;
-    max-height: 74vh;
-    overflow-y: auto;
+    flex-direction: row;
+    width: min(560px, 96vw);
+    height: min(74vh, 620px);
+    gap: 12px;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
   }
-  .mf-mode-card { min-height: 22vh; flex: 1 1 22vh; }
-  .mf-modes-head { width: min(560px, 94vw); }
+  .mf-mode-card {
+    flex: 0 0 64vw;
+    max-width: 64vw;
+    min-height: 0;
+    scroll-snap-align: center;
+  }
+  .mf-modes-head { width: min(560px, 96vw); }
   .mf-modes-title { font-size: 26px; }
 }
 
@@ -1986,62 +1998,8 @@ button {
     0 0 12px rgba(0, 0, 0, 0.7);
 }
 
-/* worlds indicator (FARM active / BEACH locked) — drawn marks, no emoji */
-.mf-ls-worlds {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: row;
-  gap: 8px;
-  align-items: center;
-  justify-content: center;
-}
-.mf-ls-world {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border: 2px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  background: rgba(10, 14, 34, 0.55);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  color: rgba(238, 246, 255, 0.7);
-}
-.mf-ls-world-on {
-  border-color: var(--mf-green);
-  color: var(--mf-green);
-  box-shadow: 0 0 12px rgba(124, 252, 154, 0.3);
-}
-.mf-ls-world-locked { filter: saturate(0.4); opacity: 0.7; }
-.mf-ls-world-name { line-height: 1; }
-.mf-ls-world-mark { position: relative; width: 14px; height: 14px; flex: 0 0 14px; }
-/* drawn check (two strokes) */
-.mf-ls-world-check::before,
-.mf-ls-world-check::after {
-  content: '';
-  position: absolute;
-  background: var(--mf-green);
-  border-radius: 2px;
-}
-.mf-ls-world-check::before { left: 2px; top: 7px; width: 5px; height: 2.5px; transform: rotate(45deg); }
-.mf-ls-world-check::after  { left: 5px; top: 4px; width: 9px; height: 2.5px; transform: rotate(-50deg); }
-/* drawn padlock */
-.mf-ls-world-lock::before {
-  content: '';
-  position: absolute;
-  left: 3px; top: 6px; width: 8px; height: 6px;
-  border-radius: 1.5px;
-  background: rgba(238, 246, 255, 0.75);
-}
-.mf-ls-world-lock::after {
-  content: '';
-  position: absolute;
-  left: 4.5px; top: 2px; width: 5px; height: 5px;
-  border: 1.6px solid rgba(238, 246, 255, 0.75);
-  border-bottom: none;
-  border-radius: 3px 3px 0 0;
-}
+/* (The FARM/BEACH header world selector was removed — the BEACH teaser and its
+   X/35 star gate now live only in the painted map band at the top.) */
 
 /* --- scroll viewport + canvas stage ---
    FULL-SCREEN: the scroll viewport fills the ENTIRE screen (100vw × 100vh,
@@ -2301,6 +2259,187 @@ button {
 .mf-ls-done .mf-ls-goal { display: none; }
 
 /* ==========================================================================
+   LEVEL POPUP (modal) — opened when a level node is tapped. Floats over the
+   map: a dim scrim + a centred arcade card showing the level number, earned
+   stars, 3 objectives and a big PLAY button. Locked levels show a LOCKED chip
+   and no PLAY.
+   ========================================================================== */
+.mf-lp-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;                 /* above the map + floating chrome (4) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(16px + var(--sat)) calc(16px + var(--sar))
+           calc(16px + var(--sab)) calc(16px + var(--sal));
+}
+.mf-lp-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 7, 20, 0.66);
+  cursor: pointer;
+}
+@supports (backdrop-filter: blur(4px)) or (-webkit-backdrop-filter: blur(4px)) {
+  .mf-lp-scrim { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+}
+
+.mf-lp-card {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 92vw);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: 26px 26px 24px;
+  text-align: center;
+  background: var(--mf-ink);
+  border: 3px solid rgba(179, 136, 255, 0.5);
+  border-radius: 24px;
+  box-shadow:
+    0 0 42px rgba(179, 136, 255, 0.28),
+    0 24px 60px rgba(0, 0, 0, 0.6),
+    inset 0 0 30px rgba(179, 136, 255, 0.08);
+}
+@supports (backdrop-filter: blur(6px)) or (-webkit-backdrop-filter: blur(6px)) {
+  .mf-lp-card {
+    background: rgba(10, 14, 34, 0.78);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+}
+.mf-lp-card.mf-lp-anim { animation: mf-lp-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+/* completed levels glow green; locked levels go a touch muted */
+.mf-lp-card.mf-lp-done { border-color: rgba(124, 252, 154, 0.5); }
+.mf-lp-card.mf-lp-locked { border-color: rgba(255, 213, 79, 0.5); }
+
+/* close (X) button — drawn glyph, no emoji */
+.mf-lp-close {
+  position: absolute;
+  top: 12px; right: 12px;
+  width: 34px; height: 34px;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+.mf-lp-close:hover { border-color: var(--mf-danger); background: rgba(255, 82, 82, 0.12); transform: rotate(90deg); }
+.mf-lp-close:focus-visible { outline: 3px dashed var(--mf-purple); outline-offset: 3px; }
+.mf-lp-close-x { position: relative; width: 14px; height: 14px; }
+.mf-lp-close-x::before,
+.mf-lp-close-x::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 6px;
+  width: 14px; height: 2.4px;
+  border-radius: 2px;
+  background: #eef6ff;
+}
+.mf-lp-close-x::before { transform: rotate(45deg); }
+.mf-lp-close-x::after  { transform: rotate(-45deg); }
+
+.mf-lp-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 2px 30px 6px;
+}
+.mf-lp-eyebrow {
+  font-size: clamp(26px, 6vw, 34px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+  color: var(--mf-gold);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.55), 0 0 18px rgba(255, 213, 79, 0.4);
+}
+.mf-lp-lockchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 6px;
+  border: 2px solid rgba(255, 213, 79, 0.6);
+  border-radius: 999px;
+  background: rgba(10, 14, 34, 0.6);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: var(--mf-gold);
+}
+.mf-lp-lockchip .mf-ls-lock { position: static; width: 16px; height: 16px; transform: none; filter: none; }
+.mf-lp-lockchip-txt { line-height: 1; }
+
+/* earned-stars row */
+.mf-lp-stars {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+.mf-lp-star { width: 34px; height: 34px; }
+.mf-lp-star path { fill: var(--mf-gold); stroke: #b9851a; stroke-width: 0.8; }
+.mf-lp-star.mf-lp-star-off path { fill: rgba(255, 255, 255, 0.12); stroke: rgba(255, 255, 255, 0.3); }
+.mf-lp-star:not(.mf-lp-star-off) { filter: drop-shadow(0 0 8px rgba(255, 213, 79, 0.6)); }
+
+/* objective rows: numbered dot + label */
+.mf-lp-objectives {
+  width: min(330px, 100%);
+  margin: 4px auto 6px;
+  text-align: left;
+}
+.mf-lp-obj {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 2px dashed rgba(255, 255, 255, 0.12);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(238, 246, 255, 0.92);
+}
+.mf-lp-obj:last-child { border-bottom: none; }
+.mf-lp-obj-dot {
+  flex: 0 0 24px;
+  width: 24px; height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #c79bff, #8e5bff);
+  font-size: 13px;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(60, 0, 120, 0.6);
+  box-shadow: 0 0 10px rgba(179, 136, 255, 0.5);
+}
+.mf-lp-obj-label { line-height: 1.25; }
+
+.mf-lp-locked-note {
+  margin: 8px 4px 2px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 213, 79, 0.85);
+}
+
+.mf-lp-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+.mf-lp-play {
+  width: 100%;
+  padding: 15px 0;
+  font-size: 24px;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+}
+.mf-lp-back { width: 100%; }
+
+/* ==========================================================================
    COW-COIN balance widget (mode select + level select + result screen)
    A small gold coin (drawn SVG: gold disc + a little cow) + the balance.
    ========================================================================== */
@@ -2329,16 +2468,25 @@ button {
   flex: 0 0 20px;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
-/* the drawn cow-coin parts */
-.mf-coin-disc { fill: #ffd54f; stroke: #b9851a; stroke-width: 1.4; }
-.mf-coin-inner { fill: #ffe9a0; }
-.mf-coin-cow { fill: #5a4632; }
-.mf-coin-muzzle { fill: #fff6e6; }
+/* the drawn cow-coin parts: a GOLD side-profile cow embossed in three shades
+   of gold (light highlight / mid / dark shadow) on a minted gold disc. */
+.mf-coin-rim { fill: #9c6f0f; }                         /* dark outer rim ring */
+.mf-coin-bevel { fill: none; stroke: #c8911c; stroke-width: 1.1; opacity: 0.8; }
+.mf-coin-ticks line { stroke: #b9851a; stroke-width: 0.9; opacity: 0.55; }
+/* the side cow, struck in relief: dark shadow / mid body / light sunlit edge */
+.mf-coin-cow-dark  { fill: #a06f12; }                   /* deep gold shadow */
+.mf-coin-cow-mid   { fill: #d99e1c; }                   /* mid gold body */
+.mf-coin-cow-light { fill: #ffe9a0; opacity: 0.9; }     /* light gold highlight */
+.mf-coin-cow-tail  { fill: none; stroke: #a06f12; stroke-width: 1.6; stroke-linecap: round; }
 /* the count-up pop */
 .mf-coin-pop { animation: mf-coin-pop 0.4s cubic-bezier(0.34, 1.7, 0.5, 1); }
 
-/* the mode-select coin sits at the far right of the modes header */
-.mf-coin-modes { margin-left: auto; }
+/* the mode-select coin sits at the far right of the modes header — nudged a
+   little to the LEFT off the very edge so it doesn't crowd the corner. */
+.mf-coin-modes { margin-left: auto; margin-right: 18px; }
+/* the level-select balance widget — a small leftward inset so it sits OFF the
+   far corner (not flush to the right edge of the viewport). */
+.mf-coin-ls { margin-right: 18px; }
 
 /* a flying coin sprite (result screen → coin widget) */
 .mf-fly-coin {
@@ -2712,6 +2860,12 @@ button {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* level popup (modal) pop-in */
+@keyframes mf-lp-pop {
+  0%   { opacity: 0; transform: translateY(24px) scale(0.9); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* current-level PLAY badge gentle pulse (translateX keeps it centred) */
 @keyframes mf-ls-pulse {
   0%, 100% { transform: translateX(-50%) scale(1); }
@@ -2778,8 +2932,6 @@ button {
   .mf-ls-node { width: 56px; height: 56px; }
   .mf-ls-ufo { width: 48px; height: 27px; }
   .mf-ls-title { font-size: clamp(22px, 6.5vw, 32px); }
-  .mf-ls-worlds { gap: 5px; }
-  .mf-ls-world { padding: 2px 7px; font-size: 10px; }
   .mf-ls-overlay { gap: 6px; }
   .mf-coin-widget { padding: 4px 10px 4px 7px; font-size: 14px; }
   .mf-coin-ico { width: 17px; height: 17px; }
@@ -2801,11 +2953,11 @@ button {
   .mf-stat { padding: 3px 4px; }
   .mf-stat-value { font-size: 22px; }
   .mf-medal { transform: scale(0.7); margin: -16px 0; }
-  /* keep mode cards side-by-side & shorter so the row fits a short viewport */
-  .mf-mode-grid { flex-direction: row; width: min(1100px, 96vw); height: 70vh; gap: 12px; }
-  .mf-mode-card { min-height: 0; }
-  .mf-mode-name { font-size: clamp(20px, 4.2vh, 30px); }
-  .mf-mode-sub { font-size: clamp(11px, 2vh, 14px); }
+  /* keep the portrait posters side-by-side & shorter so the row fits a short
+     viewport (no subtext anymore — just the name plate). */
+  .mf-mode-grid { flex-direction: row; width: min(1100px, 96vw); height: 84vh; gap: 12px; }
+  .mf-mode-card { min-height: 0; max-width: min(48vh, 320px); }
+  .mf-mode-name { font-size: clamp(18px, 3.6vh, 28px); }
   .mf-modes-head { width: min(1100px, 96vw); margin-bottom: 6px; }
   .mf-modes-title { font-size: 22px; }
 }

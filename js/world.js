@@ -89,6 +89,49 @@ function makeFallTexture(seed = 0) {
   return tex;
 }
 
+// Soft wet-stain decal: a vertical streak that is fully opaque down its core
+// and feathers to zero alpha toward both side edges and the top/bottom, so a
+// plane textured with it reads as a smooth, soft-edged wet patch hugging the
+// rock — never a hard rectangular box. Used as an alphaMap on the waterfall's
+// wet band and on the glossy plunge-pool ring.
+function makeWetStainTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 64, 128);
+  // horizontal feather (soft left/right edges) via a centred gradient...
+  const gx = ctx.createLinearGradient(0, 0, 64, 0);
+  gx.addColorStop(0.0, 'rgba(255,255,255,0)');
+  gx.addColorStop(0.22, 'rgba(255,255,255,0.65)');
+  gx.addColorStop(0.5, 'rgba(255,255,255,1)');
+  gx.addColorStop(0.78, 'rgba(255,255,255,0.65)');
+  gx.addColorStop(1.0, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gx;
+  ctx.fillRect(0, 0, 64, 128);
+  // ...then fade the top and bottom with a vertical multiply gradient.
+  ctx.globalCompositeOperation = 'multiply';
+  const gy = ctx.createLinearGradient(0, 0, 0, 128);
+  gy.addColorStop(0.0, 'rgba(255,255,255,0.15)');
+  gy.addColorStop(0.18, 'rgba(255,255,255,0.95)');
+  gy.addColorStop(0.85, 'rgba(255,255,255,1)');
+  gy.addColorStop(1.0, 'rgba(255,255,255,0.45)');
+  ctx.fillStyle = gy;
+  ctx.fillRect(0, 0, 64, 128);
+  // a couple of soft inner darker rivulets so the wet patch isn't a flat slab
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 6;
+  for (const ox of [24, 40]) {
+    ctx.beginPath();
+    ctx.moveTo(ox, 6);
+    for (let y = 6; y <= 122; y += 14) ctx.lineTo(ox + Math.sin(y * 0.13 + ox) * 5, y);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 // Soft round foam puff sprite — for the crest foam, churning base whitewater,
 // and the spreading ripple rings on the plunge pool.
 function makeFoamTexture() {
@@ -291,42 +334,87 @@ export class World {
     wallMat.emissiveIntensity = 0.15;
     this._anim.waterMats.push(wallMat);
 
-    // River as a FILLED channel: a flowing top surface spanning bank-to-bank,
-    // plus two vertical side walls dropping from each water edge down to the
-    // carved bed. The walls close off the underside so from low angles you see
-    // water meeting the bank — never under the strip. UVs run v along length.
+    // River as a FILLED channel whose cross-section CONFORMS to the carved
+    // riverbed. At every station we walk outward from the centerline and find,
+    // by sampling terrainHeight, the exact x where the sloped bank rises through
+    // the waterline — that point becomes the water edge, so the surface meets
+    // the bank with no gap and never floats. A submerged "skirt" then follows
+    // the real bank/bed profile down into the channel (sampled, not a straight
+    // vertical wall) so from any low angle you see water hugging the bank, never
+    // a see-through strip or a hard step. UVs run v along the river's length.
     const pts = [];
-    for (let z = -H; z <= H; z += 6) pts.push({ x: riverX(z), z, w: riverW(z) });
-    const RIVER_BED_Y = -1.8;            // matches terrain.js RIVER_BED
+    for (let z = -H; z <= H; z += 5) pts.push({ x: riverX(z), z, w: riverW(z) });
     const surfY = WATER_Y - 0.04;        // sit a touch below the bank crests
+    // Find where the bank crosses the waterline, marching out from cx in
+    // direction `dir` (+1 / -1). Returns the x at which terrain == surfY.
+    const findBankEdge = (cx, z, dir) => {
+      const half = riverW(z) / 2;
+      let xIn = cx + dir * half;          // at the bed lip, terrain ≈ RIVER_BED (under water)
+      let xOut = cx + dir * (half + 9);   // out past the bank toe, terrain above water
+      // ensure we bracket the crossing; expand outward if the bank is low here
+      let guard = 0;
+      while (terrainHeight(xOut, z) < surfY && guard++ < 6) xOut += dir * 4;
+      for (let b = 0; b < 14; b++) {       // bisection to the waterline
+        const xm = (xIn + xOut) / 2;
+        if (terrainHeight(xm, z) < surfY) xIn = xm; else xOut = xm;
+      }
+      return (xIn + xOut) / 2;
+    };
     const pos = [];
     const uv = [];
     const idx = [];
     const wallPos = [];
     const wallIdx = [];
+    // submerged skirt: sample this many rungs from the waterline edge down the
+    // bank profile to the channel floor, so the underwater side hugs the carve.
+    const SKIRT = 3;
+    const vertsPerRing = 2 * (SKIRT + 1);  // L-edge..L-bed (centre) + R-edge..R-bed
     let runLen = 0;
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       if (i > 0) runLen += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z);
-      const half = p.w / 2 + 0.6;          // hair of overlap onto the bank toe
-      const lx = p.x - half, rxw = p.x + half;
+      const lx = findBankEdge(p.x, p.z, -1);   // left waterline
+      const rxw = findBankEdge(p.x, p.z, 1);    // right waterline
+      // ---- flowing top surface: edge-to-edge between the two bank waterlines.
       pos.push(lx, surfY, p.z, rxw, surfY, p.z);
       uv.push(0, runLen / 14, 1, runLen / 14);
       if (i > 0) {
         const a = (i - 1) * 2;
         idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
       }
-      // side-wall ring verts: [Ltop, Lbot, Rtop, Rbot]
-      const b = i * 4;
-      wallPos.push(lx, surfY, p.z, lx, RIVER_BED_Y, p.z, rxw, surfY, p.z, rxw, RIVER_BED_Y, p.z);
-      if (i > 0) {
-        const pb = (i - 1) * 4;
-        // left wall quad
-        wallIdx.push(pb, pb + 1, b, pb + 1, b + 1, b);
-        // right wall quad
-        wallIdx.push(pb + 2, b + 2, pb + 3, pb + 3, b + 2, b + 3);
+      // ---- submerged skirt ring, tracking the bank profile down to the bed.
+      // Left side: from the left waterline inward/down to the centre floor.
+      const b = i * vertsPerRing;
+      const bedY = terrainHeight(p.x, p.z) - 0.05;   // carved channel floor at centre
+      for (let s = 0; s <= SKIRT; s++) {
+        const t = s / SKIRT;                         // 0 at edge → 1 at centre floor
+        const sx = lx + (p.x - lx) * t;
+        const sy = surfY + (bedY - surfY) * t;
+        wallPos.push(sx, sy, p.z);
       }
-      this._stampWaterCircle(p.x, p.z, half + 1, 4);
+      for (let s = 0; s <= SKIRT; s++) {
+        const t = s / SKIRT;
+        const sx = rxw + (p.x - rxw) * t;
+        const sy = surfY + (bedY - surfY) * t;
+        wallPos.push(sx, sy, p.z);
+      }
+      if (i > 0) {
+        const pb = (i - 1) * vertsPerRing;
+        // stitch the left skirt rungs
+        for (let s = 0; s < SKIRT; s++) {
+          const a0 = pb + s, a1 = pb + s + 1, b0 = b + s, b1 = b + s + 1;
+          wallIdx.push(a0, a1, b0, a1, b1, b0);
+        }
+        // stitch the right skirt rungs (offset by SKIRT+1)
+        const o = SKIRT + 1;
+        for (let s = 0; s < SKIRT; s++) {
+          const a0 = pb + o + s, a1 = pb + o + s + 1, b0 = b + o + s, b1 = b + o + s + 1;
+          wallIdx.push(a0, b0, a1, a1, b0, b1);
+        }
+      }
+      // stamp water cells out to the true bank edge so isWater() tracks the fit
+      const halfStamp = Math.max(rxw - p.x, p.x - lx) + 1;
+      this._stampWaterCircle(p.x, p.z, halfStamp, 4);
     }
     const riverGeo = new THREE.BufferGeometry();
     riverGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -371,12 +459,18 @@ export class World {
     const foot = new THREE.Mesh(new THREE.BoxGeometry(damLen + 6, 3, 11), M.mat(0x8a8a8a));
     foot.position.set(riverX(damZ), bedY - 1, damZ);
     this.scene.add(foot);
-    // wet streak on the downstream (south) face under the spillway
-    const wetMat = new THREE.MeshLambertMaterial({ color: 0x4a5560 });
+    // SMOOTH wet streak on the downstream (south) face under the spillway — a
+    // soft alpha-faded stain (alphaMap feathers all edges) so the wet rock grades
+    // into the dry concrete, no hard rectangle.
+    const wetMat = new THREE.MeshLambertMaterial({
+      color: 0x4a5560, transparent: true, alphaMap: makeWetStainTexture(),
+      depthWrite: false, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    });
     wetMat.emissive = new THREE.Color(0x223040);
     wetMat.emissiveIntensity = 0.25;
-    const wet = new THREE.Mesh(new THREE.PlaneGeometry(damLen * 0.5, damH - 1), wetMat);
-    wet.position.set(riverX(damZ), bedY + 4.25 - embed / 2, damZ + 3.55);
+    const wet = new THREE.Mesh(new THREE.PlaneGeometry(damLen * 0.62, damH), wetMat);
+    wet.position.set(riverX(damZ), bedY + 4.25 - embed / 2, damZ + 3.56);
     this.scene.add(wet);
     const crest = new THREE.Mesh(new THREE.BoxGeometry(damLen + 2, 1.2, 8.4), M.mat(0xb5b5b5));
     crest.position.set(riverX(damZ), bedY + 9, damZ);
@@ -524,25 +618,38 @@ export class World {
       return { tex };
     };
 
-    // wet darker rock streak BEHIND the sheets, running the full drop on the
-    // mountain face — wider than the water, slightly glossy/wet material.
+    // SMOOTH wet-rock stain hugging the slope BEHIND the falling sheets. Instead
+    // of a hard-edged box, this is a soft alpha-faded decal: a band that hugs the
+    // rock following the water's path, gently widening toward the plunge pool,
+    // with a wet-stain alphaMap that feathers its sides + ends to zero so the
+    // glossy wet rock blends into the dry rock as a gradient, not a sharp cut.
     {
-      const steps = 18, width = 11;
-      const pos = [], idx = [];
+      const steps = 30;
+      const wTop = 7.5, wBot = 13;        // tapered: narrow at the lip, broad at the pool
+      const pos = [], uv = [], idx = [];
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
         const cx = top.x + dx * t;
         const cz = top.z + dz * t;
         const groundHere = terrainHeight(cx, cz);
-        const y = Math.max(groundHere + 0.18, baseY + 0.2);
-        pos.push(cx + nx * width / 2, y, cz + nz * width / 2, cx - nx * width / 2, y, cz - nz * width / 2);
+        const y = Math.max(groundHere + 0.16, baseY + 0.18);
+        const w = wTop + (wBot - wTop) * t;
+        pos.push(cx + nx * w / 2, y, cz + nz * w / 2, cx - nx * w / 2, y, cz - nz * w / 2);
+        uv.push(0, t, 1, t);              // u across the band, v down its length
         if (i > 0) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       geo.setIndex(idx);
       geo.computeVertexNormals();
-      const wetMat = new THREE.MeshLambertMaterial({ color: 0x3a4750, side: THREE.DoubleSide });
+      const stainTex = makeWetStainTexture();
+      this._wetStainTex = stainTex;
+      const wetMat = new THREE.MeshLambertMaterial({
+        color: 0x3a4750, side: THREE.DoubleSide,
+        transparent: true, alphaMap: stainTex, depthWrite: false, polygonOffset: true,
+        polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+      });
       wetMat.emissive = new THREE.Color(0x1e2c38);
       wetMat.emissiveIntensity = 0.3;
       this.scene.add(new THREE.Mesh(geo, wetMat));
@@ -641,6 +748,61 @@ export class World {
       ring.position.set(base.x, baseY + 0.08, base.z);
       this.scene.add(ring);
       this._ripples.push({ mesh: ring, t: i / 4 });
+    }
+
+    // soft wet-ground decal draped over the rock around the plunge pool: a
+    // dark, alpha-faded ring that grades the glossy wet rock smoothly out into
+    // the dry rock (gradient, no hard cut). Drapes the terrain so it follows
+    // the slope, and is rendered as a soft transparent overlay.
+    {
+      const SEG = 36, RINGS = 5;
+      const innerR = WFALL_POOL.rx * 0.85;
+      const outerR = WFALL_POOL.rx * 2.1;
+      const aspect = WFALL_POOL.rz / WFALL_POOL.rx;
+      // Additive-dark fade: a centre vertex alpha of ~0.55 ramps smoothly to 0
+      // at the rim. We bake the fade into the vertex color and pair it with an
+      // additive-style multiply so the wet darkening dissolves into dry rock.
+      const pos = [], col = [], idx = [];
+      const wetC = new THREE.Color(0x2a3942);
+      for (let r = 0; r < RINGS; r++) {
+        const rt = r / (RINGS - 1);
+        const rad = innerR + (outerR - innerR) * rt;
+        const k = (1 - rt);                       // 1 at pool → 0 at rim
+        const fade = k * k * 0.55;                // eased, fully wet → dry
+        for (let s = 0; s <= SEG; s++) {
+          const ang = (s / SEG) * Math.PI * 2;
+          const x = base.x + Math.cos(ang) * rad;
+          const z = base.z + Math.sin(ang) * rad * aspect;
+          pos.push(x, terrainHeight(x, z) + 0.07, z);
+          // lerp from wet colour (centre) toward white (rim); under multiply
+          // blending white = no change, so the wet tint dissolves to nothing.
+          col.push(
+            1 - (1 - wetC.r) * fade,
+            1 - (1 - wetC.g) * fade,
+            1 - (1 - wetC.b) * fade);
+        }
+      }
+      const row = SEG + 1;
+      for (let r = 0; r < RINGS - 1; r++) {
+        for (let s = 0; s < SEG; s++) {
+          const a0 = r * row + s, a1 = a0 + 1, b0 = a0 + row, b1 = b0 + 1;
+          idx.push(a0, b0, a1, a1, b0, b1);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      // MultiplyBlending darkens the ground underneath by the vertex colour, so
+      // the centre reads wet and the rim leaves the dry rock untouched — a true
+      // soft gradient with no hard boundary.
+      const decalMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, depthWrite: false,
+        blending: THREE.MultiplyBlending, side: THREE.DoubleSide,
+        vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      });
+      this.scene.add(new THREE.Mesh(geo, decalMat));
     }
 
     // wet glossy rocks ringing the plunge pool (darker than the dry scatter)
@@ -908,9 +1070,13 @@ export class World {
         let wt = ((x - wfTop.x) * wdx + (z - wfTop.z) * wdz) / wl2;
         wt = wt < 0 ? 0 : wt > 1 ? 1 : wt;
         const wdist = Math.hypot(x - (wfTop.x + wdx * wt), z - (wfTop.z + wdz * wt));
-        if (wdist < 9 && h > WATER_LEVEL) {
-          const wet = (1 - wdist / 9) * 0.6;
-          tmp.multiplyScalar(1 - wet);                         // darker = wet rock
+        // Smoothstep falloff (not a linear hard cut) over a wider radius so the
+        // baked wet rock fades gently into the dry stone — no visible boundary.
+        const WET_R = 12;
+        if (wdist < WET_R && h > WATER_LEVEL) {
+          let k = 1 - wdist / WET_R;
+          k = k * k * (3 - 2 * k);                              // smoothstep
+          tmp.multiplyScalar(1 - k * 0.55);                    // darker = wet rock
         }
       }
 
@@ -1542,19 +1708,100 @@ export class World {
     rail.position.set(dam.x, crestY + 1.1, dam.z + 4.2);
     this.scene.add(rail);
 
-    // spillway sheet pouring down the downstream face
-    const spillMat = new THREE.MeshLambertMaterial({
-      color: 0xdff1ff, transparent: true, opacity: 0.85, side: THREE.DoubleSide,
+    // ---- DAM SPILLWAY: reservoir water pouring over the downstream face, built
+    // to the same quality as the main waterfall — layered falling sheets with a
+    // foam crest, churning whitewater + mist/spray at the base, and ripples on
+    // the river below. The face is at z = dam.z + 3.5; water falls from `crestY`
+    // down to the river surface `WATER_Y`.
+    const faceZ = dam.z + 3.55;
+    const fallTop = crestY - 0.3;          // just below the crest cap
+    const fallBot = WATER_Y + 0.4;          // meet the river surface
+    const fallH = fallTop - fallBot;
+    const foamTex = this._foamTex || makeFoamTexture();
+
+    // one falling sheet: a tall plane on the downstream face, scrolled downward.
+    const buildSpillSheet = (width, opacity, seed, uvScale, zOff) => {
+      const geo = new THREE.PlaneGeometry(width, fallH);
+      const uvAttr = geo.attributes.uv;
+      for (let i = 0; i < uvAttr.count; i++) uvAttr.setY(i, uvAttr.getY(i) * uvScale); // stretch v
+      uvAttr.needsUpdate = true;
+      const tex = makeFallTexture(seed);   // factory leaves repeat (1,4); geo UV adds the stretch
+      const mat = new THREE.MeshLambertMaterial({
+        color: 0xeaf6ff, transparent: true, opacity, side: THREE.DoubleSide,
+        map: tex, depthWrite: false,
+      });
+      mat.emissive = new THREE.Color(0xbfe2ff);
+      mat.emissiveIntensity = 0.5;
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(dam.x, (fallTop + fallBot) / 2, faceZ + zOff);
+      mesh.rotation.x = -0.14;             // lean out slightly so it reads as pouring
+      this.scene.add(mesh);
+      return tex;
+    };
+    this._spillSheets = [];
+    const spillW = dam.len - 4;
+    this._spillSheets.push({ tex: buildSpillSheet(spillW, 0.8, 2, 5, 0.0), speed: 2.0 });
+    this._spillSheets.push({ tex: buildSpillSheet(spillW * 0.7, 0.92, 9, 6, 0.18), speed: 2.7 });
+    this._spillSheets.push({ tex: buildSpillSheet(spillW * 0.42, 0.85, 15, 7, 0.34), speed: 3.4 });
+    // back-compat handle for any existing update() reference
+    this._anim.spillTex = this._spillSheets[1].tex;
+
+    // foam crest sprites strung along the spill lip
+    this._spillCrestFoam = [];
+    for (let i = 0; i < 8; i++) {
+      const x = dam.x + ((i / 7) - 0.5) * spillW;
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: foamTex, transparent: true, opacity: 0.9, depthWrite: false,
+      }));
+      const baseY = crestY + 0.1;
+      spr.position.set(x, baseY, faceZ + 0.2);
+      spr.scale.set(2.6 + Math.random() * 1.4, 2.0, 1);
+      this.scene.add(spr);
+      this._spillCrestFoam.push({ spr, base: baseY, phase: Math.random() * 6 });
+    }
+
+    // churning whitewater puffs where the sheets hit the river
+    this._spillChurn = [];
+    for (let i = 0; i < 12; i++) {
+      const x = dam.x + (Math.random() - 0.5) * spillW * 1.1;
+      const z = faceZ + 0.5 + Math.random() * 3;
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: foamTex, transparent: true, opacity: 0.7, depthWrite: false,
+      }));
+      spr.position.set(x, WATER_Y + 0.5, z);
+      const sc = 2.2 + Math.random() * 2.2;
+      spr.scale.set(sc, sc * 0.7, 1);
+      this.scene.add(spr);
+      this._spillChurn.push({ spr, phase: Math.random() * 6, sc });
+    }
+
+    // mist/spray cloud billowing above the plunge line
+    this._spillMist = [];
+    for (let layer = 0; layer < 2; layer++) {
+      const mist = new THREE.Mesh(
+        new THREE.CylinderGeometry(spillW * 0.5 - layer, spillW * 0.32, 6 + layer * 2, 14, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: 0xeaf6ff, transparent: true, opacity: 0.12 - layer * 0.04,
+          depthWrite: false, side: THREE.DoubleSide,
+        })
+      );
+      mist.position.set(dam.x, WATER_Y + 3 + layer * 1.2, faceZ + 2);
+      this.scene.add(mist);
+      this._spillMist.push(mist);
+    }
+
+    // ripple rings spreading downstream from the plunge line
+    this._spillRipples = [];
+    const rMat = new THREE.MeshBasicMaterial({
+      color: 0xeaf6ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false,
     });
-    spillMat.emissive = new THREE.Color(0xbfe2ff);
-    spillMat.emissiveIntensity = 0.5;
-    const tex = makeFallTexture();
-    spillMat.map = tex;
-    this._anim.spillTex = tex;
-    const spill = new THREE.Mesh(new THREE.PlaneGeometry(dam.len - 4, 9), spillMat);
-    spill.position.set(dam.x, crestY - 4, dam.z + 3.6);
-    spill.rotation.x = -0.18;
-    this.scene.add(spill);
+    for (let i = 0; i < 3; i++) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.3, 22), rMat.clone());
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(dam.x, WATER_Y + 0.06, faceZ + 3);
+      this.scene.add(ring);
+      this._spillRipples.push({ mesh: ring, t: i / 3 });
+    }
   }
 
   // ---------------------------------------------------------------- tractor
@@ -1568,6 +1815,11 @@ export class World {
       { x: 60, z: 100 }, { x: 40, z: -10 }, { x: 34, z: -70 },
     ];
     this._anim.tractor = { group: tractor, path, seg: 0, t: 0, speed: 4.5 };
+    // Live tractor position, refreshed every frame in update(). Exposed so
+    // main.js can drive a positional engine sound that tracks the patrol.
+    const start = path[0];
+    tractor.position.set(start.x, terrainHeight(start.x, start.z) + 0.08, start.z);
+    this.tractorPos = { x: start.x, y: terrainHeight(start.x, start.z) + 0.08, z: start.z };
   }
 
   // ---------------------------------------------------------------- wildlife
@@ -1766,7 +2018,41 @@ export class World {
     } else if (this._wfallTex) {
       this._wfallTex.offset.y = (this._wfallTex.offset.y - dt * 2.4) % 1;
     }
-    if (this._anim.spillTex) this._anim.spillTex.offset.y = (this._anim.spillTex.offset.y - dt * 2.1) % 1;
+    // dam spillway: layered sheets scroll, crest foam bobs, churn pulses at the
+    // plunge line, mist billows, ripples spread — mirrors the main waterfall.
+    if (this._spillSheets) {
+      for (const s of this._spillSheets) s.tex.offset.y = (s.tex.offset.y - dt * s.speed) % 1;
+    } else if (this._anim.spillTex) {
+      this._anim.spillTex.offset.y = (this._anim.spillTex.offset.y - dt * 2.1) % 1;
+    }
+    if (this._spillCrestFoam) {
+      for (const f of this._spillCrestFoam) {
+        f.spr.position.y = f.base + Math.sin(elapsed * 4 + f.phase) * 0.22;
+        f.spr.material.opacity = 0.7 + Math.abs(Math.sin(elapsed * 3 + f.phase)) * 0.3;
+      }
+    }
+    if (this._spillChurn) {
+      for (const c of this._spillChurn) {
+        const p = 0.85 + Math.sin(elapsed * 3.5 + c.phase) * 0.25;
+        c.spr.scale.set(c.sc * p, c.sc * 0.7 * p, 1);
+        c.spr.position.y = WATER_Y + 0.5 + Math.abs(Math.sin(elapsed * 4 + c.phase)) * 0.4;
+      }
+    }
+    if (this._spillMist) {
+      for (let i = 0; i < this._spillMist.length; i++) {
+        const m = this._spillMist[i];
+        m.rotation.y += dt * (0.15 + i * 0.1);
+        m.material.opacity = (0.12 - i * 0.03) + Math.sin(elapsed * 0.8 + i) * 0.03;
+      }
+    }
+    if (this._spillRipples) {
+      for (const rp of this._spillRipples) {
+        rp.t = (rp.t + dt * 0.4) % 1;
+        const s = 1 + rp.t * 6;
+        rp.mesh.scale.set(s, s, 1);
+        rp.mesh.material.opacity = 0.5 * (1 - rp.t);
+      }
+    }
     if (this._crestFoam) {
       for (const f of this._crestFoam) {
         f.spr.position.y = f.base + Math.sin(elapsed * 4 + f.phase) * 0.25;
@@ -1817,28 +2103,36 @@ export class World {
       l.mesh.position.y = WATER_Y + 0.06 + Math.sin(elapsed * 1.6 + l.phase) * 0.05;
     }
 
-    // tractor
+    // tractor — advance along the patrol, then ALWAYS re-derive the current
+    // position (even on the frame a segment wraps) so the live `tractorPos`
+    // handed to main.js for positional engine sound never stalls or jumps.
     const tr = a.tractor;
     if (tr) {
-      const p0 = tr.path[tr.seg];
-      const p1 = tr.path[(tr.seg + 1) % tr.path.length];
-      const segLen = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+      let p0 = tr.path[tr.seg];
+      let p1 = tr.path[(tr.seg + 1) % tr.path.length];
+      const segLen = Math.hypot(p1.x - p0.x, p1.z - p0.z) || 1;
       tr.t += (tr.speed * dt) / segLen;
       if (tr.t >= 1) {
-        tr.t = 0;
+        tr.t -= 1;
         tr.seg = (tr.seg + 1) % tr.path.length;
-      } else {
-        const x = p0.x + (p1.x - p0.x) * tr.t;
-        const z = p0.z + (p1.z - p0.z) * tr.t;
-        tr.group.position.set(x, terrainHeight(x, z) + 0.08, z);
-        const target = Math.atan2(p1.x - p0.x, p1.z - p0.z);
-        let diff = target - tr.group.rotation.y;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        tr.group.rotation.y += diff * Math.min(1, dt * 4);
-        const wheels = tr.group.userData.wheels;
-        if (wheels) for (const w of wheels) w.rotation.x += dt * 3;
+        p0 = tr.path[tr.seg];
+        p1 = tr.path[(tr.seg + 1) % tr.path.length];
       }
+      const x = p0.x + (p1.x - p0.x) * tr.t;
+      const z = p0.z + (p1.z - p0.z) * tr.t;
+      const y = terrainHeight(x, z) + 0.08;
+      tr.group.position.set(x, y, z);
+      const target = Math.atan2(p1.x - p0.x, p1.z - p0.z);
+      let diff = target - tr.group.rotation.y;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      tr.group.rotation.y += diff * Math.min(1, dt * 4);
+      const wheels = tr.group.userData.wheels;
+      if (wheels) for (const w of wheels) w.rotation.x += dt * 3;
+      // live position for main.js positional engine sound
+      this.tractorPos.x = x;
+      this.tractorPos.y = y;
+      this.tractorPos.z = z;
     }
 
     // owls: perch → flee when the UFO is near → glide home later

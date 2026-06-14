@@ -5,6 +5,7 @@
 // real <button>s) and touch friendly.
 
 import { CFG, IS_MOBILE, COLORS } from './config.js';
+import { labelFor } from './missions.js';
 
 // 0xRRGGBB → '#rrggbb' (the shared palette stores ints).
 function hex(n) {
@@ -263,30 +264,87 @@ export class UI {
     return wrap;
   }
 
-  // Drawn cow-coin: a gold disc with a rim, plus a minimal cow face (white
-  // muzzle, two dark spots/ears, nostrils). NO emoji — pure SVG.
+  // Drawn COW-COIN: a gold disc minted with a SIDE-PROFILE cow, slightly
+  // tilted, embossed in three shades of gold (light highlight / mid / dark
+  // shadow) so it reads as struck relief rather than a flat sticker. The cow
+  // silhouette (body, head, legs, tail, ear, a spot) is built from path data
+  // facing left. NO emoji — pure SVG. A <defs> radial gradient gives the disc
+  // its minted sheen; the cow gets a dark drop + a light top highlight copy so
+  // it looks pressed into the metal.
   _svgCoin() {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('class', 'mf-coin-ico');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    const mk = (tag, attrs) => {
+    svg.setAttribute('viewBox', '0 0 48 48');
+    // unique gradient id per instance so multiple coins don't clash.
+    const gid = 'mfcoin' + (UI._coinSeq = (UI._coinSeq || 0) + 1);
+    const mk = (tag, attrs, parent = svg) => {
       const n = document.createElementNS(ns, tag);
       for (const k in attrs) n.setAttribute(k, attrs[k]);
-      svg.appendChild(n);
+      parent.appendChild(n);
       return n;
     };
-    mk('circle', { cx: 12, cy: 12, r: 11, class: 'mf-coin-disc' });
-    mk('circle', { cx: 12, cy: 12, r: 8.6, class: 'mf-coin-inner' });
-    // cow ears (two dark blobs up top)
-    mk('ellipse', { cx: 7.4, cy: 7.6, rx: 2.0, ry: 1.4, transform: 'rotate(-28 7.4 7.6)', class: 'mf-coin-cow' });
-    mk('ellipse', { cx: 16.6, cy: 7.6, rx: 2.0, ry: 1.4, transform: 'rotate(28 16.6 7.6)', class: 'mf-coin-cow' });
-    // a head spot
-    mk('ellipse', { cx: 9.4, cy: 10.4, rx: 2.0, ry: 1.7, class: 'mf-coin-cow' });
-    // muzzle (light) with two nostrils
-    mk('ellipse', { cx: 12, cy: 14.6, rx: 4.2, ry: 3.0, class: 'mf-coin-muzzle' });
-    mk('circle', { cx: 10.5, cy: 14.7, r: 0.8, class: 'mf-coin-cow' });
-    mk('circle', { cx: 13.5, cy: 14.7, r: 0.8, class: 'mf-coin-cow' });
+    const defs = mk('defs', {});
+    // radial minted sheen: bright gold upper-left → mid → dark rim.
+    const grad = mk('radialGradient',
+      { id: gid + 'f', cx: '38%', cy: '32%', r: '72%' }, defs);
+    mk('stop', { offset: '0%', 'stop-color': '#fff2bf' }, grad);
+    mk('stop', { offset: '42%', 'stop-color': '#ffd24a' }, grad);
+    mk('stop', { offset: '78%', 'stop-color': '#e7a719' }, grad);
+    mk('stop', { offset: '100%', 'stop-color': '#b97e12' }, grad);
+
+    // --- the disc: dark rim ring, gradient face, an inner bevel ring. ---
+    mk('circle', { cx: 24, cy: 24, r: 23, class: 'mf-coin-rim' });          // outer dark rim
+    mk('circle', { cx: 24, cy: 24, r: 21.5, fill: `url(#${gid}f)` });       // minted face
+    mk('circle', { cx: 24, cy: 24, r: 18.5, class: 'mf-coin-bevel' });      // inner bevel ring
+    mk('circle', { cx: 24, cy: 24, r: 17, fill: `url(#${gid}f)` });         // recessed field
+    // beaded/notched rim ticks (subtle) around the coin edge.
+    const ticks = mk('g', { class: 'mf-coin-ticks' });
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const x1 = 24 + Math.cos(a) * 20.4, y1 = 24 + Math.sin(a) * 20.4;
+      const x2 = 24 + Math.cos(a) * 22.2, y2 = 24 + Math.sin(a) * 22.2;
+      mk('line', { x1, y1, x2, y2 }, ticks);
+    }
+
+    // --- the SIDE COW, tilted a touch (group rotated ~ -7deg), embossed. ---
+    // A single left-facing cow silhouette path: rump → back → neck → head →
+    // muzzle → chin → chest → front leg → belly → rear leg → tail back to rump.
+    const cowD =
+      'M13.5 30.2 ' +                 // start: rear lower body
+      'C12.2 26.5 12.4 22.8 14.6 21.2 ' +  // rump curve up the back
+      'C16.4 19.9 19.5 19.6 22.2 19.8 ' +  // along the topline toward shoulder
+      'C23.6 17.2 25.2 16.0 27.4 15.7 ' +  // neck rising to the head
+      'C29.0 15.5 30.6 15.9 31.6 17.0 ' +  // forehead / poll
+      'L33.6 16.0 ' +                 // ear flick up-forward
+      'L32.6 18.1 ' +
+      'C34.0 19.0 34.6 20.4 34.4 21.7 ' + // face down to the muzzle
+      'C34.2 22.9 33.1 23.6 31.7 23.7 ' + // muzzle (nose)
+      'C30.7 23.7 29.9 23.4 29.4 22.7 ' + // chin tuck
+      'C27.8 23.2 26.4 23.3 25.2 23.0 ' + // throat / brisket
+      'L25.2 30.4 ' +                 // front leg straight down
+      'L22.7 30.4 ' +
+      'L22.7 24.6 ' +                 // up inside the front leg
+      'C20.4 24.9 18.1 25.0 16.4 24.6 ' + // under the belly
+      'L16.4 30.2 ' +                 // rear leg down
+      'L13.5 30.2 Z';                 // close at the rump
+    const tilt = mk('g', { transform: 'rotate(-7 24 24)' });
+    // 1) dark-gold shadow copy, nudged down-right (the pressed shadow).
+    mk('path', { d: cowD, class: 'mf-coin-cow-dark',
+      transform: 'translate(0.7 0.8)' }, tilt);
+    // 2) mid-gold cow body (the main relief).
+    mk('path', { d: cowD, class: 'mf-coin-cow-mid' }, tilt);
+    // 3) light-gold highlight copy, nudged up-left & clipped feel via thin
+    //    offset so only the sunlit edge shows.
+    mk('path', { d: cowD, class: 'mf-coin-cow-light',
+      transform: 'translate(-0.55 -0.6)' }, tilt);
+    // 4) a darker hide SPOT + eye + tail to sell that it's a cow.
+    mk('ellipse', { cx: 17.6, cy: 23.4, rx: 2.7, ry: 2.1, class: 'mf-coin-cow-dark' }, tilt);
+    mk('circle', { cx: 30.8, cy: 19.4, r: 0.95, class: 'mf-coin-cow-dark' }, tilt); // eye
+    // tail: a sweeping stroke off the rump with a tuft.
+    mk('path', { d: 'M13.6 23.0 C11.4 24.8 11.0 27.6 12.0 30.6',
+      class: 'mf-coin-cow-tail' }, tilt);
+    mk('circle', { cx: 12.1, cy: 30.9, r: 1.15, class: 'mf-coin-cow-dark' }, tilt); // tail tuft
     return svg;
   }
 
@@ -342,14 +400,13 @@ export class UI {
     this.setCoinBalance(this._coinBalance());
   }
 
-  /** Toggle the header BEACH world chip locked/unlocked from the star total. */
-  _refreshBeachWorld() {
-    const w = this._lsBeachWorld;
-    if (!w) return;
-    const unlocked = this._beachUnlocked();
-    w.classList.toggle('mf-ls-world-locked', !unlocked);
-    w.classList.toggle('mf-ls-world-on', unlocked);
-  }
+  /**
+   * The FARM/BEACH header world selector was removed (the player didn't want
+   * it). The BEACH teaser + its X/35 star gate now live ONLY in the painted
+   * map band at the top, so there is no header chip to toggle. Kept as a
+   * harmless no-op so existing call sites stay valid.
+   */
+  _refreshBeachWorld() { /* no header world selector anymore */ }
 
   // ======================================================================
   // START SCREEN
@@ -458,11 +515,12 @@ export class UI {
     const grid = el('div', 'mf-mode-grid', view);
 
     // CAMPAIGN is now playable (opens LEVEL SELECT). MULTIPLAYER stays locked
-    // ("coming soon"). FREE PLAY runs the normal start flow.
+    // ("coming soon"). FREE PLAY runs the normal start flow. Cards show TALL
+    // PORTRAIT poster art only — the big NAME plate, no descriptive subtext.
     const MODES = [
-      { key: 'campaign',    name: 'CAMPAIGN',    sub: '15 missions across the farm galaxy', locked: false },
-      { key: 'multiplayer', name: 'MULTIPLAYER', sub: 'Beam-off against your friends',       locked: true },
-      { key: 'freeplay',    name: 'FREE PLAY',   sub: '90-second high-score rush',           locked: false },
+      { key: 'campaign',    name: 'CAMPAIGN',    locked: false },
+      { key: 'multiplayer', name: 'MULTIPLAYER', locked: true },
+      { key: 'freeplay',    name: 'FREE PLAY',   locked: false },
     ];
 
     this._modeCards = {};
@@ -472,7 +530,6 @@ export class UI {
       el('div', 'mf-mode-scrim', card);
       const txt = el('div', 'mf-mode-text', card);
       el('div', 'mf-mode-name', txt, m.name);
-      el('div', 'mf-mode-sub', txt, m.sub);
       if (m.locked) {
         const ribbon = el('div', 'mf-mode-ribbon', card, 'COMING SOON');
         card.addEventListener('click', (e) => {
@@ -643,22 +700,15 @@ export class UI {
 
     // Floating chrome OVER the full-screen map:
     //   • a floating BACK button (top-left)
-    //   • the CAMPAIGN title + FARM/BEACH worlds indicator (top, overlaid)
+    //   • the CAMPAIGN title (top, overlaid) — NO worlds tab/selector
     //   • a persistent cow-coin balance widget (top-right)
+    // (The BEACH world is teased ONLY as the locked band at the very top of the
+    // map, with its X/35 star gate — there is no header world tab anymore.)
     const overlay = el('div', 'mf-ls-overlay', s);
     this._lsBackBtn = backButton('mf-ls-back', overlay, 'BACK',
       () => this._closeLevelSelect());
     const titleWrap = el('div', 'mf-ls-titlewrap', overlay);
     el('h2', 'mf-panel-title mf-ls-title', titleWrap, 'CAMPAIGN');
-    // Worlds indicator: FARM (active, drawn check) · BEACH (locked, drawn lock).
-    const worlds = el('div', 'mf-ls-worlds', titleWrap);
-    const wFarm = el('div', 'mf-ls-world mf-ls-world-on', worlds);
-    el('span', 'mf-ls-world-mark mf-ls-world-check', wFarm);
-    el('span', 'mf-ls-world-name', wFarm, 'FARM');
-    const wBeach = el('div', 'mf-ls-world mf-ls-world-locked', worlds);
-    el('span', 'mf-ls-world-mark mf-ls-world-lock', wBeach);
-    el('span', 'mf-ls-world-name', wBeach, 'BEACH');
-    this._lsBeachWorld = wBeach;
     // Coin balance widget (top-right of the level select).
     this._lsCoin = this._buildCoinWidget(overlay, 'mf-coin-ls');
 
@@ -666,6 +716,11 @@ export class UI {
     // native scrollTop; a scroll listener re-blits the canvas slice.
     scroll.addEventListener('scroll', () => this._lsOnScroll(), { passive: true });
     this._lsBindDrag(scroll);
+
+    // --- LEVEL POPUP (modal) — built once, hidden until a node is tapped. It
+    // floats OVER the map (inside the level-select screen). Clicking a node
+    // fills + shows it; PLAY starts the level, BACK/scrim dismisses it.
+    this._buildLevelPopup(s);
 
     document.body.appendChild(s);
     this._levelSelEl = s;
@@ -676,6 +731,129 @@ export class UI {
     this._lsLayout = null;       // memoised geometry {pts, w, h, ...}
     this._lsPhase = null;        // last painted --mf-phase-glow
     this._lsRaf = 0;
+  }
+
+  // ----------------------------------------------------------------------
+  // LEVEL POPUP (modal) — opened when a level node is tapped. Shows the level
+  // number, its 3 objectives (1 = "Reach {target} points", 2 & 3 = the bonus
+  // missions via labelFor), the stars earned so far (drawn SVG), and a big PLAY
+  // button that starts the level. A scrim + a BACK/close button dismiss it.
+  // Locked levels open the same popup in a LOCKED state (no PLAY).
+  // ----------------------------------------------------------------------
+  _buildLevelPopup(parent) {
+    const overlay = el('div', 'mf-lp-overlay mf-hidden', parent);
+    this._lpOverlay = overlay;
+    // tapping the dimmed scrim closes the popup.
+    const scrim = el('div', 'mf-lp-scrim', overlay);
+    scrim.addEventListener('click', () => this._closeLevelPopup());
+
+    const card = el('div', 'mf-lp-card', overlay);
+    this._lpCard = card;
+
+    // close (X) button, top-right.
+    this._lpCloseBtn = el('button', 'mf-lp-close', card);
+    this._lpCloseBtn.type = 'button';
+    this._lpCloseBtn.setAttribute('aria-label', 'Close');
+    el('span', 'mf-lp-close-x', this._lpCloseBtn);
+    this._lpCloseBtn.addEventListener('click', (e) => { e.preventDefault(); this._closeLevelPopup(); });
+
+    // header: eyebrow ("LEVEL n") + locked padlock chip when locked.
+    const head = el('div', 'mf-lp-head', card);
+    this._lpEyebrow = el('div', 'mf-lp-eyebrow', head, 'LEVEL 1');
+    this._lpLockChip = el('div', 'mf-lp-lockchip mf-hidden', head);
+    this._lpLockChip.appendChild(this._svgLock());
+    el('span', 'mf-lp-lockchip-txt', this._lpLockChip, 'LOCKED');
+
+    // earned-stars row (3 drawn SVG stars, gold filled / grey empty).
+    this._lpStars = el('div', 'mf-lp-stars', card);
+
+    // the three objective rows (filled per level in _openLevelPopup).
+    this._lpObjectives = el('div', 'mf-lp-objectives', card);
+
+    // a "complete this to unlock" note shown only for locked levels.
+    this._lpLockedNote = el('div', 'mf-lp-locked-note mf-hidden', card,
+      'Complete earlier levels to unlock this mission.');
+
+    // buttons: PLAY (playable) + BACK.
+    const btns = el('div', 'mf-lp-btns', card);
+    this._lpPlayBtn = button('mf-btn-primary mf-lp-play', btns, 'PLAY',
+      () => { if (this._lpIndex != null) this._startLevel(this._lpIndex); });
+    this._lpBackBtn = button('mf-btn-quiet mf-lp-back', btns, 'BACK',
+      () => this._closeLevelPopup());
+
+    this._lpIndex = null;
+  }
+
+  /** Compute a level's 3 objective labels (1 = score goal, 2 & 3 = missions). */
+  _levelObjectives(level) {
+    const target = Number(level && level.target) || 0;
+    const out = [`Reach ${fmt(target)} points`];
+    const missions = (level && Array.isArray(level.missions)) ? level.missions : [];
+    // objectives 2 & 3 = labelFor(level.missions[0/1]); fall back gracefully.
+    for (let k = 0; k < 2; k++) {
+      const spec = missions[k];
+      out.push(spec ? labelFor(spec) : 'Bonus objective');
+    }
+    return out;
+  }
+
+  /** Open the level popup for `index` (locked state if not yet unlocked). */
+  _openLevelPopup(index) {
+    const levels = this._levels();
+    const level = levels.find((l) => (l.index ?? 0) === index) || levels[index - 1];
+    if (!level) return;
+    this._lpIndex = index;
+
+    const unlocked = index <= this._unlockedCount();
+    const completed = this._isCompleted(index);
+    const stars = this._starsFor(index);
+
+    this._lpEyebrow.textContent = `LEVEL ${index}`;
+    this._lpLockChip.classList.toggle('mf-hidden', unlocked);
+    this._lpLockedNote.classList.toggle('mf-hidden', unlocked);
+    this._lpCard.classList.toggle('mf-lp-locked', !unlocked);
+    this._lpCard.classList.toggle('mf-lp-done', completed);
+
+    // stars earned so far (drawn SVG, gold filled / grey empty).
+    this._lpStars.textContent = '';
+    for (let k = 0; k < 3; k++) {
+      const star = this._svgStar(k < stars);
+      star.classList.add('mf-lp-star');
+      if (k >= stars) star.classList.add('mf-lp-star-off');
+      this._lpStars.appendChild(star);
+    }
+
+    // the three objective rows.
+    this._lpObjectives.textContent = '';
+    const objLabels = this._levelObjectives(level);
+    objLabels.forEach((label, i) => {
+      const row = el('div', 'mf-lp-obj', this._lpObjectives);
+      el('span', 'mf-lp-obj-dot', row, String(i + 1));
+      el('span', 'mf-lp-obj-label', row, label);
+    });
+
+    // PLAY only for unlocked levels.
+    this._lpPlayBtn.classList.toggle('mf-hidden', !unlocked);
+
+    // show it (replay the pop-in animation each open).
+    this._lpOverlay.classList.remove('mf-hidden');
+    this._lpCard.classList.remove('mf-lp-anim');
+    void this._lpCard.offsetWidth;
+    this._lpCard.classList.add('mf-lp-anim');
+    this._lpVisible = true;
+    // focus PLAY when playable, else BACK.
+    const focus = unlocked ? this._lpPlayBtn : this._lpBackBtn;
+    if (focus) focus.focus({ preventScroll: true });
+  }
+
+  /** Dismiss the level popup (returns focus to the map). */
+  _closeLevelPopup() {
+    if (!this._lpVisible) return;
+    this._lpOverlay.classList.add('mf-hidden');
+    this._lpVisible = false;
+    this._lpIndex = null;
+    const back = this._lsFocusNode || this._lsBackBtn;
+    if (back) back.focus({ preventScroll: true });
   }
 
   // -- pointer-drag scrolling (touch + mouse) on the viewport --------------
@@ -970,6 +1148,41 @@ export class UI {
     const onLand = (x, y, rp = W * 0.13, vp = W * 0.07) =>
       clearOfRoad(x, y, rp) && clearOfRiver(x, y, vp) && x > 18 && x < W - 18;
 
+    // -------------------------------------------------------------------------
+    // PLACEMENT REGISTRY — every solid feature (field, pen, farm, pond) records
+    // its bounding box here as it is placed. New features (especially ponds)
+    // test against EVERY already-registered box so they NEVER overlap a field,
+    // pen, the farm, the road, the river, or another pond. Boxes are axis-
+    // aligned rects {x,y,w,h}; circular features register their bounding box
+    // (with a small pad) which is a safe conservative test for non-overlap.
+    // -------------------------------------------------------------------------
+    const placed = [];
+    const register = (x, y, w, h, pad = 0) =>
+      placed.push({ x: x - pad, y: y - pad, w: w + pad * 2, h: h + pad * 2 });
+    // axis-aligned rect-vs-rect intersection test against the whole registry.
+    const hitsPlaced = (x, y, w, h) => {
+      for (const r of placed) {
+        if (x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y) return true;
+      }
+      return false;
+    };
+    // a candidate box is FREE if: clear of the road & river ribbons (sampled at
+    // a few points across the box), on-canvas, and not hitting any placed box.
+    const boxClearOfRibbons = (x, y, w, h, rp, vp) => {
+      for (let sy = y; sy <= y + h; sy += Math.max(8, h / 3)) {
+        const cx = x + w / 2;
+        if (Math.abs(cx - roadXAt(sy)) <= rp) return false;
+        if (Math.abs(cx - riverXAt(sy)) <= vp) return false;
+        // also test the box edges so a wide box can't straddle the road/river
+        if (Math.abs((x) - roadXAt(sy)) <= rp || Math.abs((x + w) - roadXAt(sy)) <= rp) return false;
+        if (Math.abs((x) - riverXAt(sy)) <= vp || Math.abs((x + w) - riverXAt(sy)) <= vp) return false;
+      }
+      return true;
+    };
+    const boxFree = (x, y, w, h, rp = W * 0.10, vp = W * 0.06) =>
+      x > 12 && x + w < W - 12 &&
+      boxClearOfRibbons(x, y, w, h, rp, vp) && !hitsPlaced(x, y, w, h);
+
     // 2) THE RIVER — a single SMOOTH ribbon (built in _lsComputeLayout as a
     // low-frequency spline). Its SOURCE is the mountain range at the top: the
     // first stretch is drawn FADED so it dissolves into the haze/rock rather
@@ -1095,72 +1308,73 @@ export class UI {
       g.beginPath(); g.ellipse(px - pr * 0.1, py - ry * 0.2, pr * 0.5, ry * 0.32, -0.3, 0.2, 3.0); g.stroke();
       lilyDots(px, py, pr, ry, 5);
     };
-    // place a handful of unique ponds out in the open meadow, clear of the
-    // road AND the river, each with its own seed → its own shape.
-    {
-      let placedPonds = 0, attempt = 0;
-      const wantPonds = 3;
-      while (placedPonds < wantPonds && attempt < 80) {
-        attempt++;
-        const py = H * (0.20 + R() * 0.66);
-        const px = (R() < 0.5 ? W * (0.10 + R() * 0.22) : W * (0.68 + R() * 0.22));
-        if (!onLand(px, py, W * 0.16, W * 0.10)) continue;
-        pond(px, py, W * (0.05 + R() * 0.02), R() * 6.283);
-        placedPonds++;
-      }
-    }
+    // NOTE: ponds are PLACED LATER (after fields/pens/farm) so their overlap
+    // check can test against every one of those placed boxes too. Here we have
+    // only DEFINED the pond drawer (pond / blobPath / lilyDots).
 
-    // 3) TILLED CROP FIELDS — read as a ploughed field (soil + furrow ridges +
-    // seed-row dashes + crop dots + earthy outline). Placed BESIDE the road on
-    // whichever side is clear, never under the road or in the water.
-    const drawField = (x, y, w, h, rot, stripe, crop) => {
+    // 3) TILLED CROP FIELDS — AXIS-ALIGNED upright rectangles (NO rotation /
+    // shear / skew). Each reads as a ploughed field (soil + vertical furrow
+    // ridges + seed-row dashes + crop dots + earthy outline). Placed BESIDE the
+    // road on whichever side is clear, never under the road or in the water,
+    // and registered so ponds (and other fields) never overlap them.
+    const drawField = (x, y, w, h, stripe, crop) => {
+      // x,y is the field CENTRE. Everything is drawn with the canvas un-rotated
+      // (axis-aligned), so furrows are perfectly VERTICAL and the outline is a
+      // true upright rectangle.
+      const x0 = x - w / 2, y0 = y - h / 2;
       g.save();
-      g.translate(x, y); g.rotate(rot);
+      // soft cast shadow down-right (NOT a rotate — just an offset rect).
       g.save(); g.globalAlpha = 0.18; g.fillStyle = '#0a1f10';
-      this._roundRect(g, -w / 2 + 3, -h / 2 + 4, w, h, 9); g.fill(); g.restore();
+      this._roundRect(g, x0 + 3, y0 + 4, w, h, 9); g.fill(); g.restore();
+      // soil base
       g.fillStyle = shade(COLORS.field, 0.92);
-      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.fill();
+      this._roundRect(g, x0, y0, w, h, 9); g.fill();
+      // vertical furrows, clipped to the field rect
       g.save();
-      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.clip();
+      this._roundRect(g, x0, y0, w, h, 9); g.clip();
       let band = 0;
-      for (let fx = -w / 2; fx < w / 2; fx += stripe, band++) {
+      for (let fx = x0; fx < x0 + w; fx += stripe, band++) {
         g.fillStyle = shade(COLORS.field, band % 2 ? 1.18 : 1.06);
-        g.fillRect(fx, -h / 2, stripe * 0.62, h);
+        g.fillRect(fx, y0, stripe * 0.62, h);
         g.fillStyle = shade(COLORS.field, 0.74);
-        g.fillRect(fx + stripe * 0.62, -h / 2, stripe * 0.38, h);
+        g.fillRect(fx + stripe * 0.62, y0, stripe * 0.38, h);
         g.strokeStyle = crop ? this._withAlpha(crop, 0.55) : 'rgba(60,40,20,0.5)';
         g.lineWidth = 1.4; g.setLineDash([5, 4]);
         g.beginPath();
-        g.moveTo(fx + stripe * 0.30, -h / 2 + 3);
-        g.lineTo(fx + stripe * 0.30, h / 2 - 3);
+        g.moveTo(fx + stripe * 0.30, y0 + 3);
+        g.lineTo(fx + stripe * 0.30, y0 + h - 3);
         g.stroke(); g.setLineDash([]);
       }
       if (crop) {
         g.fillStyle = crop;
-        for (let cx = -w / 2 + stripe * 0.3; cx < w / 2; cx += stripe) {
-          for (let cy = -h / 2 + 5; cy < h / 2 - 2; cy += 7) {
+        for (let cx = x0 + stripe * 0.3; cx < x0 + w; cx += stripe) {
+          for (let cy = y0 + 5; cy < y0 + h - 2; cy += 7) {
             g.beginPath(); g.arc(cx, cy + (R() - 0.5) * 2, 1.3, 0, 6.283); g.fill();
           }
         }
       }
       g.restore();
+      // earthy outline (upright rect)
       g.strokeStyle = shade(COLORS.field, 0.5); g.lineWidth = 2.2;
-      this._roundRect(g, -w / 2, -h / 2, w, h, 9); g.stroke();
+      this._roundRect(g, x0, y0, w, h, 9); g.stroke();
       g.restore();
     };
     // place a field beside the road, on the side AWAY from the river so it is
-    // never under the path or in the water.
-    const placeField = (fy, w, h, rot, stripe, crop) => {
+    // never under the path or in the water; register its box for overlap tests.
+    const fieldBoxes = [];
+    const placeField = (fy, w, h, stripe, crop) => {
       const y = H * fy;
       const rx = roadXAt(y);
       const away = riverXAt(y) > rx ? -1 : 1;
       const x = Math.max(w / 2 + 14, Math.min(W - w / 2 - 14, rx + away * (W * 0.16 + w / 2)));
-      drawField(x, y, w, h, rot, stripe, crop);
+      drawField(x, y, w, h, stripe, crop);
+      register(x - w / 2, y - h / 2, w, h, 8);   // small pad so ponds keep clear
+      fieldBoxes.push({ x: x - w / 2, y: y - h / 2, w, h });
     };
-    placeField(0.30, W * 0.26, H * 0.075, -0.04, 11, '#f2d24a'); // corn
-    placeField(0.46, W * 0.22, H * 0.06, 0.05, 10, '#e8923a');   // pumpkin
-    placeField(0.62, W * 0.24, H * 0.055, -0.03, 10, '#7dbf4a'); // veg
-    placeField(0.80, W * 0.22, H * 0.05, 0.04, 11, '#cf6f3a');   // squash
+    placeField(0.30, W * 0.26, H * 0.075, 11, '#f2d24a'); // corn
+    placeField(0.46, W * 0.22, H * 0.06, 10, '#e8923a');  // pumpkin
+    placeField(0.62, W * 0.24, H * 0.055, 10, '#7dbf4a'); // veg
+    placeField(0.80, W * 0.22, H * 0.05, 11, '#cf6f3a');  // squash
 
     // 4) COW PENS — every pen is a CLEAN rectangular FENCE OUTLINE: a ring of
     // posts joined by two horizontal rails around the PERIMETER only, with
@@ -1222,6 +1436,7 @@ export class UI {
       const away = riverXAt(y) > rx ? -1 : 1;
       const x = Math.max(w / 2 + 14, Math.min(W - w / 2 - 14, rx + away * (W * 0.17 + w / 2)));
       pasture(x, y, w, h); pastures.push({ x, y, w, h });
+      register(x - w / 2, y - h / 2, w, h, 8);    // register pen box for ponds
     };
     placePasture(0.38, W * 0.18, H * 0.05);
     placePasture(0.54, W * 0.17, H * 0.05);
@@ -1235,16 +1450,65 @@ export class UI {
       // push the hamlet to the side opposite the river at this height.
       const away = riverXAt(fy) > rx ? -1 : 1;
       const fx = Math.max(W * 0.16, Math.min(W * 0.84, rx + away * W * 0.22));
-      this._lsDrawFarm(g, fx, fy, Math.max(1, Math.min(1.6, W / 560)));
+      const fs = Math.max(1, Math.min(1.6, W / 560));
+      this._lsDrawFarm(g, fx, fy, fs);
+      // register the whole hamlet footprint so ponds keep well clear of it.
+      register(fx - 70 * fs, fy - 40 * fs, 150 * fs, 100 * fs, 6);
     }
 
-    // 6) CRAFTED PROPS — standalone trees, bushes, rocks, hay bales scattered
-    // through the meadows (kept off the road & water by onLand()).
-    this._lsDrawProps(g, layout, R, onLand);
+    // 5b) OUTLYING BARN + SILO — a second little farmstead set off to a side,
+    // lower down the journey and on whichever side at that height is clear, so
+    // the OPEN HALF of the map gets an anchoring landmark (fewer blank voids).
+    {
+      const fy = H * 0.66, rx = roadXAt(fy);
+      const away = riverXAt(fy) > rx ? -1 : 1;
+      const fx = Math.max(W * 0.14, Math.min(W * 0.86, rx + away * W * 0.24));
+      const fs = Math.max(0.9, Math.min(1.4, W / 620));
+      const bw = 60 * fs, bh = 70 * fs;
+      // only drop it if the spot is actually free (don't stamp over a field/pen).
+      if (boxFree(fx - bw / 2, fy - bh / 2, bw, bh, W * 0.11, W * 0.06)) {
+        this._lsDrawBarnSilo(g, fx, fy, fs);
+        register(fx - bw / 2, fy - bh / 2, bw, bh, 6);
+      }
+    }
 
-    // 7) GRAZING ANIMALS — drawn holstein cows (and a few sheep) in the
+    // 6) PONDS — placed NOW (after fields/pens/farm) so the overlap test can
+    // check against EVERY placed box (fields, pens, the farm) as well as the
+    // road and river ribbons and other ponds. Each pond sits only in OPEN
+    // MEADOW: a candidate centre is rejected unless its bounding box is fully
+    // free; on collision we simply try another spot (and relocate by retrying).
+    {
+      let placedPonds = 0, attempt = 0;
+      const wantPonds = 4;
+      while (placedPonds < wantPonds && attempt < 180) {
+        attempt++;
+        const pr = W * (0.05 + R() * 0.025);
+        const ry = pr * 0.72;
+        const py = H * (0.18 + R() * 0.70);
+        // alternate which HALF each pond targets so both sides get water
+        // (instead of clustering on one side); jitter within that half.
+        const leftHalf = (placedPonds % 2 === 0);
+        const px = leftHalf ? W * (0.08 + R() * 0.26) : W * (0.66 + R() * 0.26);
+        // the pond's conservative bounding box (the blob can bulge to ~1.16×).
+        const bw = pr * 2.4, bh = ry * 2.4;
+        const bx = px - bw / 2, by = py - bh / 2;
+        // must be on land (clear of road+river) AND not hit any placed box.
+        if (!boxFree(bx, by, bw, bh, W * 0.12, W * 0.07)) continue;
+        pond(px, py, pr, R() * 6.283);
+        register(bx, by, bw, bh, 4);   // so later ponds avoid this one too
+        placedPonds++;
+      }
+    }
+
+    // 7) CRAFTED PROPS — standalone trees, bushes, rocks, hay bales scattered
+    // EVENLY through the meadows to FILL the composition (kept off the road &
+    // water by onLand(), and off the placed fields/pens/farm/ponds by the
+    // registry) so there are no large blank grass voids.
+    this._lsDrawProps(g, layout, R, onLand, hitsPlaced);
+
+    // 8) GRAZING ANIMALS — drawn holstein cows (and a few sheep) in the
     // pastures and meadows beside the road, each with a soft shadow.
-    this._lsDrawHerds(g, layout, R, pastures, onLand);
+    this._lsDrawHerds(g, layout, R, pastures, onLand, hitsPlaced);
 
     // 8) THE ROAD — the hero, a smooth dirt spline in main-map style.
     this._lsDrawRoad(g, layout);
@@ -1403,138 +1667,371 @@ export class UI {
     g.restore();
   }
 
-  // The hazy MOUNTAIN RANGE backdrop at the very top — the campaign's summit.
-  // Layered ridgelines fading into haze so they read as far distance, never a
-  // random corner blob. Sits between the FINISH and the BEACH crest.
+  // The MOUNTAIN RANGE backdrop at the very top — the campaign's summit. A
+  // proper STYLISED game range (NOT pyramids): several overlapping ridgelines
+  // built from organic curved + jagged bezier outlines, each peak unique in
+  // size and shape (asymmetric, NOT isosceles triangles), 3+ depth layers with
+  // atmospheric haze between them, snow caps that hug each crest irregularly,
+  // rocky shading with distinct sunlit (left) vs shadowed (right) faces, and a
+  // few darker gullies/striations. The lower meadow blends UP into the range
+  // through a soft haze so there is no hard seam.
   _lsDrawMountains(g, layout) {
     const { W } = layout;
-    const M = rng(0x70017A1);          // deterministic per-peak PRNG seed
     // foot of the range a touch above the FINISH chip; peaks rise toward the
     // beach so the range reads as the summit you have climbed toward.
     const baseY = layout.finish.y - layout.nodeStep * 0.55;
-    const footY = baseY + 78;        // common "ground" line all peaks rest on
+    const footY = baseY + 88;        // common "ground" line all ridges rest on
     g.save();
+    g.lineJoin = 'round'; g.lineCap = 'round';
 
-    // 1) FAR HAZE RIDGES — two soft, low silhouettes behind the main range,
-    // each a smooth ridgeline (varied bump heights) fading into the sky so the
-    // world feels like it continues upward into distance.
-    const ridge = (yOff, col, alpha, jag, freq) => {
-      g.globalAlpha = alpha;
-      g.fillStyle = col;
-      g.beginPath();
-      g.moveTo(-12, footY);
-      const step = W / freq;
-      for (let x = -12, k = 0; x <= W + 12; x += step, k++) {
-        const hh = jag * (0.45 + 0.55 * (((k * 73) % 11) / 11));
-        // mid control + peak give a soft rounded ridgeline (not zig-zag teeth).
-        const peakY = baseY + yOff - hh;
-        g.quadraticCurveTo(x - step * 0.5, peakY + hh * 0.4, x, peakY);
+    // ----------------------------------------------------------------------
+    // A peak is built as a CRAGGY ASYMMETRIC SILHOUETTE, not a triangle. From
+    // the left base we climb a JAGGED, NOISY polyline up to an OFF-CENTRE
+    // summit, then descend a different jagged polyline to the right base. Each
+    // flank is subdivided into many short steps; every step is pushed off the
+    // straight slope by layered noise so the edge reads rocky/organic. A second
+    // CREST polyline (summit → down the back) drives the sunlit/shadow split so
+    // the dividing line is irregular and the peak reads as a lit 3D form.
+    // ----------------------------------------------------------------------
+
+    // one craggy flank from (x0,y0) → (x1,y1); `steps` short segments, each
+    // jittered perpendicular to the slope by fractal noise (big + small). The
+    // returned array is the ordered outline points along that flank.
+    const flank = (x0, y0, x1, y1, steps, amp, RR, dir) => {
+      const out = [];
+      const dx = x1 - x0, dy = y1 - y0;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;   // unit normal to the slope
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        // ease the base point along the slope, biased so rock bunches up high
+        const bx = x0 + dx * t;
+        const by = y0 + dy * t;
+        // fractal jitter: a broad swell + a medium kink + fine teeth. Fade the
+        // jitter to ~0 exactly at the summit (t→1 on the up flank, t→0 on the
+        // down flank) so the silhouette meets cleanly at the peak.
+        const edgeFade = dir > 0 ? t : (1 - t);
+        const fade = Math.min(1, edgeFade * 3.2) * (1 - edgeFade * 0.15);
+        const n =
+          (RR() - 0.5) * 2.0 +                 // fine random teeth
+          Math.sin(t * 5.3 + dir * 2.1) * 0.6 + // medium kink
+          Math.sin(t * 11.7 - dir) * 0.35;      // small craggy ripple
+        const j = n * amp * fade;
+        // a slow outward swell so the flank bows out between teeth (not a
+        // dead-straight slope), tapering to nothing at the summit.
+        const bulge = Math.sin(t * 3.1 + dir) * amp * 0.5 * fade;
+        out.push({
+          x: bx + nx * j * dir,
+          y: by + ny * j * dir + bulge * 0.4,
+        });
       }
-      g.lineTo(W + 12, footY);
-      g.closePath(); g.fill();
+      return out;
     };
-    ridge(46, mix(COLORS.rockGray, 0xeaf2ff, 0.62), 0.5, 40, 6);  // farthest haze-blue
-    ridge(60, mix(COLORS.rockGray, 0xc9d6e6, 0.42), 0.66, 58, 5); // mid range
 
-    // 2) MAIN RANGE — each peak is UNIQUE: varied width/height, a slight lean,
-    // a different snow line, rock striations + a shaded (right) face and a
-    // sunlit (left) face. Heights/leans come from the seeded PRNG.
-    g.globalAlpha = 0.96;
-    const peaks = 6;
-    const slotW = W / peaks;
-    for (let p = 0; p < peaks; p++) {
-      const jitter = (M() - 0.5);
-      const cx = slotW * (p + 0.5) + jitter * slotW * 0.32;
-      const pw = slotW * (0.86 + M() * 0.5);
-      const ph = 64 + M() * 92;                 // DIFFERENT SIZES per peak
-      const lean = (M() - 0.5) * pw * 0.36;      // unique sideways lean of apex
-      const apexX = cx + lean, apexY = footY - ph;
-      const lX = cx - pw / 2, rX = cx + pw / 2;
-      const snowLine = 0.24 + M() * 0.22;        // unique snow extent per peak
-
-      // shaded (right) half of the rock face — darker.
-      g.fillStyle = shade(COLORS.rockGray, 0.70);
-      g.beginPath();
-      g.moveTo(apexX, apexY); g.lineTo(rX, footY); g.lineTo(apexX, footY);
-      g.closePath(); g.fill();
-      // sunlit (left) half — lighter.
-      g.fillStyle = mix(COLORS.rockGray, 0xffffff, 0.16);
-      g.beginPath();
-      g.moveTo(apexX, apexY); g.lineTo(lX, footY); g.lineTo(apexX, footY);
-      g.closePath(); g.fill();
-
-      // rock STRIATIONS — diagonal strata lines following each face, clipped to
-      // the peak triangle so they never spill onto the sky.
-      g.save();
-      g.beginPath();
-      g.moveTo(lX, footY); g.lineTo(apexX, apexY); g.lineTo(rX, footY); g.closePath();
-      g.clip();
-      g.strokeStyle = 'rgba(40,46,52,0.35)'; g.lineWidth = 1;
-      for (let s = 1; s <= 6; s++) {
-        const t = s / 7;
-        const y = apexY + (footY - apexY) * t;
-        g.beginPath();
-        g.moveTo(lX - 4, y + 4);
-        g.quadraticCurveTo(apexX, y - 3, rX + 4, y + 6);
-        g.stroke();
+    // build a whole ridge = a run of overlapping craggy peaks across the width.
+    // Returns { outline:[{x,y}], peaks:[{sx,sy,lx,rx,h}] } where outline is the
+    // full top silhouette left→right and peaks lists each summit + its bases.
+    const buildRidge = (seed, count, minH, maxH, yBase, amp) => {
+      const RR = rng(seed);
+      const peaks = [];
+      const outline = [];
+      const span = W + 60;
+      const seg = span / count;
+      let baseX = -30;
+      outline.push({ x: -30, y: footY });
+      for (let i = 0; i < count; i++) {
+        const h = minH + RR() * (maxH - minH);
+        const lx = baseX + seg * (RR() * 0.12);
+        const rx = lx + seg * (0.85 + RR() * 0.4);
+        // OFF-CENTRE summit: lean left or right, never the midpoint.
+        const lean = 0.30 + RR() * 0.42;           // 0..1 across the base
+        const sx = lx + (rx - lx) * lean;
+        const sy = yBase - h;
+        // a little gully dip in the valley before the next peak so ridges read
+        // as a connected range rather than separate cones.
+        const upSteps = 7 + ((RR() * 4) | 0);
+        const dnSteps = 7 + ((RR() * 4) | 0);
+        const up = flank(lx, yBase - h * (0.04 + RR() * 0.08), sx, sy, upSteps, amp, RR, +1);
+        const dn = flank(sx, sy, rx, yBase - h * (0.04 + RR() * 0.08), dnSteps, amp, RR, -1);
+        for (const p of up) outline.push(p);
+        for (let k = 1; k < dn.length; k++) outline.push(dn[k]);
+        peaks.push({ sx, sy, lx, rx, h, RR });
+        baseX = rx - seg * (0.18 + RR() * 0.16);   // overlap the next peak
       }
-      // a couple of brighter cracks for craggy texture.
-      g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 0.8;
-      for (let s = 0; s < 3; s++) {
-        const sxv = lX + pw * (0.2 + M() * 0.6);
-        g.beginPath();
-        g.moveTo(sxv, footY);
-        g.lineTo(apexX + (sxv - apexX) * 0.3, apexY + ph * 0.4);
-        g.stroke();
-      }
-      g.restore();
+      outline.push({ x: W + 30, y: footY });
+      return { outline, peaks };
+    };
 
-      // SNOW CAP — a unique ragged snow field below the apex, with a shaded
-      // underside so it reads as depth, not a flat triangle.
-      const snowBaseY = apexY + ph * snowLine;
-      g.fillStyle = hex(COLORS.snow);
+    // fill a ridge's craggy silhouette down to a deep base line. `fill` is an
+    // 0xRRGGBB int; the body is painted with a vertical gradient that holds the
+    // solid tone through the peaks then fades to FULLY TRANSPARENT just below the
+    // foot, so the range melts into the meadow with no opaque dark base band.
+    const fillRidge = (ridge, fill) => {
+      const o = ridge.outline;
+      // fade window: opaque through the bulk of the body, transparent by the
+      // time we reach the foot of the range (a ~70px soft vertical dissolve).
+      const fadeStart = footY - 18;
+      const fadeEnd = footY + 52;
+      const grad = g.createLinearGradient(0, baseY - 40, 0, fadeEnd);
+      const solid = hex(fill);
+      grad.addColorStop(0, solid);
+      grad.addColorStop(Math.max(0, (fadeStart - (baseY - 40)) / (fadeEnd - (baseY - 40))), solid);
+      grad.addColorStop(1, this._withAlpha(solid, 0));
+      g.fillStyle = grad;
       g.beginPath();
-      g.moveTo(apexX, apexY);
-      // left jagged edge down
-      const segs = 4;
+      g.moveTo(o[0].x, o[0].y);
+      for (let i = 1; i < o.length; i++) g.lineTo(o[i].x, o[i].y);
+      g.lineTo(W + 30, footY + 80);
+      g.lineTo(-30, footY + 80);
+      g.closePath();
+      g.fill();
+    };
+
+    // trace a ridge silhouette as the current path (for clipping detail in).
+    const traceRidge = (ridge) => {
+      const o = ridge.outline;
+      g.beginPath();
+      g.moveTo(o[0].x, o[0].y);
+      for (let i = 1; i < o.length; i++) g.lineTo(o[i].x, o[i].y);
+      g.lineTo(W + 30, footY + 80);
+      g.lineTo(-30, footY + 80);
+      g.closePath();
+    };
+
+    // an irregular CREST line for a peak: from the summit it wanders DOWN-RIGHT
+    // (toward the shadowed back) with sideways jitter, ending near the foot.
+    // This is the hard-but-uneven boundary between the sunlit & shadowed faces.
+    const crestLine = (pk, RR) => {
+      const pts = [{ x: pk.sx, y: pk.sy }];
+      const endY = footY;
+      const segs = 5;
+      let cx = pk.sx;
       for (let s = 1; s <= segs; s++) {
         const t = s / segs;
-        const ex = apexX + (lX - apexX) * t * 0.62;
-        const ey = apexY + (snowBaseY - apexY) * t + (M() - 0.5) * ph * 0.06;
-        g.lineTo(ex, ey);
+        const baseDrift = (pk.rx - pk.sx) * 0.34 * t;     // crest leans toward the back
+        const jit = (RR() - 0.5) * (pk.rx - pk.lx) * 0.10;
+        cx = pk.sx + baseDrift + jit;
+        const y = pk.sy + (endY - pk.sy) * (t * t * 0.9 + t * 0.1);
+        pts.push({ x: cx, y });
       }
-      // jagged drip line across, then back up the right edge
-      for (let s = segs; s >= 1; s--) {
-        const t = s / segs;
-        const ex = apexX + (rX - apexX) * t * 0.62;
-        const ey = apexY + (snowBaseY - apexY) * t + (M() - 0.5) * ph * 0.06;
-        g.lineTo(ex, ey);
+      return pts;
+    };
+
+    // render one front-range peak's 3D shading: split along its crest into a
+    // SUNLIT (left/front) face and a SHADOWED (right) face, add gullies, then a
+    // RAGGED snow cap with drips + a blue shadow side. Assumes the front-range
+    // silhouette is already set as the clip.
+    const paintPeak = (pk) => {
+      const RR = pk.RR;
+      const crest = crestLine(pk, RR);
+      // base rock tone already filled; now lay the two faces over it.
+      // SUNLIT FACE: from the left foot, up the left flank to the summit, then
+      // DOWN the irregular crest, and back along the foot to the start.
+      const warmLight = '#cdd4dc';  // soft sunlit blue-grey (never blown out)
+      const coolDark = '#8a96a6';   // desaturated blue-grey shadow (never black)
+      // each face is painted with a vertical gradient that holds its tone down
+      // through the body then fades to fully transparent by the foot, so the
+      // faces dissolve into the meadow with no opaque base edge.
+      const faceFade = (col) => {
+        const gr = g.createLinearGradient(0, pk.sy, 0, footY + 24);
+        gr.addColorStop(0, col);
+        gr.addColorStop(0.62, col);
+        gr.addColorStop(1, this._withAlpha(col, 0));
+        return gr;
+      };
+      g.fillStyle = faceFade(warmLight);
+      g.beginPath();
+      g.moveTo(pk.lx, footY);
+      g.lineTo(pk.sx, pk.sy);
+      for (let i = 1; i < crest.length; i++) g.lineTo(crest[i].x, crest[i].y);
+      g.lineTo(crest[crest.length - 1].x, footY);
+      g.closePath(); g.fill();
+      // SHADOWED FACE: from the crest foot across to the right foot, up the
+      // right flank to the summit, then back down the crest.
+      g.fillStyle = faceFade(coolDark);
+      g.beginPath();
+      g.moveTo(crest[crest.length - 1].x, footY);
+      g.lineTo(pk.rx, footY);
+      g.lineTo(pk.sx, pk.sy);
+      for (let i = 1; i < crest.length; i++) g.lineTo(crest[i].x, crest[i].y);
+      g.closePath(); g.fill();
+      // a soft mid-tone band hugging the crest on the lit side so the ridge
+      // edge catches the light (rounds the hard seam without flattening it).
+      g.strokeStyle = this._withAlpha('#e0e6ee', 0.35);
+      g.lineWidth = 2.0;
+      g.beginPath();
+      g.moveTo(pk.sx, pk.sy);
+      for (let i = 1; i < Math.min(3, crest.length); i++) g.lineTo(crest[i].x - 2, crest[i].y);
+      g.stroke();
+
+      // GULLIES / striations: a few darker thin strokes raking down both faces,
+      // following the rock's fall-line so the form reads carved, not painted.
+      const gullies = 4 + ((RR() * 3) | 0);
+      for (let s = 0; s < gullies; s++) {
+        const side = RR() < 0.5 ? -1 : 1;          // which face
+        const foot = side < 0 ? pk.lx : pk.rx;
+        const startT = 0.12 + RR() * 0.30;
+        const sxp = pk.sx + (foot - pk.sx) * startT * 0.5;
+        const syp = pk.sy + (footY - pk.sy) * startT;
+        const exp = pk.sx + (foot - pk.sx) * (0.55 + RR() * 0.4);
+        const eyp = pk.sy + (footY - pk.sy) * (0.7 + RR() * 0.28);
+        g.strokeStyle = side < 0 ? 'rgba(110,120,134,0.18)' : 'rgba(92,104,122,0.22)';
+        g.lineWidth = 0.8 + RR() * 1.1;
+        g.beginPath();
+        g.moveTo(sxp, syp);
+        g.quadraticCurveTo(
+          (sxp + exp) / 2 + (RR() - 0.5) * 12, (syp + eyp) / 2, exp, eyp);
+        g.stroke();
+      }
+      // a couple of bright catch-light cracks on the sunlit flank.
+      g.strokeStyle = 'rgba(255,250,235,0.18)'; g.lineWidth = 0.9;
+      for (let s = 0; s < 2; s++) {
+        const t = 0.2 + RR() * 0.3;
+        g.beginPath();
+        g.moveTo(pk.sx - 2, pk.sy + (footY - pk.sy) * (t * 0.4));
+        g.lineTo(pk.lx + (pk.sx - pk.lx) * (0.4 + RR() * 0.3),
+          pk.sy + (footY - pk.sy) * (t + 0.18));
+        g.stroke();
+      }
+
+      // ----- RAGGED SNOW CAP -------------------------------------------------
+      // The snow line is a jagged fringe that clings high near the summit and
+      // sends TONGUES of snow down the gullies. Built as a closed polygon: a
+      // ragged lower edge (left foot of snow → right), then back up the two
+      // flanks to the summit. NOT a clean triangular tip.
+      const snowH = pk.h * (0.30 + RR() * 0.12);   // how far snow reaches down
+      const capLx = pk.sx + (pk.lx - pk.sx) * (0.34 + RR() * 0.12);
+      const capRx = pk.sx + (pk.rx - pk.sx) * (0.30 + RR() * 0.12);
+      const snowFloor = pk.sy + snowH;
+      g.fillStyle = hex(COLORS.snow);
+      g.beginPath();
+      // up the left flank from the lower-left snow edge to the summit
+      g.moveTo(capLx, pk.sy + snowH * (0.55 + RR() * 0.3));
+      const lsteps = 4;
+      for (let s = 1; s <= lsteps; s++) {
+        const t = s / lsteps;
+        g.lineTo(
+          capLx + (pk.sx - capLx) * t + (RR() - 0.5) * 4,
+          (pk.sy + snowH * 0.6) + (pk.sy - (pk.sy + snowH * 0.6)) * t + (RR() - 0.5) * 5);
+      }
+      g.lineTo(pk.sx, pk.sy - 1);
+      // down the right flank to the lower-right snow edge
+      const rsteps = 4;
+      for (let s = 1; s <= rsteps; s++) {
+        const t = s / rsteps;
+        g.lineTo(
+          pk.sx + (capRx - pk.sx) * t + (RR() - 0.5) * 4,
+          pk.sy + (snowH * (0.55 + RR() * 0.3)) * t + (RR() - 0.5) * 4);
+      }
+      // ragged lower edge back to the start, dipping into gully TONGUES.
+      const ledge = 6;
+      for (let s = ledge; s >= 0; s--) {
+        const t = s / ledge;
+        const x = capLx + (capRx - capLx) * t;
+        // every other notch droops lower (a snow tongue running down a gully).
+        const tongue = (s % 2 === 0 ? 1 : 0.45) * (0.4 + RR() * 0.9);
+        const y = snowFloor * 0 + (pk.sy + snowH * (0.45 + tongue * 0.7));
+        g.lineTo(x + (RR() - 0.5) * 3, y);
       }
       g.closePath(); g.fill();
-      // bluish shadow on the snow's right side for form.
-      g.fillStyle = 'rgba(168,196,224,0.5)';
+      // blue-grey SHADOW side of the snow (on the shadowed/right flank).
+      g.fillStyle = this._withAlpha('#c4cedd', 0.7);
       g.beginPath();
-      g.moveTo(apexX, apexY);
-      g.lineTo(apexX + pw * 0.14, snowBaseY * 0.5 + apexY * 0.5);
-      g.lineTo(apexX, snowBaseY * 0.7 + apexY * 0.3);
+      g.moveTo(pk.sx, pk.sy);
+      for (let s = 1; s <= rsteps; s++) {
+        const t = s / rsteps;
+        g.lineTo(pk.sx + (capRx - pk.sx) * t, pk.sy + snowH * 0.5 * t);
+      }
+      g.lineTo(pk.sx + (capRx - pk.sx) * 0.4, pk.sy + snowH * 0.34);
+      g.closePath(); g.fill();
+      // a faint warm rim where the sun grazes the top of the snow.
+      g.strokeStyle = 'rgba(255,248,230,0.5)'; g.lineWidth = 1.2;
+      g.beginPath();
+      g.moveTo(capLx + (pk.sx - capLx) * 0.5, pk.sy + snowH * 0.28);
+      g.lineTo(pk.sx, pk.sy);
+      g.stroke();
+    };
+
+    // a cool inter-layer haze veil: a soft horizontal wash that holds through
+    // the peaks then fades to FULLY TRANSPARENT by the foot, so it deepens the
+    // atmospheric haze without ever laying a hard-edged band across the base.
+    // `rgbPrefix` is e.g. 'rgba(218,232,244,' and `peak` is its max alpha.
+    const hazeVeil = (topY, rgbPrefix, peak) => {
+      const vg = g.createLinearGradient(0, topY, 0, footY + 30);
+      vg.addColorStop(0, rgbPrefix + '0)');
+      vg.addColorStop(0.4, rgbPrefix + peak + ')');
+      vg.addColorStop(0.78, rgbPrefix + peak + ')');
+      vg.addColorStop(1, rgbPrefix + '0)');
+      g.fillStyle = vg;
+      g.fillRect(0, topY, W, footY + 30 - topY);
+    };
+
+    // ===== LAYER 0: farthest, palest blue ghosts (deep haze) ===============
+    const r0 = buildRidge(0x11a7, 6, 22, 46, baseY + 50, 4.0);
+    g.globalAlpha = 0.40;
+    // farthest: almost the sky/haze tone — palest, lowest contrast.
+    fillRidge(r0, 0xdfe9f2);
+    g.globalAlpha = 1;
+    hazeVeil(baseY - 36, 'rgba(218,232,244,', 0.34);
+
+    // ===== LAYER 1: far haze-blue ridge ====================================
+    const r1 = buildRidge(0x3a17, 5, 34, 64, baseY + 44, 5.0);
+    g.globalAlpha = 0.58;
+    // far haze-blue ridge — still very light, a touch more body than layer 0.
+    fillRidge(r1, 0xcdd9e8);
+    g.globalAlpha = 1;
+    hazeVeil(baseY - 30, 'rgba(214,230,242,', 0.30);
+
+    // ===== LAYER 2: mid range (a hint of snow on the highest) ==============
+    const r2 = buildRidge(0x9c41, 5, 56, 100, baseY + 34, 6.5);
+    g.globalAlpha = 0.78;
+    // mid range — light blue-grey, clearly hazier than the front range.
+    fillRidge(r2, 0xb6c2d2);
+    // light dusting of snow on the mid peaks (simple, no full detail).
+    g.save(); traceRidge(r2); g.clip();
+    g.globalAlpha = 0.85;
+    g.fillStyle = this._withAlpha(hex(COLORS.snow), 0.7);
+    for (const pk of r2.peaks) {
+      g.beginPath();
+      g.moveTo(pk.sx, pk.sy - 1);
+      g.lineTo(pk.sx - (pk.sx - pk.lx) * 0.22, pk.sy + pk.h * 0.16);
+      g.lineTo(pk.sx + (pk.rx - pk.sx) * 0.2, pk.sy + pk.h * 0.14);
       g.closePath(); g.fill();
     }
     g.restore();
+    g.globalAlpha = 1;
+    hazeVeil(baseY - 20, 'rgba(206,222,236,', 0.22);
 
-    // 3) a band of atmospheric HAZE across the foot of the range so it sits
-    // back AND the map below blends seamlessly UP into the mountains (no hard
-    // seam between meadow and rock).
-    const haze = g.createLinearGradient(0, baseY - 6, 0, footY + 40);
+    // ===== LAYER 3: MAIN range (front, fully detailed & snow-capped) =======
+    g.globalAlpha = 1;
+    const r3 = buildRidge(0x70017a, 4, 96, 156, baseY + 18, 8.5);
+    // base rock body — a soft blue-grey the lit/shadow faces sit over. Sits
+    // between the sunlit (#cdd4dc) and shadow (#8a96a6) tones, never dark.
+    fillRidge(r3, 0xa6b1c0);
+    // detail all clipped INSIDE the front silhouette so nothing leaks to sky.
+    g.save();
+    traceRidge(r3); g.clip();
+    for (const pk of r3.peaks) paintPeak(pk);
+    g.restore();
+
+    g.restore();
+
+    // atmospheric HAZE across the foot of the range so it sits back AND the
+    // meadow below blends seamlessly UP into the mountains (no hard seam).
+    const haze = g.createLinearGradient(0, baseY - 6, 0, footY + 46);
     haze.addColorStop(0, 'rgba(214,230,238,0)');
-    haze.addColorStop(0.55, 'rgba(214,230,238,0.7)');
+    haze.addColorStop(0.5, 'rgba(214,230,238,0.40)');
     haze.addColorStop(1, 'rgba(214,230,238,0)');
-    g.fillStyle = haze; g.fillRect(0, baseY - 6, W, footY + 46 - (baseY - 6));
+    g.fillStyle = haze; g.fillRect(0, baseY - 6, W, footY + 52 - (baseY - 6));
   }
 
-  // Crafted hand-painted props scattered over the world: standalone trees,
-  // bushes, rocks and hay bales. Placed deterministically (shared R) and kept
-  // clear of the road AND the river via the onLand() predicate.
-  _lsDrawProps(g, layout, R, onLand) {
+  // Crafted hand-painted props scattered over the world: tree CLUSTERS,
+  // hedgerows, flower patches, standalone trees, bushes, rocks and hay bales —
+  // distributed EVENLY across the whole map to FILL the composition (no big
+  // blank grass voids) while keeping a clean margin around the road & nodes.
+  // Kept clear of the road & river (onLand) and off placed fields/pens/farm/
+  // ponds (hitsPlaced).
+  _lsDrawProps(g, layout, R, onLand, hitsPlaced) {
     const { W, H } = layout;
     const shadow = (x, y, w, h, a = 0.2) => {
       g.save(); g.globalAlpha = a; g.fillStyle = '#0a1f10';
@@ -1587,35 +2084,132 @@ export class UI {
       this._roundRect(g, -s, -s * 0.62, s * 2, s * 1.24, s * 0.55); g.stroke();
       g.restore();
     };
-    const ok = (x, y) => (onLand ? onLand(x, y) : true);
+    // a flower patch: a cluster of little coloured dots in the grass.
+    const FLOWER_COLS = ['#ffd23f', '#ff7eb6', '#ffffff', '#b388ff', '#ff9b54'];
+    const flowers = (x, y, s) => {
+      const n = 6 + (R() * 6) | 0;
+      for (let k = 0; k < n; k++) {
+        const a = R() * 6.283, rr = R() * s;
+        const fx = x + Math.cos(a) * rr, fy = y + Math.sin(a) * rr * 0.7;
+        g.fillStyle = FLOWER_COLS[(R() * FLOWER_COLS.length) | 0];
+        g.beginPath(); g.arc(fx, fy, 1.1 + R() * 1.1, 0, 6.283); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.6)';
+        g.beginPath(); g.arc(fx - 0.4, fy - 0.4, 0.5, 0, 6.283); g.fill();
+      }
+    };
+    // a HEDGEROW: a short axis-aligned run of overlapping bushes (a tidy field
+    // boundary). Horizontal or vertical, never diagonal/skewed.
+    const hedgerow = (x, y, len, vertical) => {
+      const step = 7;
+      for (let d = -len / 2; d <= len / 2; d += step) {
+        const bx = vertical ? x : x + d;
+        const by = vertical ? y + d : y;
+        bush(bx, by, 5 + R() * 1.5);
+      }
+    };
 
-    // scattered trees, clustered toward the panel edges to frame the journey.
-    for (let i = 0; i < Math.round(H / 64); i++) {
-      const edge = R() < 0.62;
-      const x = edge ? (R() < 0.5 ? W * (0.04 + R() * 0.13) : W * (0.83 + R() * 0.13))
-                     : R() * W;
-      const y = H * 0.06 + R() * H * 0.9;
-      if (!ok(x, y)) continue;
-      tree(x, y, 8 + R() * 6);
+    // ok(): clear of road/river (onLand) AND off any placed solid box, with a
+    // little extra margin around the road so the area right by the nodes stays
+    // clean and readable.
+    const clusterPad = 18;
+    const ok = (x, y, rp = W * 0.16) => {
+      if (onLand && !onLand(x, y, rp, W * 0.08)) return false;
+      if (hitsPlaced && hitsPlaced(x - clusterPad, y - clusterPad, clusterPad * 2, clusterPad * 2)) return false;
+      return true;
+    };
+
+    // 1) TREE CLUSTERS + standalone trees distributed EVENLY via a jittered
+    // grid so the whole map is filled (no blank voids). The grid is FINER now
+    // (more columns/rows) and each cell is biased toward leafy GROVES, so both
+    // halves of the meadow stay populated while the road corridor stays clean.
+    // For every cell that lands ON the road/a placed box we retry a second
+    // jittered point in the same cell, so cells next to the road still fill.
+    const cols = Math.max(5, Math.round(W / 130));
+    const rows = Math.max(8, Math.round(H / 120));
+    const cw = W / cols, ch = H / rows;
+    const placeInCell = (x, y) => {
+      const roll = R();
+      if (roll < 0.50) {
+        // a leafy tree GROVE (2-4 trees) — the main space-filler.
+        const n = 2 + (R() * 3) | 0;
+        for (let k = 0; k < n; k++) {
+          const tx = x + (R() - 0.5) * 22, ty = y + (R() - 0.5) * 16;
+          if (ok(tx, ty)) tree(tx, ty, 8 + R() * 6);
+        }
+      } else if (roll < 0.66) {
+        tree(x, y, 9 + R() * 6);
+      } else if (roll < 0.80) {
+        // a little BUSH/ROCK clump rather than a single dot.
+        const n = 1 + (R() * 3) | 0;
+        for (let k = 0; k < n; k++) {
+          const bx = x + (R() - 0.5) * 16, byy = y + (R() - 0.5) * 12;
+          if (ok(bx, byy)) (R() < 0.62 ? bush : rock)(bx, byy, 5 + R() * 4);
+        }
+      } else if (roll < 0.92) {
+        flowers(x, y, 11 + R() * 9);
+      } else {
+        hedgerow(x, y, 28 + R() * 26, R() < 0.5);
+      }
+    };
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (r * ch < H * 0.04 || r * ch > H * 0.96) continue;
+        let x = c * cw + cw * (0.12 + R() * 0.76);
+        let y = r * ch + ch * (0.12 + R() * 0.76);
+        if (!ok(x, y)) {
+          // retry once elsewhere in the same cell before giving up on it.
+          x = c * cw + cw * (0.12 + R() * 0.76);
+          y = r * ch + ch * (0.12 + R() * 0.76);
+          if (!ok(x, y)) continue;
+        }
+        placeInCell(x, y);
+      }
     }
-    // bushes & rocks dotted around the meadows
-    for (let i = 0; i < Math.round(H / 80); i++) {
-      const x = R() * W, y = H * 0.08 + R() * H * 0.88;
-      if (!ok(x, y)) continue;
-      (R() < 0.62 ? bush : rock)(x, y, 5 + R() * 4);
-    }
-    // a few hay bales out in the meadows beside the road
-    for (let i = 0; i < 4; i++) {
-      const x = R() * W, y = H * 0.18 + R() * H * 0.7;
+
+    // 2) hay bales out in the meadows beside the road.
+    for (let i = 0; i < 8; i++) {
+      const x = R() * W, y = H * 0.16 + R() * H * 0.74;
       if (!ok(x, y)) continue;
       hay(x, y, 6 + R() * 2);
+    }
+
+    // 3) a dedicated VOID-FILL sweep: scan for any sizeable blank gaps left in
+    // the meadow (especially the open left half) and drop a grove/flower patch
+    // there. We probe a coarse lattice and fill the first free hit per cell.
+    const fcols = Math.max(4, Math.round(W / 150));
+    const frows = Math.max(6, Math.round(H / 135));
+    const fcw = W / fcols, fch = H / frows;
+    for (let r = 0; r < frows; r++) {
+      for (let c = 0; c < fcols; c++) {
+        if (r * fch < H * 0.05 || r * fch > H * 0.95) continue;
+        const x = c * fcw + fcw * 0.5 + (R() - 0.5) * fcw * 0.4;
+        const y = r * fch + fch * 0.5 + (R() - 0.5) * fch * 0.4;
+        if (!ok(x, y, W * 0.18)) continue;
+        // a grove or a generous flower patch to seat into the blank grass.
+        if (R() < 0.55) {
+          const n = 2 + (R() * 2) | 0;
+          for (let k = 0; k < n; k++) {
+            const tx = x + (R() - 0.5) * 18, ty = y + (R() - 0.5) * 12;
+            if (ok(tx, ty)) tree(tx, ty, 8 + R() * 5);
+          }
+        } else {
+          flowers(x, y, 12 + R() * 8);
+        }
+      }
+    }
+
+    // 4) extra flower patches sprinkled to soften any remaining small gaps.
+    for (let i = 0; i < Math.round(H / 80); i++) {
+      const x = R() * W, y = H * 0.07 + R() * H * 0.88;
+      if (!ok(x, y)) continue;
+      flowers(x, y, 9 + R() * 7);
     }
   }
 
   // Grazing herds: drawn black-&-white holstein cows (body, head, legs, spots)
   // plus a few sheep, scattered in the pastures and meadows beside the road.
   // Each gets a soft down-right shadow. NO emoji — all path-drawn.
-  _lsDrawHerds(g, layout, R, pastures, onLand) {
+  _lsDrawHerds(g, layout, R, pastures, onLand, hitsPlaced) {
     const { W, H } = layout;
     const shadow = (x, y, w, h) => {
       g.save(); g.globalAlpha = 0.20; g.fillStyle = '#0a1f10';
@@ -1681,15 +2275,34 @@ export class UI {
         cow(cx, cy, 7);
       }
     }
-    // a few free-grazing cows + sheep out in the open meadows beside the road.
-    const ok = (x, y) => (onLand ? onLand(x, y, W * 0.15, W * 0.08) : true);
+    // free-grazing cows AND sheep out in the open meadows beside the road, kept
+    // off the road/river (onLand) and off placed fields/pens/farm/ponds
+    // (hitsPlaced) so they only graze on open grass. A small herd grouping so
+    // they read as flocks rather than evenly-sprinkled dots.
+    const ok = (x, y) => {
+      if (onLand && !onLand(x, y, W * 0.15, W * 0.08)) return false;
+      if (hitsPlaced && hitsPlaced(x - 10, y - 10, 20, 20)) return false;
+      return true;
+    };
+    // More free-grazing animals scattered EVENLY across both halves so the open
+    // meadow has life, not just the pens. We alternate the target half per
+    // group so cows/sheep don't all bunch on one side of the road.
     let placed = 0;
-    for (let i = 0; i < 60 && placed < 9; i++) {
-      const x = R() * W, y = H * 0.12 + R() * H * 0.8;
+    for (let i = 0; i < 200 && placed < 26; i++) {
+      const leftHalf = (i % 2 === 0);
+      const x = leftHalf ? W * (0.04 + R() * 0.42) : W * (0.54 + R() * 0.42);
+      const y = H * 0.10 + R() * H * 0.84;
       if (!ok(x, y)) continue;
-      if (R() < 0.7) cow(x, y, 6.5 + R() * 1.5);
-      else sheep(x, y, 6);
-      placed++;
+      // little grazing group of 1-3 animals (reads as a flock).
+      const group = 1 + (R() * 3) | 0;
+      const sheepGroup = R() < 0.42;   // mix cows AND sheep across the map
+      for (let k = 0; k < group; k++) {
+        const ax = x + (R() - 0.5) * 24, ay = y + (R() - 0.5) * 18;
+        if (!ok(ax, ay)) continue;
+        if (sheepGroup) sheep(ax, ay, 6);
+        else cow(ax, ay, 6.5 + R() * 1.5);
+        placed++;
+      }
     }
   }
 
@@ -1794,6 +2407,53 @@ export class UI {
     g.beginPath(); g.arc(wx, wy, px(2.2), 0, 6.283); g.fill();
   }
 
+  // A standalone BARN + SILO landmark for the open meadow — a smaller, tidy
+  // outlying farmstead (upright barn with gable roof + door, a domed silo) used
+  // to anchor an otherwise empty stretch of map. Axis-aligned & upright like
+  // the main hamlet, with soft cast shadows. NO emoji — all path-drawn.
+  _lsDrawBarnSilo(g, cx, cy, s) {
+    const px = (v) => v * s;
+    const shadow = (x, y, w, h) => {
+      g.save(); g.globalAlpha = 0.22; g.fillStyle = '#000';
+      g.beginPath(); g.ellipse(x, y, w, h, 0, 0, 6.283); g.fill(); g.restore();
+    };
+    // --- BARN body + symmetric gable roof + door. ---
+    const bw = px(30), bh = px(20);
+    const bx = cx - px(22), by = cy - px(2);
+    shadow(bx + bw / 2, by + bh + px(3), bw * 0.58, px(4));
+    g.fillStyle = hex(COLORS.barnRed);
+    this._roundRect(g, bx, by, bw, bh, 3); g.fill();
+    g.strokeStyle = shade(COLORS.barnRed, 0.82); g.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const lx = bx + (bw * i) / 4;
+      g.beginPath(); g.moveTo(lx, by + 1); g.lineTo(lx, by + bh - 1); g.stroke();
+    }
+    const ridge = px(10);
+    g.fillStyle = shade(COLORS.roof, 1.06);
+    g.beginPath();
+    g.moveTo(bx - px(2), by + 1);
+    g.lineTo(bx + bw / 2, by - ridge);
+    g.lineTo(bx + bw + px(2), by + 1);
+    g.closePath(); g.fill();
+    g.strokeStyle = hex(COLORS.barnTrim); g.lineWidth = 1.4;
+    g.beginPath(); g.moveTo(bx - px(2), by + 1); g.lineTo(bx + bw + px(2), by + 1); g.stroke();
+    g.fillStyle = hex(COLORS.barnTrim);
+    g.fillRect(bx + bw / 2 - px(4), by + bh - px(10), px(8), px(10));
+    g.strokeStyle = shade(COLORS.barnRed, 0.7); g.lineWidth = 1.1;
+    g.beginPath(); g.moveTo(bx + bw / 2, by + bh - px(10)); g.lineTo(bx + bw / 2, by + bh); g.stroke();
+    // --- SILO: upright cylinder + symmetric dome cap, beside the barn. ---
+    const sx = cx + px(18), sy = cy + px(2), sr = px(7);
+    shadow(sx, sy + px(16), sr + px(1), px(3));
+    g.fillStyle = shade(COLORS.stone, 1.02);
+    this._roundRect(g, sx - sr, sy - px(2), sr * 2, px(18), sr * 0.5); g.fill();
+    g.fillStyle = shade(COLORS.stone, 0.82);
+    this._roundRect(g, sx, sy - px(2), sr, px(18), 0); g.fill();
+    g.fillStyle = mix(COLORS.stone, 0xffffff, 0.28);
+    g.fillRect(sx - sr + px(1), sy - px(1), px(2.2), px(16));
+    g.fillStyle = shade(COLORS.roof, 1.1);
+    g.beginPath(); g.arc(sx, sy - px(2), sr, Math.PI, 2 * Math.PI); g.closePath(); g.fill();
+  }
+
   // START / FINISH chip painted on the road (drawn, no emoji).
   _lsDrawFlag(g, x, y, color, label) {
     g.save();
@@ -1812,50 +2472,177 @@ export class UI {
     g.restore();
   }
 
-  // BEACH — COMING SOON teaser vignette at the top of the map.
+  // BEACH — COMING SOON teaser band at the very top of the map. A polished
+  // little beach scene: a smooth gradient SEA with layered foam wavelets and a
+  // surf line, a smooth gradient SAND with a soft WET-SAND line where the surf
+  // licks the shore, a couple of palms, a beach umbrella + a starfish — and the
+  // LOCKED gate banner with its X/35 star progress. The lower edge of the sand
+  // blends DOWN into the meadow (gradient sand→grass) so there is no hard line.
   _lsDrawBeach(g, layout) {
     const { W, beach } = layout;
-    const top = 8, h = beach.y + layout.nodeStep * 0.4;
-    // sea gradient
-    const sea = g.createLinearGradient(0, top, 0, h * 0.7);
-    sea.addColorStop(0, '#2bb6c8');
-    sea.addColorStop(1, '#4fd0d8');
-    g.fillStyle = sea; g.fillRect(0, top, W, h * 0.7 - top);
-    // wavelets
-    g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 2;
-    for (let y = top + 18; y < h * 0.6; y += 16) {
+    const top = 8;
+    const h = beach.y + layout.nodeStep * 0.4;     // bottom of the beach band
+    const shoreY = h * 0.60;                         // where sea meets sand
+    g.save();
+    g.lineJoin = 'round'; g.lineCap = 'round';
+
+    // ---- SEA: a smooth vertical gradient (deep teal far → bright aqua near) --
+    const sea = g.createLinearGradient(0, top, 0, shoreY + 6);
+    sea.addColorStop(0, '#1f93b8');
+    sea.addColorStop(0.55, '#2fb6cc');
+    sea.addColorStop(1, '#63d6d8');
+    g.fillStyle = sea; g.fillRect(0, 0, W, shoreY + 8);
+    // sun-glitter band shimmering down the centre of the sea.
+    const glint = g.createLinearGradient(0, top, 0, shoreY);
+    glint.addColorStop(0, 'rgba(255,255,255,0)');
+    glint.addColorStop(1, 'rgba(255,255,255,0.18)');
+    g.fillStyle = glint; g.fillRect(W * 0.34, top, W * 0.30, shoreY - top);
+    // LAYERED FOAM WAVELETS — soft white crests, denser toward the shore.
+    for (let i = 0; i < 7; i++) {
+      const y = top + 14 + i * ((shoreY - top - 14) / 7);
+      const amp = 2 + i * 0.5;
+      const alpha = 0.18 + i * 0.07;
+      g.strokeStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+      g.lineWidth = 1.4 + i * 0.18;
       g.beginPath();
-      for (let x = 0; x <= W; x += 24) {
-        const yy = y + Math.sin(x * 0.05 + y) * 2;
-        x ? g.quadraticCurveTo(x - 12, yy - 3, x, yy) : g.moveTo(x, yy);
+      for (let x = 0; x <= W; x += 22) {
+        const yy = y + Math.sin(x * 0.045 + i * 1.3) * amp;
+        x ? g.quadraticCurveTo(x - 11, yy - amp, x, yy) : g.moveTo(x, yy);
       }
       g.stroke();
     }
-    // sand
-    const sand = g.createLinearGradient(0, h * 0.55, 0, h);
-    sand.addColorStop(0, mix(COLORS.sand, 0xffffff, 0.2));
+    // the SURF LINE — a thick frothy foam edge right at the shoreline.
+    g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 4;
+    g.beginPath();
+    for (let x = 0; x <= W; x += 16) {
+      const yy = shoreY + Math.sin(x * 0.06) * 3;
+      x ? g.quadraticCurveTo(x - 8, yy - 3, x, yy) : g.moveTo(x, yy);
+    }
+    g.stroke();
+    // a few foam bubbles scattered along the surf.
+    const BR = rng(0xb3ac4);
+    g.fillStyle = 'rgba(255,255,255,0.75)';
+    for (let i = 0; i < 26; i++) {
+      const x = BR() * W, y = shoreY + 2 + BR() * 8;
+      g.beginPath(); g.arc(x, y, 0.8 + BR() * 1.6, 0, 6.283); g.fill();
+    }
+
+    // ---- SAND: smooth gradient (bright dry sand → warm shadowed sand). The
+    // top edge follows the surf line; the BOTTOM edge blends into the meadow. --
+    const sand = g.createLinearGradient(0, shoreY, 0, h + 30);
+    sand.addColorStop(0, mix(COLORS.sand, 0xffffff, 0.34));
+    sand.addColorStop(0.6, hex(COLORS.sand));
     sand.addColorStop(1, shade(COLORS.sand, 0.9));
     g.fillStyle = sand;
     g.beginPath();
-    g.moveTo(0, h * 0.66);
-    for (let x = 0; x <= W; x += 20) g.lineTo(x, h * 0.62 + Math.sin(x * 0.03) * 8);
-    g.lineTo(W, h); g.lineTo(0, h); g.closePath(); g.fill();
-    // palm tree
-    const px2 = W * 0.74, py2 = h * 0.72;
-    g.strokeStyle = shade(COLORS.woodDark, 1.1); g.lineWidth = 6; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(px2, py2 + 30); g.quadraticCurveTo(px2 - 10, py2, px2 - 4, py2 - 26); g.stroke();
-    g.fillStyle = '#2f9e54';
-    for (let k = 0; k < 5; k++) {
-      const a = -1.6 + k * 0.7;
-      g.beginPath();
-      g.moveTo(px2 - 4, py2 - 26);
-      g.quadraticCurveTo(px2 - 4 + Math.cos(a) * 24, py2 - 26 + Math.sin(a) * 20,
-        px2 - 4 + Math.cos(a) * 40, py2 - 22 + Math.sin(a) * 26);
-      g.quadraticCurveTo(px2 - 4 + Math.cos(a) * 22, py2 - 24 + Math.sin(a) * 14, px2 - 4, py2 - 26);
-      g.fill();
+    g.moveTo(0, shoreY);
+    for (let x = 0; x <= W; x += 16) g.lineTo(x, shoreY + Math.sin(x * 0.06) * 3);
+    g.lineTo(W, h + 30); g.lineTo(0, h + 30); g.closePath(); g.fill();
+    // WET-SAND LINE — a soft darker damp band just below the surf where the
+    // water has receded (a gentle gradient, not a hard line).
+    const wet = g.createLinearGradient(0, shoreY, 0, shoreY + 26);
+    wet.addColorStop(0, this._withAlpha(shade(COLORS.sand, 0.78), 0.55));
+    wet.addColorStop(1, this._withAlpha(shade(COLORS.sand, 0.78), 0));
+    g.fillStyle = wet;
+    g.beginPath();
+    g.moveTo(0, shoreY);
+    for (let x = 0; x <= W; x += 16) g.lineTo(x, shoreY + Math.sin(x * 0.06) * 3);
+    g.lineTo(W, shoreY + 26); g.lineTo(0, shoreY + 26); g.closePath(); g.fill();
+    // a few sand speckles / ripples for texture.
+    g.fillStyle = this._withAlpha(shade(COLORS.sand, 0.7), 0.4);
+    for (let i = 0; i < 40; i++) {
+      const x = BR() * W, y = shoreY + 18 + BR() * (h - shoreY - 14);
+      g.beginPath(); g.arc(x, y, 0.7 + BR() * 1.1, 0, 6.283); g.fill();
     }
-    g.fillStyle = '#8a5a2b';
-    g.beginPath(); g.arc(px2 - 4, py2 - 26, 4, 0, 6.283); g.fill();
+
+    // ---- meadow→sand BLEND at the bottom of the band: a soft grass-green
+    // gradient veiling the lower sand so it dissolves into the meadow below
+    // (no hard seam between the beach band and the farmland). ----
+    const blend = g.createLinearGradient(0, h - 18, 0, h + 34);
+    blend.addColorStop(0, this._withAlpha(hex(COLORS.grassA), 0));
+    blend.addColorStop(1, this._withAlpha(hex(COLORS.grassA), 0.92));
+    g.fillStyle = blend; g.fillRect(0, h - 18, W, 52);
+
+    // ---- PALMS (two, different sizes) ----
+    const palm = (px2, py2, s) => {
+      g.strokeStyle = shade(COLORS.woodDark, 1.1); g.lineWidth = 6 * s;
+      g.beginPath();
+      g.moveTo(px2, py2 + 30 * s);
+      g.quadraticCurveTo(px2 - 10 * s, py2, px2 - 4 * s, py2 - 26 * s);
+      g.stroke();
+      g.fillStyle = '#2f9e54';
+      for (let k = 0; k < 6; k++) {
+        const a = -1.9 + k * 0.62;
+        g.beginPath();
+        g.moveTo(px2 - 4 * s, py2 - 26 * s);
+        g.quadraticCurveTo(px2 - 4 * s + Math.cos(a) * 24 * s, py2 - 26 * s + Math.sin(a) * 20 * s,
+          px2 - 4 * s + Math.cos(a) * 42 * s, py2 - 22 * s + Math.sin(a) * 26 * s);
+        g.quadraticCurveTo(px2 - 4 * s + Math.cos(a) * 22 * s, py2 - 24 * s + Math.sin(a) * 14 * s, px2 - 4 * s, py2 - 26 * s);
+        g.fill();
+      }
+      g.fillStyle = mix(0x2f9e54, 0xffffff, 0.25);
+      for (let k = 0; k < 3; k++) {
+        const cx = px2 - 4 * s + (BR() - 0.5) * 6, cy = py2 - 26 * s + (BR() - 0.5) * 4;
+        g.beginPath(); g.arc(cx, cy, 2 * s, 0, 6.283); g.fill();
+      }
+      // coconuts
+      g.fillStyle = '#6e4a25';
+      g.beginPath(); g.arc(px2 - 4 * s, py2 - 24 * s, 3 * s, 0, 6.283); g.fill();
+      g.beginPath(); g.arc(px2 + 1 * s, py2 - 22 * s, 2.6 * s, 0, 6.283); g.fill();
+    };
+    palm(W * 0.80, shoreY + 34, 1.0);
+    palm(W * 0.13, shoreY + 40, 0.78);
+
+    // ---- BEACH UMBRELLA (red & white) planted in the dry sand ----
+    {
+      const ux = W * 0.42, uy = h - 6, pole = 30;
+      // pole + tiny shadow
+      g.fillStyle = 'rgba(60,40,20,0.18)';
+      g.beginPath(); g.ellipse(ux + 3, uy + 2, 12, 3.5, 0, 0, 6.283); g.fill();
+      g.strokeStyle = '#cfd8dc'; g.lineWidth = 2.4;
+      g.beginPath(); g.moveTo(ux, uy); g.lineTo(ux, uy - pole); g.stroke();
+      // canopy: alternating red/white wedges
+      const canopyY = uy - pole;
+      const segs = 6, rad = 22;
+      for (let k = 0; k < segs; k++) {
+        const a0 = Math.PI + k * (Math.PI / segs);
+        const a1 = Math.PI + (k + 1) * (Math.PI / segs);
+        g.fillStyle = k % 2 ? '#f5f5f0' : '#e0473e';
+        g.beginPath();
+        g.moveTo(ux, canopyY);
+        g.arc(ux, canopyY, rad, a0, a1);
+        g.closePath(); g.fill();
+      }
+      g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1;
+      g.beginPath(); g.arc(ux, canopyY, rad, Math.PI, 2 * Math.PI); g.stroke();
+      g.fillStyle = '#e0473e';
+      g.beginPath(); g.arc(ux, canopyY, 2.4, 0, 6.283); g.fill();
+    }
+
+    // ---- STARFISH on the wet sand ----
+    {
+      const sx = W * 0.62, sy = shoreY + 18, sr = 9;
+      g.save();
+      g.translate(sx, sy); g.rotate(0.3);
+      g.fillStyle = '#f0a93a';
+      g.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const oa = -Math.PI / 2 + i * (2 * Math.PI / 5);
+        const ia = oa + Math.PI / 5;
+        const ox = Math.cos(oa) * sr, oy = Math.sin(oa) * sr;
+        const ix = Math.cos(ia) * sr * 0.46, iy = Math.sin(ia) * sr * 0.46;
+        i ? g.lineTo(ox, oy) : g.moveTo(ox, oy);
+        g.lineTo(ix, iy);
+      }
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.6)';
+      for (let i = 0; i < 5; i++) {
+        const oa = -Math.PI / 2 + i * (2 * Math.PI / 5);
+        g.beginPath(); g.arc(Math.cos(oa) * sr * 0.5, Math.sin(oa) * sr * 0.5, 0.9, 0, 6.283); g.fill();
+      }
+      g.restore();
+    }
+    g.restore();
 
     // --- BEACH GATE banner: a LOCKED teaser showing star progress to 35. ---
     const stars = this._totalStars();
@@ -2010,6 +2797,18 @@ export class UI {
       if (locked) {
         node.appendChild(this._svgLock());        // drawn padlock
         node.setAttribute('aria-disabled', 'true');
+        // Tapping a LOCKED node still opens the popup (in its locked state, with
+        // no PLAY button) so the player can preview the level's objectives.
+        node.setAttribute('role', 'button');
+        node.setAttribute('tabindex', '0');
+        node.setAttribute('aria-label',
+          `Level ${index}, locked, goal ${fmt(p.target)} points`);
+        node.addEventListener('click', (e) => { e.preventDefault(); this._openLevelPopup(index); });
+        node.addEventListener('keydown', (e) => {
+          if (e.code === 'Enter' || e.code === 'Space' || e.code === 'NumpadEnter') {
+            e.preventDefault(); this._openLevelPopup(index);
+          }
+        });
       } else {
         if (completed) {
           node.appendChild(this._svgCheck());     // drawn check
@@ -2026,7 +2825,9 @@ export class UI {
         }
         node.setAttribute('aria-label',
           `Level ${index}${completed ? `, completed, ${this._starsFor(index)} stars` : ''}${isCurrent ? ', current' : ''}, goal ${fmt(p.target)} points`);
-        node.addEventListener('click', (e) => { e.preventDefault(); this._startLevel(index); });
+        // Clicking a node no longer starts the level immediately — it opens the
+        // LEVEL POPUP (objectives + stars + a big PLAY button).
+        node.addEventListener('click', (e) => { e.preventDefault(); this._openLevelPopup(index); });
         if (isCurrent) currentNode = node;
         if (!firstFocus) firstFocus = node;
       }
@@ -2098,8 +2899,20 @@ export class UI {
     } catch (_) { return '#7aa2ff'; }
   }
 
-  // Blit the visible slice of the cached world onto the viewport canvas,
-  // then a phase-tinted scrim so the map matches the time of day.
+  // Blit the visible slice of the cached world onto the viewport canvas, then
+  // a phase-tinted scrim so the map matches the time of day.
+  //
+  // SCROLL-GLITCH FIX: the whole world is pre-rendered once into the full-height
+  // offscreen cache (in _lsPaintWorld). Here we guarantee the visible canvas is
+  // ALWAYS fully covered with painted pixels at every scroll position — even
+  // during momentum overscroll past the extremes — so NO unpainted (green CSS
+  // background) band can ever flash. We do this in three steps:
+  //   1) paint a full-canvas backing of the nearest cache EDGE row (so any
+  //      region above the top of the world or below its bottom is covered with
+  //      sky/beach (top) or ground (bottom) instead of bare canvas);
+  //   2) clamp the source slice to the cache bounds and draw it at the matching
+  //      destination offset;
+  //   3) overlay the phase scrim.
   _lsBlit() {
     const ctx = this._lsCtx;
     const layout = this._lsLayout;
@@ -2107,15 +2920,49 @@ export class UI {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const vw = this._lsCanvas.width / dpr;
     const vh = this._lsCanvas.height / dpr;
-    const top = this._lsScroll.scrollTop;
+    const cache = this._lsCache;
+    const cdpr = cache.width / layout.W;     // cache device px per CSS px
+    const cacheHcss = cache.height / cdpr;   // cache height in CSS px (== layout.H)
+    const top = this._lsScroll.scrollTop;    // may be <0 or >H-vh mid-overscroll
+
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, vw, vh);
-    // source slice from the cache (in CSS px → cache is DPR-scaled)
-    const cdpr = this._lsCache.width / layout.W;
-    ctx.drawImage(this._lsCache,
-      0, top * cdpr, layout.W * cdpr, vh * cdpr,
-      0, 0, layout.W, vh);
-    // day-cycle scrim
+
+    // (2) CONTENT SLICE: clamp the source rectangle to [0, cacheH] and draw it
+    // at the destination offset that keeps world-y aligned with the viewport.
+    // srcTopCss is the world-y at the top of the viewport.
+    const srcTopCss = top;
+    const srcBotCss = top + vh;
+    const visTopCss = Math.max(0, srcTopCss);
+    const visBotCss = Math.min(cacheHcss, srcBotCss);
+
+    // (1) BACKING for ANY out-of-cache bands (only when overscrolling past an
+    // extreme). Above the world top → extend the cache's TOP edge row (sky /
+    // beach); below the world bottom → extend its BOTTOM edge row (ground). In
+    // the normal mid-map case neither band exists, so nothing is drawn here.
+    if (cache.width > 0 && cache.height > 0) {
+      if (srcTopCss < 0) {
+        const bandH = Math.min(vh, -srcTopCss);     // dest band height (CSS px)
+        ctx.drawImage(cache, 0, 0, cache.width, 1, 0, 0, vw, bandH);
+      }
+      if (srcBotCss > cacheHcss) {
+        const bandH = Math.min(vh, srcBotCss - cacheHcss);
+        ctx.drawImage(cache, 0, cache.height - 1, cache.width, 1,
+          0, vh - bandH, vw, bandH);
+      }
+    }
+    if (visBotCss > visTopCss) {
+      const sx = 0;
+      const sy = visTopCss * cdpr;
+      const sw = cache.width;
+      const sh = (visBotCss - visTopCss) * cdpr;
+      const dx = 0;
+      const dy = visTopCss - srcTopCss;        // shift down when top is negative
+      const dh = visBotCss - visTopCss;
+      ctx.drawImage(cache, sx, sy, sw, sh, dx, dy, layout.W, dh);
+    }
+
+    // (3) day-cycle scrim
     const phase = this._lsPhase || this._lsCurrentPhase();
     ctx.save();
     ctx.globalAlpha = 0.22;
@@ -2143,7 +2990,11 @@ export class UI {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const layout = this._lsLayout;
     const vw = layout ? layout.W : (this._lsScroll.clientWidth || 360);
-    const vh = this._lsScroll.clientHeight || 560;
+    // OVERSCAN the canvas a couple of CSS px taller than the viewport so that
+    // sub-pixel rounding at the top/bottom edges can never expose the bare
+    // (green) backing during a scroll. The blit fills the full overscanned
+    // height, and the extra is simply off-screen.
+    const vh = (this._lsScroll.clientHeight || 560) + 2;
     this._lsCanvas.width = Math.round(vw * dpr);
     this._lsCanvas.height = Math.round(vh * dpr);
     this._lsCanvas.style.width = `${vw}px`;
@@ -2151,12 +3002,17 @@ export class UI {
     this._lsBlit();
   }
 
-  // Scroll handler: keep the sticky canvas pinned to the viewport top and
-  // re-blit the matching slice (cheap — no full repaint).
+  // Scroll handler: keep the sticky canvas pinned to the viewport and re-blit
+  // the matching slice. The translate that pins the canvas AND the blit that
+  // repaints its content are applied TOGETHER, synchronously, on every scroll
+  // event — so the painted pixels never lag the canvas position by a frame
+  // (the old deferred-rAF blit left a 1-frame stale slice that flashed the
+  // green backing at the top/bottom edges during fast scrolls). The blit is
+  // only a few drawImage calls against the cache, so this stays cheap.
   _lsOnScroll() {
-    this._lsCanvas.style.transform = `translateY(${this._lsScroll.scrollTop}px)`;
-    if (this._lsRaf) return;
-    this._lsRaf = requestAnimationFrame(() => { this._lsRaf = 0; this._lsBlit(); });
+    const top = this._lsScroll.scrollTop;
+    this._lsCanvas.style.transform = `translateY(${top}px)`;
+    this._lsBlit();
   }
 
   /** Public: open the LEVEL SELECT world map. */
@@ -2198,6 +3054,10 @@ export class UI {
 
   /** Hide the level-select map (without choosing a level). */
   hideLevelSelect() {
+    // dismiss the popup too so it never lingers behind a re-open.
+    if (this._lpOverlay) this._lpOverlay.classList.add('mf-hidden');
+    this._lpVisible = false;
+    this._lpIndex = null;
     this._levelSelEl.classList.add('mf-hidden');
     this._levelSelectVisible = false;
     this._lsStopPhaseWatch();
@@ -2817,7 +3677,8 @@ export class UI {
   _bindKeys() {
     document.addEventListener('keydown', (e) => {
       // Keyboard scrolling of the level-select map (repeat allowed for hold).
-      if (this._levelSelectVisible && this._lsScroll) {
+      // Suspended while the level popup (modal) is open — its buttons own keys.
+      if (this._levelSelectVisible && this._lsScroll && !this._lpVisible) {
         const vh = this._lsScroll.clientHeight || 560;
         const step = (this._lsLayout?.nodeStep || 200);
         let dy = 0;
@@ -2835,6 +3696,12 @@ export class UI {
       // Escape / Backspace → "back" on views that have a back affordance.
       if (e.code === 'Escape' || e.code === 'Backspace') {
         if (this._capturing) return; // a rebind capture owns Esc
+        // The level popup (modal) is topmost — close it first if it's open.
+        if (this._lpVisible) {
+          e.preventDefault();
+          this._closeLevelPopup();
+          return;
+        }
         if (this._levelSelectVisible) {
           e.preventDefault();
           this._closeLevelSelect();
@@ -2851,16 +3718,31 @@ export class UI {
       const confirm = e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space';
       if (!confirm) return;
 
+      // The level popup (modal) is topmost → let its focused button (PLAY /
+      // BACK / close) receive the Enter/Space natively; default to PLAY.
+      if (this._lpVisible) {
+        const focused = document.activeElement;
+        if (focused && focused.closest && focused.closest('.mf-lp-card')) return;
+        e.preventDefault();
+        if (this._lpIndex != null && !this._lpPlayBtn.classList.contains('mf-hidden')) {
+          this._lpPlayBtn.click();
+        } else {
+          this._closeLevelPopup();
+        }
+        return;
+      }
+
       // Level select sits ABOVE the start overlay → handle it first.
       if (this._levelSelectVisible) {
         const focused = document.activeElement;
-        // A focused playable node (or the BACK button) handles its own click.
+        // A focused node (or the BACK button) handles its own click — opening
+        // the popup (node) or returning to the modes view (BACK).
         if (focused && focused.closest && focused.closest('#mf-levelsel') &&
             (focused.classList.contains('mf-ls-node') || focused === this._lsBackBtn)) {
           e.preventDefault();
           focused.click();
         } else if (this._lsFocusNode) {
-          // Nothing useful focused → start the current/first playable level.
+          // Nothing useful focused → open the current/first playable level's popup.
           e.preventDefault();
           this._lsFocusNode.click();
         }

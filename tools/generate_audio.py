@@ -610,6 +610,225 @@ def make_waterfall():
 
 
 # ---------------------------------------------------------------------------
+# Farm animal / machine voices
+# ---------------------------------------------------------------------------
+
+def _woof(dur=0.30, base=260.0, top=150.0):
+    """A single dog 'WOOF': sharp noisy bark attack + a voiced growl body whose
+    pitch glides DOWN fast (the mouth closing on the 'oof'), with a quick decay.
+
+    The growl is an FM voice (rich, buzzy harmonics like vocal-fold rasp) put
+    through two parallel formant bands so it reads as an animal MOUTH, not a
+    pure tone/bloop:
+      F1 band ~ 350->550 Hz  (open 'aw' vowel)   -> shaped by a lowpass that
+                                                     opens then closes
+      F2 band ~ 1100->1700 Hz (the bright 'w/f' edge that snaps a bark)."""
+    # Pitch: tiny up-flick on the attack, then a fast drop -> dog inflection.
+    pitch = curve([(0, base * 1.12), (0.03, base), (0.10, base * 0.8),
+                   (0.55 * dur, top), (dur, top * 0.78)])
+    # Rough vocal-fold rasp: pitch jitter that growls the voice.
+    growl = lambda t: pitch(t) * (1.0 + 0.05 * math.sin(TWO_PI * 32.0 * t)
+                                  + 0.03 * math.sin(TWO_PI * 51.0 * t))
+    # FM index high at the attack (buzzy snarl) easing into the body.
+    idx = curve([(0, 5.5), (0.04, 4.2), (0.4 * dur, 2.4), (dur, 1.4)])
+    src = fm_osc(growl, 1.0, idx, dur)
+    bright = fm_osc(growl, 3.0, lambda t: 0.4 * idx(t), dur)  # extra grit
+    src = [a + 0.3 * b for a, b in zip(src, bright)]
+
+    # F1: low formant that opens on the attack and closes through the decay.
+    f1 = lowpass(src, curve([(0, 300.0), (0.05, 560.0), (0.4 * dur, 430.0),
+                             (dur, 300.0)]))
+    # F2: crude bandpass (hi-lp minus mid-lp) for the bright bark 'edge'.
+    hi = lowpass(src, curve([(0, 1400.0), (0.06, 1750.0), (dur, 1050.0)]))
+    lo = lowpass(src, curve([(0, 800.0), (0.06, 950.0), (dur, 650.0)]))
+    f2 = [h - l for h, l in zip(hi, lo)]
+    voice = [1.0 * a + 1.35 * b for a, b in zip(f1, f2)]
+
+    # Bark envelope: explosive attack, short sustain, quick fall (percussive).
+    env = curve([(0, 0.0), (0.006, 1.0), (0.06, 0.78), (0.45 * dur, 0.55),
+                 (0.8 * dur, 0.22), (dur, 0.0)])
+    voice = apply_env(voice, env)
+
+    # Sharp noisy onset: filtered noise burst = the consonant 'crack' of a bark.
+    crack = lowpass(noise(0.05), xsweep(3500.0, 900.0, 0.04))
+    crack = apply_env(crack, exp_env(0.012, attack=0.0008))
+
+    seg = zeros(dur)
+    mix_at(seg, voice)
+    mix_at(seg, crack, g=0.5)
+    seg = soft_clip(seg, 1.7)              # throaty compression / growl
+    return seg
+
+
+def make_bark():
+    """Convincing DOG BARK: a quick 'WOOF-woof' (two barks). First is loud and
+    open, the second a touch higher/shorter — the natural double-bark rhythm."""
+    out = zeros(0.62)
+    mix_at(out, _woof(0.30, base=260.0, top=150.0), offset=0.00, g=1.0)
+    mix_at(out, _woof(0.26, base=300.0, top=175.0), offset=0.33, g=0.85)
+    return normalize(fade(out, 0.0015, 0.03))
+
+
+def make_baa():
+    """SHEEP bleat: a nasal, wavery 'maa-aa' with strong vibrato. The pitch
+    sags overall while a fast 14 Hz vibrato wobbles it (the classic bleat
+    waver), and a narrow nasal formant band gives the pinched 'maa' timbre."""
+    dur = 0.85
+    # Pitch sags slowly; quivering vibrato that deepens through the note.
+    base = curve([(0, 340.0), (0.2 * dur, 360.0), (dur, 300.0)])
+    vdep = curve([(0, 0.012), (0.25 * dur, 0.05), (dur, 0.08)])  # waver grows
+    freq = lambda t: base(t) * (1.0 + vdep(t) * math.sin(TWO_PI * 14.0 * t))
+    # Buzzy reedy source (FM) for harmonic richness, like a bleaty larynx.
+    idx = curve([(0, 1.6), (0.1 * dur, 3.0), (dur, 2.2)])
+    src = fm_osc(freq, 1.0, idx, dur)
+    bright = fm_osc(freq, 2.0, lambda t: 0.5 * idx(t), dur)
+    src = [a + 0.4 * b for a, b in zip(src, bright)]
+    # Nasal formant: emphasise a mid band (~900-1600) for the pinched 'maa'.
+    hi = lowpass(src, 1600.0)
+    lo = lowpass(src, 900.0)
+    nasal = [h - l for h, l in zip(hi, lo)]
+    body = lowpass(src, 700.0)
+    voice = [0.8 * b + 1.6 * n for b, n in zip(body, nasal)]
+    # 'm' onset (soft hum) -> open 'aa', gentle release.
+    env = curve([(0, 0.0), (0.04, 0.6), (0.12, 1.0), (0.7 * dur, 0.9),
+                 (dur, 0.0)])
+    voice = apply_env(voice, env)
+    out = zeros(dur)
+    mix_at(out, voice)
+    out = soft_clip(out, 1.4)
+    return normalize(fade(out, 0.004, 0.04))
+
+
+def _quack_one(dur=0.13, f0=620.0, f1=420.0):
+    """One DUCK quack: a short, buzzy, NASAL honk. A bright saw through a
+    bandpass formant with a fast downward pitch drop = the pinched duck timbre."""
+    pitch = curve([(0, f0), (0.25 * dur, f0 * 0.95), (dur, f1)])
+    src = osc('saw', pitch, dur)
+    # Add a buzzy FM layer so it rasps (a duck quack is noisy/reedy).
+    src2 = fm_osc(pitch, 1.5, 3.0, dur)
+    src = [a + 0.5 * b for a, b in zip(src, src2)]
+    # Strong nasal bandpass ~1000-2200 Hz -> the honk's pinched buzz.
+    hi = lowpass(src, curve([(0, 2400.0), (dur, 1700.0)]))
+    lo = lowpass(src, curve([(0, 1000.0), (dur, 750.0)]))
+    voice = [h - l for h, l in zip(hi, lo)]
+    env = curve([(0, 0.0), (0.008, 1.0), (0.5 * dur, 0.7), (dur, 0.0)])
+    voice = apply_env(voice, env)
+    voice = soft_clip(voice, 2.0)          # hard buzz
+    return voice
+
+
+def make_quack():
+    """DUCK quack: two quick nasal honks ('quack-quack')."""
+    out = zeros(0.40)
+    mix_at(out, _quack_one(0.13, 640.0, 430.0), offset=0.00, g=1.0)
+    mix_at(out, _quack_one(0.12, 600.0, 410.0), offset=0.18, g=0.9)
+    return normalize(fade(out, 0.0015, 0.03))
+
+
+def make_scream():
+    """FARMER yelp/holler: a short cartoonish human 'HEY!' yell. A bright sawtooth
+    voice with two vowel formants (so it reads as a human voice, not a synth)
+    and a pitch that rises sharply then falls — a startled/angry holler. Kept
+    short and snappy so it's comedic, not distressing."""
+    dur = 0.45
+    # Pitch: leaps up (the 'hey!') then sags off.
+    pitch = curve([(0, 220.0), (0.06, 300.0), (0.18, 360.0),
+                   (0.30, 330.0), (dur, 230.0)])
+    vib = lambda t: pitch(t) * (1.0 + 0.02 * math.sin(TWO_PI * 6.0 * t))
+    src = osc('saw', vib, dur)
+    src2 = osc('square', vib, dur)
+    src = [a + 0.3 * b for a, b in zip(src, src2)]
+    # Two-formant 'eh' vowel: F1 ~700 Hz, F2 ~1700 Hz (crude bandpass stacks).
+    f1hi = lowpass(src, 820.0)
+    f1lo = lowpass(src, 480.0)
+    f1 = [h - l for h, l in zip(f1hi, f1lo)]
+    f2hi = lowpass(src, 1950.0)
+    f2lo = lowpass(src, 1350.0)
+    f2 = [h - l for h, l in zip(f2hi, f2lo)]
+    voice = [1.2 * a + 1.0 * b for a, b in zip(f1, f2)]
+    # 'h' breathy onset + sharp vowel + quick cutoff (the exclamation).
+    env = curve([(0, 0.0), (0.02, 0.8), (0.10, 1.0), (0.30, 0.85),
+                 (0.40, 0.4), (dur, 0.0)])
+    voice = apply_env(voice, env)
+    # Breathy 'h' at the very start.
+    breath = lowpass(noise(0.05), 2000.0)
+    breath = apply_env(breath, exp_env(0.02, attack=0.004))
+    out = zeros(dur)
+    mix_at(out, voice)
+    mix_at(out, breath, g=0.12)
+    out = soft_clip(out, 1.5)
+    return normalize(fade(out, 0.003, 0.04))
+
+
+def make_tractor():
+    """Looping diesel TRACTOR ENGINE idle: a low chugging 'putt-putt-putt'. Built
+    as a seamless loop — an integer number (8) of firing pulses over the loop,
+    plus a periodic low rumble bed, so finish_loop wraps cleanly. Used as a
+    positional engine loop via startLoop/setLoopVolume/stopLoop."""
+    dur = 2.0
+    de = dur + 1.0 / SR
+    cyl = 8                      # 8 firing strokes over 2 s = 4 Hz chug (idle)
+    period = dur / cyl
+    out = zeros(de)
+
+    # Engine firing pulses: each 'putt' is a short low thump (fast sine pop +
+    # filtered-noise diesel knock). Placed on the grid so the pattern is exactly
+    # periodic over the loop.
+    for k in range(cyl):
+        off = k * period
+        # Alternate strokes a touch in level/pitch -> uneven diesel lope.
+        strong = (k % 2 == 0)
+        amp = 1.0 if strong else 0.72
+        f_hi = 96.0 if strong else 86.0
+        thump = osc('sine', curve([(0, f_hi), (0.05, 52.0), (period, 46.0)]),
+                    period, amp=exp_env(0.045, attack=0.002, amp=amp))
+        # Diesel 'knock': a short mid noise tick, lowpassed, on each fire.
+        knock = lowpass(noise(0.06), 1400.0)
+        knock = apply_env(knock, exp_env(0.012, attack=0.0008))
+        mix_at(out, thump, offset=off)
+        mix_at(out, knock, offset=off, g=0.28 if strong else 0.2)
+
+    # Low rumble bed: detuned sines + slowly wobbling filtered noise, all with
+    # integer cycle counts over `dur` so the bed stays seamlessly periodic.
+    mix_at(out, osc('sine', 41.0, de,
+                    amp=lambda t: 0.30 * (1.0 + 0.3 * math.sin(TWO_PI * 2.0 * t))))
+    mix_at(out, osc('sine', 82.0, de,
+                    amp=lambda t: 0.16 * (1.0 + 0.3 * math.sin(TWO_PI * 4.0 * t + 1.1))))
+    rumble = lowpass(noise(de), lambda t: 220.0 + 90.0 * math.sin(TWO_PI * (4.0 / dur) * t))
+    rumble = apply_env(rumble, lambda t: 0.5 * (1.0 - math.cos(TWO_PI * 4.0 * t / dur)))
+    mix_at(out, rumble, g=0.22)
+
+    out = soft_clip(out, 1.4)              # mechanical compression / grunt
+    out = normalize(out, peak=PEAK * 0.9)
+    return finish_loop(out, dur, 'tractor')
+
+
+def make_hoot():
+    """Soft OWL hoot: a low, breathy 'hoo-hoo' — two gentle sine pulses (with a
+    faint second harmonic for warmth) and a slight downward inflection each."""
+    out = zeros(1.0)
+
+    def hoo(dur, f):
+        # Sine fundamental with a tiny pitch fall + soft second harmonic.
+        pitch = curve([(0, f * 1.04), (0.3 * dur, f), (dur, f * 0.94)])
+        body = osc('sine', pitch, dur)
+        harm = osc('sine', lambda t: 2.0 * pitch(t), dur)
+        x = [a + 0.18 * b for a, b in zip(body, harm)]
+        # Breathy bell-shaped swell (the 'hoo' is soft-attack, soft-release).
+        env = curve([(0, 0.0), (0.25 * dur, 1.0), (0.6 * dur, 0.85), (dur, 0.0)])
+        x = apply_env(x, env)
+        # A whisper of breath noise under the tone.
+        br = lowpass(noise(dur), 900.0)
+        br = apply_env(br, env)
+        seg = [a + 0.05 * b for a, b in zip(x, br)]
+        return seg
+
+    mix_at(out, hoo(0.34, 340.0), offset=0.05, g=1.0)
+    mix_at(out, hoo(0.40, 320.0), offset=0.50, g=0.95)
+    return normalize(fade(out, 0.006, 0.05), peak=PEAK * 0.9)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -634,6 +853,12 @@ SOUNDS = [
     ('lose',      make_lose),
     ('jingle',    make_jingle),
     ('waterfall', make_waterfall),
+    ('bark',      make_bark),
+    ('baa',       make_baa),
+    ('quack',     make_quack),
+    ('scream',    make_scream),
+    ('tractor',   make_tractor),
+    ('hoot',      make_hoot),
 ]
 
 

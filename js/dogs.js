@@ -276,16 +276,14 @@ export class DogManager {
   }
 
   // ============================== bark ==============================
-  // No dedicated bark wav exists. 'chicken' is the only animal-voice SFX;
-  // dropped ~half an octave (rate ~0.5) with jitter it lands as a gruff "woof".
   _bark(d, dt) {
     d.barkT -= dt;
     if (d.barkT > 0) return;
     d.barkT = 0.55 + Math.random() * 0.7;
     // distance-scaled volume so a far-off pack doesn't drown the mix
     const dist = d._dist || 0;
-    const vol = THREE.MathUtils.clamp(1 - dist / 90, 0.18, 0.6);
-    this.audio.play('chicken', { volume: vol, rate: 0.5, ratejitter: 0.18 });
+    const vol = THREE.MathUtils.clamp(1 - dist / 90, 0.2, 0.7);
+    this.audio.play('bark', { volume: vol, ratejitter: 0.14 });
     // snap the head down for the bark thrust
     if (d.ud.head) d.ud.head.rotation.x = 0.42;
   }
