@@ -241,7 +241,7 @@ export class HUD {
   }
 
   /** Called every frame by main — only touches DOM when a value changed. */
-  update({ score, timeLeft, health, combo, warpEnergy, cows, goal, canComplete } = {}) {
+  update({ score, timeLeft, health, maxHealth, combo, warpEnergy, cows, goal, canComplete } = {}) {
     const p = this._prev;
 
     // Campaign COMPLETE button — appears once the score goal is met.
@@ -317,7 +317,10 @@ export class HUD {
     if (typeof health === 'number') {
       if (health < p.health - 0.001) this._repop(this._healthBar, 'mf-shake');
       p.health = health;
-      const frac = Math.max(0, Math.min(1, health / CFG.UFO_MAX_HEALTH));
+      // Use the ship's CURRENT max (hull upgrades raise it) so an undamaged
+      // hull always reads full, whatever the player's hull level.
+      const hpMax = (typeof maxHealth === 'number' && maxHealth > 0) ? maxHealth : CFG.UFO_MAX_HEALTH;
+      const frac = Math.max(0, Math.min(1, health / hpMax));
       const segs = frac <= 0 ? 0 : Math.max(1, Math.ceil(frac * HEALTH_SEGS));
       if (segs !== p.healthSegs) {
         p.healthSegs = segs;

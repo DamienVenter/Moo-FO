@@ -1,29 +1,40 @@
-// MOO-FO — UFO upgrades. Four tracks, each bought up in tiers with Cow Coins.
+// MOO-FO — UFO upgrades. Five tracks, each bought up in tiers with Cow Coins.
 //
-// A fresh player starts 70% weaker than the game's tuned baseline (mult 0.30 of
-// the CFG values) and can upgrade to ~3× the baseline. Costs rise 200 → 1500.
-// Persisted to localStorage.
+// A fresh player starts well below the game's tuned baseline (level 0 multiplier)
+// and can upgrade to ~3× it. Each track has its OWN starting weakness:
+//   - speed starts at 0.60 (the ship is sluggish but not crawling),
+//   - hull starts super weak (0.30 → ~one solid hit and you're down),
+//   - the rest start at 0.30 (70% weaker than baseline).
+// Costs rise 200 → 1500. Persisted to localStorage.
 
-export const TRACKS = ['speed', 'beam', 'warpSpeed', 'warpStrength'];
+export const TRACKS = ['speed', 'beam', 'warpSpeed', 'warpStrength', 'hull'];
 
 export const TRACK_INFO = {
-  speed:        { name: 'UFO Speed',     blurb: 'Fly faster and turn quicker.' },
-  beam:         { name: 'Tractor Beam',  blurb: 'Wider, stronger abduction beam.' },
-  warpSpeed:    { name: 'Warp Speed',    blurb: 'Go faster when you warp.' },
-  warpStrength: { name: 'Warp Capacity', blurb: 'Warp for longer before it drains.' },
+  speed:        { name: 'UFO Speed',     blurb: 'Fly faster and turn quicker.',         icon: '🚀' },
+  beam:         { name: 'Tractor Beam',  blurb: 'Wider, stronger abduction beam.',       icon: '🔦' },
+  warpSpeed:    { name: 'Warp Speed',    blurb: 'Go faster when you warp.',               icon: '✨' },
+  warpStrength: { name: 'Warp Capacity', blurb: 'Warp for longer before it drains.',      icon: '🔋' },
+  hull:         { name: 'UFO Hull',      blurb: 'Tougher hull — survive more hits.',      icon: '🛡️' },
 };
 
 // Cost of each successive upgrade: 200, 300, ... 1500 (14 tiers).
 export const UPGRADE_COSTS = Array.from({ length: 14 }, (_, i) => 200 + i * 100);
 export const MAX_LEVEL = UPGRADE_COSTS.length;   // 14
 
-const MIN_MULT = 0.30;   // level 0 — 70% weaker than baseline
-const MAX_MULT = 3.00;   // max level — ~3× baseline
+// Per-track effectiveness range: level 0 → level MAX. 1.0 is the tuned baseline.
+const RANGE = {
+  speed:        { min: 0.60, max: 3.00 },   // starts double the old 0.30 floor
+  beam:         { min: 0.30, max: 3.00 },
+  warpSpeed:    { min: 0.30, max: 3.00 },
+  warpStrength: { min: 0.30, max: 3.00 },
+  hull:         { min: 0.30, max: 3.00 },   // super weak start (~9 HP) → tanky at max
+};
+const DEFAULT_RANGE = { min: 0.30, max: 3.00 };
 const KEY = 'moofo-upgrades-v1';
 
 export class Upgrades {
   constructor() {
-    this._lvl = { speed: 0, beam: 0, warpSpeed: 0, warpStrength: 0 };
+    this._lvl = { speed: 0, beam: 0, warpSpeed: 0, warpStrength: 0, hull: 0 };
     this._load();
   }
 
@@ -48,9 +59,10 @@ export class Upgrades {
     return lvl >= MAX_LEVEL ? null : UPGRADE_COSTS[lvl];
   }
 
-  /** Effectiveness multiplier for a track: 0.30 (level 0) → 3.00 (max). */
+  /** Effectiveness multiplier for a track: range.min (level 0) → range.max (max). */
   mult(track) {
-    return MIN_MULT + (MAX_MULT - MIN_MULT) * this.progress(track);
+    const r = RANGE[track] || DEFAULT_RANGE;
+    return r.min + (r.max - r.min) * this.progress(track);
   }
 
   /** Buy the next tier, spending from `wallet`. Returns true on success. */

@@ -8,6 +8,7 @@ import { CFG, IS_MOBILE, COLORS } from './config.js';
 import { labelFor } from './missions.js';
 import { Upgrades, TRACK_INFO, TRACKS, MAX_LEVEL } from './upgrades.js';
 import { Cosmetics, SKINS, BEAMS } from './cosmetics.js';
+import { PreviewStage } from './preview3d.js';
 
 // 0xRRGGBB → '#rrggbb' (the shared palette stores ints).
 function hex(n) {
@@ -368,47 +369,12 @@ export class UI {
       mk('line', { x1, y1, x2, y2 }, ticks);
     }
 
-    // --- the COW HEAD — one bold front-facing silhouette, centred & big. ---
-    // Outline: from the left cheek, sweep up over the broad poll (forehead),
-    // down the right cheek, then a wide rounded MUZZLE across the bottom and
-    // back up to the start. Big, simple, high-contrast — the whole head is the
-    // hero of the coin.
-    const headD =
-      'M14.5 22.2 ' +                       // left cheek (upper)
-      'C13.6 18.4 15.4 15.0 19.0 13.8 ' +   // up the left side of the poll
-      'C21.0 13.1 27.0 13.1 29.0 13.8 ' +   // across the broad forehead/poll
-      'C32.6 15.0 34.4 18.4 33.5 22.2 ' +   // down the right cheek
-      'C33.0 24.6 31.8 26.6 30.0 28.2 ' +   // right jaw narrowing to the muzzle
-      'C28.8 31.6 25.8 33.6 24.0 33.6 ' +   // bottom-right of the muzzle
-      'C22.2 33.6 19.2 31.6 18.0 28.2 ' +   // bottom-left of the muzzle
-      'C16.2 26.6 15.0 24.6 14.5 22.2 Z';   // back up the left jaw to start
-    // EARS — two leaf shapes sticking out below the horns at the sides.
-    const earL = 'M13.8 19.0 C9.6 17.6 7.2 18.8 6.4 21.6 C9.0 22.8 12.0 22.4 14.6 20.8 Z';
-    const earR = 'M34.2 19.0 C38.4 17.6 40.8 18.8 41.6 21.6 C39.0 22.8 36.0 22.4 33.4 20.8 Z';
-    // HORNS — two short curved nubs rising from the top corners of the poll.
-    const hornL = 'M17.0 13.6 C14.6 11.0 13.2 9.4 13.8 7.6 C15.8 8.6 17.6 10.6 18.8 13.4 Z';
-    const hornR = 'M31.0 13.6 C33.4 11.0 34.8 9.4 34.2 7.6 C32.2 8.6 30.4 10.6 29.2 13.4 Z';
-
-    // Embossed in three shades: a dark drop copy (down-right), the mid body,
-    // then a light highlight copy (up-left) so the head looks struck in relief.
-    const limbs = [headD, earL, earR, hornL, hornR];
-    const stamp = (cls, dx, dy) => {
-      for (const d of limbs) {
-        const a = { d, class: cls };
-        if (dx || dy) a.transform = `translate(${dx} ${dy})`;
-        mk('path', a);
-      }
-    };
-    stamp('mf-coin-cow-dark', 0.7, 0.8);    // pressed shadow
-    stamp('mf-coin-cow-mid', 0, 0);         // main relief
-    stamp('mf-coin-cow-light', -0.55, -0.6);// sunlit highlight
-
-    // FACE DETAILS struck darker so they read against the bright muzzle: two
-    // eyes high on the cheeks and two nostril slots in the muzzle.
-    mk('ellipse', { cx: 19.0, cy: 21.0, rx: 1.5, ry: 1.9, class: 'mf-coin-cow-eye' }); // L eye
-    mk('ellipse', { cx: 29.0, cy: 21.0, rx: 1.5, ry: 1.9, class: 'mf-coin-cow-eye' }); // R eye
-    mk('ellipse', { cx: 21.6, cy: 28.6, rx: 1.3, ry: 1.7, class: 'mf-coin-cow-eye' }); // L nostril
-    mk('ellipse', { cx: 26.4, cy: 28.6, rx: 1.3, ry: 1.7, class: 'mf-coin-cow-eye' }); // R nostril
+    // a soft glossy highlight in the upper-left so the disc reads as a freshly
+    // minted, shiny gold coin (no emblem — a plain coin per spec).
+    mk('ellipse', {
+      cx: 17.5, cy: 16.5, rx: 7.6, ry: 4.6,
+      fill: 'rgba(255,255,255,0.40)', transform: 'rotate(-32 17.5 16.5)',
+    });
     return svg;
   }
 
@@ -556,8 +522,8 @@ export class UI {
     this._titleUpgBtn = button('mf-btn-secondary mf-btn-side', actions, 'UPGRADES',
       () => this.showUpgrades());
 
-    // A cow-coin balance widget on the title screen too.
-    this._titleCoin = this._buildCoinWidget(titleView, 'mf-coin-title');
+    // (No coin balance on the main title screen — coins are shown in the
+    // shop / upgrades / mode-select screens where they're actually spent.)
 
     // Mode-select sub-view (built once, hidden until PLAY is pressed).
     this._buildModeSelect(panel);
@@ -3154,9 +3120,26 @@ export class UI {
 
   /** Paint one frame of the UFO + beam preview into `frame`'s canvas. */
   _renderPreview(frame, now) {
-    const canvas = frame._canvas, g = frame._ctx;
-    if (!canvas || !g) return;
-    // size the backing store to the element box (DPR-scaled) — cheap to check.
+    const canvas = frame._canvas;
+    if (!canvas) return;
+    const skin = frame._skin || SKINS[0];
+    const beam = frame._beam || BEAMS[0];
+    const t = (now - (frame._t0 || now)) / 1000;     // seconds since start
+
+    // Preferred path: render the REAL in-game 3D model through a shared WebGL
+    // stage (lazily created on first preview so the initial load stays fast).
+    if (!this._stageFailed) {
+      try {
+        if (!this._previewStage) this._previewStage = new PreviewStage();
+        this._previewStage.setLook(skin, beam);
+        this._previewStage.render(canvas, t);
+        return;
+      } catch (err) { this._stageFailed = true; }    // WebGL down → 2D fallback.
+    }
+
+    // Fallback path: hand-drawn 2D canvas art (only if WebGL is unavailable).
+    const g = frame._ctx;
+    if (!g) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const rect = canvas.getBoundingClientRect();
     const cw = Math.max(40, Math.round(rect.width || canvas.clientWidth || 240));
@@ -3167,10 +3150,6 @@ export class UI {
     }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, cw, ch);
-
-    const skin = frame._skin || SKINS[0];
-    const beam = frame._beam || BEAMS[0];
-    const t = (now - (frame._t0 || now)) / 1000;     // seconds since start
     const bob = Math.sin(t * 1.7) * 4;               // gentle vertical bob
     const glow = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.2)); // running-light pulse
 
@@ -3388,6 +3367,8 @@ export class UI {
     for (const track of TRACKS) {
       const info = TRACK_INFO[track] || { name: track, blurb: '' };
       const row = el('div', 'mf-upg-row', list);
+      row.dataset.track = track;
+      el('div', 'mf-upg-icon', row, info.icon || '★');
       const main = el('div', 'mf-upg-main', row);
       el('div', 'mf-upg-name', main, info.name);
       el('div', 'mf-upg-blurb', main, info.blurb);
@@ -3584,13 +3565,16 @@ export class UI {
         ? this._cosSelBeam(item.id) : this._cosSelSkin(item.id);
       const focused = item.id === this._shopFocusId;
 
-      let cls = 'mf-shop-cell';
+      let cls = 'mf-shop-cell mf-rarity-' + this._rarityOf(item.price, owned);
       if (equipped) cls += ' mf-shop-cell-equipped';
       else if (owned) cls += ' mf-shop-cell-owned';
       else cls += ' mf-shop-cell-locked';
       if (focused) cls += ' mf-shop-cell-focus';
-      const cell = el('button', cls, grid);
-      cell.type = 'button';
+      // The cell itself is a click-to-PREVIEW surface (not a button, so it can
+      // hold real BUY/EQUIP buttons); keyboard-operable via role+tabindex.
+      const cell = el('div', cls, grid);
+      cell.setAttribute('role', 'button');
+      cell.tabIndex = 0;
 
       // a tiny swatch previewing the item's colour identity.
       const sw = el('div', 'mf-shop-swatch', cell);
@@ -3605,7 +3589,7 @@ export class UI {
 
       el('div', 'mf-shop-cell-name', cell, item.name);
 
-      // state row: price+BUY (locked), EQUIP (owned), or EQUIPPED.
+      // state row: price + BUY button (locked), EQUIP button (owned), EQUIPPED.
       const state = el('div', 'mf-shop-cell-state', cell);
       if (equipped) {
         state.classList.add('mf-shop-state-equipped');
@@ -3613,47 +3597,63 @@ export class UI {
       } else if (owned) {
         state.classList.add('mf-shop-state-owned');
         el('span', 'mf-shop-state-tag', state, 'OWNED');
-        el('span', 'mf-shop-state-act', state, 'EQUIP');
+        const eq = el('button', 'mf-shop-act mf-shop-act-equip', state, 'EQUIP');
+        eq.type = 'button';
+        eq.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this._equipShopItem(item); });
       } else {
         state.classList.add('mf-shop-state-price');
         const price = el('span', 'mf-shop-price', state);
         price.appendChild(this._svgCoin());
         el('span', 'mf-shop-pricenum', price, fmt(item.price));
-        const buy = el('span', 'mf-shop-buy', state, 'BUY');
-        if (bal < (item.price | 0)) buy.classList.add('mf-shop-buy-cant');
+        const buy = el('button', 'mf-shop-act mf-shop-act-buy', state, 'BUY');
+        buy.type = 'button';
+        if (bal < (item.price | 0)) buy.classList.add('mf-shop-act-cant');
+        buy.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this._buyShopItem(item); });
       }
 
-      // click: preview always; then equip (owned) / buy (locked).
-      cell.addEventListener('click', (e) => {
-        e.preventDefault();
-        this._onShopCell(item);
+      // clicking the cell body only PREVIEWS (never buys).
+      cell.addEventListener('click', () => this._previewShopItem(item));
+      cell.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._previewShopItem(item); }
       });
       this._shopCells[item.id] = cell;
     }
   }
 
-  /** A shop cell tapped → preview it, then buy/equip per its state. */
-  _onShopCell(item) {
-    // always focus + preview the tapped item first.
+  /** Rarity bucket for a price → drives the cell's accent colour. */
+  _rarityOf(price, owned) {
+    const p = price | 0;
+    if (p <= 0) return owned ? 'common' : 'common';
+    if (p < 450) return 'common';
+    if (p < 1000) return 'rare';
+    if (p < 1800) return 'epic';
+    return 'legendary';
+  }
+
+  /** Tapping a cell body PREVIEWS the item only — never buys or equips. */
+  _previewShopItem(item) {
     this._shopFocusId = item.id;
     this._updateShopPreview();
     this._highlightShopFocus();
+  }
 
-    const owned = this._cosOwns(item.id);
-    const equipped = this._shopTab === 'beam'
-      ? this._cosSelBeam(item.id) : this._cosSelSkin(item.id);
-    if (equipped) return;                       // already on — just previewed.
-
-    if (owned) {
-      // EQUIP an owned item.
-      if (this._selectCosmetic(item.id)) {
-        this._renderShopGrid();
-        this._updateShopPreview();
-      }
-      return;
+  /** EQUIP button on an owned cell. */
+  _equipShopItem(item) {
+    this._shopFocusId = item.id;
+    if (this._selectCosmetic(item.id)) {
+      this._renderShopGrid();
+      this._updateShopPreview();
+    } else {
+      this._updateShopPreview();
+      this._highlightShopFocus();
     }
+  }
 
-    // LOCKED → attempt to buy.
+  /** BUY button on a locked cell → purchase, then auto-equip + preview. */
+  _buyShopItem(item) {
+    this._shopFocusId = item.id;
+    this._updateShopPreview();
+    this._highlightShopFocus();
     const before = this._coinBalance();
     if (before < (item.price | 0)) { this._shopShake(this._shopCells[item.id]); return; }
     const ok = this._buyCosmetic(item.id);

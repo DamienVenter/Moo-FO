@@ -3467,3 +3467,622 @@ button {
   .mf-ls-current::after,
   .mf-timer.mf-warn { animation-iteration-count: 1; }
 }
+
+/* ==========================================================================
+   SHOP + UPGRADES — RESTYLE ENHANCEMENT LAYER (Agent U)
+   --------------------------------------------------------------------------
+   Texture & personality pass over the SHOP / UPGRADES / PREVIEW screens.
+   These rules deliberately come LAST so they layer ON TOP of the base rules
+   above (which are left intact). Scope is strictly the .mf-shop* / .mf-upg* /
+   .mf-preview* families plus the new action-button, rarity and track classes.
+   Pure-CSS texture (layered gradients) — no external images. Animations are
+   transform/opacity only and stay subtle.
+   ========================================================================== */
+
+:root {
+  /* rarity accents */
+  --mf-r-common: #9fb2cc;
+  --mf-r-rare: #56b6ff;
+  --mf-r-epic: #c77dff;
+  --mf-r-legendary: #ffd24a;
+  /* upgrade-track accents */
+  --mf-t-speed: #54e0ff;
+  --mf-t-beam: #7cfc9a;
+  --mf-t-warpspeed: #b388ff;
+  --mf-t-warpstrength: #ff7ad0;
+  --mf-t-hull: #ffb24a;
+}
+
+/* --------------------------------------------------------------------------
+   Screen backdrop — deepen the space with a faint twinkly star field + a
+   soft brand-coloured aurora, so the panel floats on real depth.
+   -------------------------------------------------------------------------- */
+.mf-shop, .mf-upg {
+  background:
+    radial-gradient(ellipse at 50% 14%, rgba(40, 56, 120, 0.34) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 18%, rgba(8, 11, 28, 0.4) 0%, rgba(5, 7, 20, 0.9) 72%),
+    linear-gradient(180deg, #0c1130 0%, #090c20 60%, #07091c 100%);
+}
+
+.mf-shop-bg {
+  background:
+    radial-gradient(circle at 20% 26%, rgba(179, 136, 255, 0.16), transparent 40%),
+    radial-gradient(circle at 82% 64%, rgba(124, 252, 154, 0.13), transparent 42%),
+    /* drifting star dots: two offset dot grids for a faint sparkle texture */
+    radial-gradient(rgba(255, 255, 255, 0.5) 0.7px, transparent 0.8px),
+    radial-gradient(rgba(255, 255, 255, 0.28) 0.7px, transparent 0.8px);
+  background-size:
+    auto, auto,
+    74px 74px, 113px 113px;
+  background-position:
+    0 0, 0 0,
+    0 0, 37px 37px;
+  opacity: 0.9;
+}
+
+/* --------------------------------------------------------------------------
+   Panel — give it the "control console" look: layered gradient, faint grid
+   texture, inset top highlight, luminous border, soft drop shadow.
+   -------------------------------------------------------------------------- */
+.mf-shop-panel {
+  padding: 22px 26px 30px;
+  border: 2px solid rgba(179, 136, 255, 0.34);
+  border-radius: 26px;
+  background:
+    /* faint engraved grid */
+    linear-gradient(rgba(179, 136, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(179, 136, 255, 0.05) 1px, transparent 1px),
+    /* top sheen + body */
+    radial-gradient(ellipse at 50% -10%, rgba(124, 252, 154, 0.1), transparent 55%),
+    linear-gradient(180deg, rgba(18, 24, 54, 0.92) 0%, rgba(10, 14, 34, 0.9) 100%);
+  background-size: 30px 30px, 30px 30px, auto, auto;
+  box-shadow:
+    0 0 50px rgba(179, 136, 255, 0.18),
+    0 26px 60px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 34px rgba(10, 14, 34, 0.5);
+}
+
+@supports (backdrop-filter: blur(6px)) or (-webkit-backdrop-filter: blur(6px)) {
+  .mf-shop-panel {
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+}
+
+/* Header: hairline divider under the title row, brighter title glow. */
+.mf-shop-head {
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(179, 136, 255, 0.18);
+}
+.mf-shop-title {
+  color: #fff;
+  text-shadow:
+    0 3px 0 rgba(0, 0, 0, 0.5),
+    0 0 22px rgba(179, 136, 255, 0.5);
+}
+
+/* --------------------------------------------------------------------------
+   TABS — segmented pill control with a glowing capsule indicator.
+   -------------------------------------------------------------------------- */
+.mf-shop-tabs {
+  padding: 4px;
+  border: 2px solid rgba(179, 136, 255, 0.4);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(8, 11, 26, 0.75), rgba(14, 18, 42, 0.75));
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 4px 0 rgba(0, 0, 0, 0.28);
+  overflow: visible;
+}
+.mf-shop-tab {
+  border-radius: 999px;
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+.mf-shop-tab-on {
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5), 0 0 12px rgba(124, 252, 154, 0.6);
+}
+.mf-shop-tab:focus-visible { outline-offset: 2px; border-radius: 999px; }
+/* the sliding underline becomes a full glowing capsule behind the active tab */
+.mf-shop-tab-ind {
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  height: auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(179, 136, 255, 0.42), rgba(124, 252, 154, 0.3));
+  box-shadow:
+    0 0 16px rgba(179, 136, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 0 10px rgba(124, 252, 154, 0.2);
+}
+
+/* --------------------------------------------------------------------------
+   PREVIEW CAPSULE — recessed display stage: radial spotlight behind the UFO,
+   a floor reflection/vignette, faint stars. We style the FRAME, not the
+   canvas content (the canvas sits above ::before, below ::after).
+   -------------------------------------------------------------------------- */
+.mf-preview {
+  border: 3px solid rgba(124, 252, 154, 0.42);
+  border-radius: 22px;
+  background:
+    radial-gradient(ellipse at 50% 34%, rgba(60, 84, 170, 0.55), transparent 62%),
+    radial-gradient(ellipse at 50% 100%, rgba(124, 252, 154, 0.12), transparent 55%),
+    radial-gradient(rgba(255, 255, 255, 0.35) 0.7px, transparent 0.8px),
+    linear-gradient(180deg, #0a0e26 0%, #05071a 100%);
+  background-size: auto, auto, 58px 58px, auto;
+  box-shadow:
+    inset 0 0 60px rgba(6, 9, 26, 0.85),
+    inset 0 0 42px rgba(124, 252, 154, 0.07),
+    inset 0 2px 0 rgba(255, 255, 255, 0.08),
+    0 0 30px rgba(124, 252, 154, 0.2),
+    0 16px 36px rgba(0, 0, 0, 0.55);
+}
+/* soft spotlight halo behind the UFO */
+.mf-preview::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  width: 70%;
+  height: 60%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(124, 252, 154, 0.22), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  animation: mf-preview-glow 4.5s ease-in-out infinite;
+}
+.mf-preview-canvas { position: relative; z-index: 1; }
+/* floor vignette + reflection sheen across the bottom of the capsule */
+.mf-preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, transparent 62%, rgba(6, 9, 26, 0.45) 100%),
+    radial-gradient(ellipse at 50% 116%, rgba(124, 252, 154, 0.18), transparent 60%);
+}
+
+.mf-preview-caption {
+  color: rgba(238, 246, 255, 0.62);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5), 0 0 10px rgba(124, 252, 154, 0.2);
+}
+
+/* focus info under the shop preview */
+.mf-shop-focusname {
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5), 0 0 14px rgba(124, 252, 154, 0.3);
+}
+
+/* --------------------------------------------------------------------------
+   SHOP GRID + CELLS — card-like with gradient fills, hover lift, focus ring.
+   -------------------------------------------------------------------------- */
+.mf-shop-cell {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at 50% -20%, rgba(255, 255, 255, 0.08), transparent 60%),
+    linear-gradient(180deg, rgba(22, 28, 58, 0.85) 0%, rgba(10, 14, 34, 0.85) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 5px 0 rgba(0, 0, 0, 0.3),
+    0 6px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease,
+              background 0.16s ease;
+}
+.mf-shop-cell:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 8px 0 rgba(0, 0, 0, 0.3),
+    0 12px 24px rgba(0, 0, 0, 0.45);
+}
+.mf-shop-cell:active { transform: translateY(-1px) scale(0.98); }
+
+/* focused (currently previewed) cell — noticeable glowing ring */
+.mf-shop-cell-focus {
+  border-color: var(--mf-green);
+  box-shadow:
+    0 0 22px rgba(124, 252, 154, 0.5),
+    inset 0 0 16px rgba(124, 252, 154, 0.14),
+    0 6px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* owned (not equipped): warm gold trim + a small corner check */
+.mf-shop-cell-owned {
+  border-color: rgba(255, 213, 79, 0.45);
+}
+.mf-shop-cell-owned::after {
+  content: '✓';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--mf-gold);
+  text-shadow: 0 0 8px rgba(255, 213, 79, 0.7);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* equipped: bright green stage + an "EQUIPPED" corner ribbon */
+.mf-shop-cell-equipped {
+  border-color: var(--mf-green);
+  background:
+    radial-gradient(ellipse at 50% -20%, rgba(124, 252, 154, 0.18), transparent 60%),
+    linear-gradient(180deg, rgba(34, 78, 54, 0.7) 0%, rgba(16, 36, 28, 0.7) 100%);
+  box-shadow:
+    0 0 22px rgba(124, 252, 154, 0.5),
+    inset 0 0 16px rgba(124, 252, 154, 0.18),
+    0 6px 0 rgba(0, 0, 0, 0.3);
+}
+.mf-shop-cell-equipped::after {
+  content: '';                  /* suppress the owned check; ribbon does the talking */
+}
+
+/* swatch gets a glassier finish */
+.mf-shop-swatch {
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 -5px 7px rgba(0, 0, 0, 0.4),
+    inset 0 4px 6px rgba(255, 255, 255, 0.22),
+    0 3px 8px rgba(0, 0, 0, 0.45);
+}
+
+/* --------------------------------------------------------------------------
+   RARITY TINTS — extra class on .mf-shop-cell. Each gives a coloured border,
+   glow and a small diagonal corner accent. Legendary gets an animated sheen.
+   -------------------------------------------------------------------------- */
+.mf-shop-cell.mf-rarity-common,
+.mf-shop-cell.mf-rarity-rare,
+.mf-shop-cell.mf-rarity-epic,
+.mf-shop-cell.mf-rarity-legendary {
+  border-color: color-mix(in srgb, var(--mf-rarity, #9fb2cc) 60%, transparent);
+}
+/* small diagonal corner accent (top-right triangle) per rarity */
+.mf-rarity-common::before,
+.mf-rarity-rare::before,
+.mf-rarity-epic::before,
+.mf-rarity-legendary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  clip-path: polygon(100% 0, 0 0, 100% 100%);
+  background: var(--mf-rarity, #9fb2cc);
+  box-shadow: 0 0 10px var(--mf-rarity, #9fb2cc);
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 3;
+}
+.mf-shop-cell.mf-rarity-common    { --mf-rarity: var(--mf-r-common); }
+.mf-shop-cell.mf-rarity-rare      { --mf-rarity: var(--mf-r-rare); }
+.mf-shop-cell.mf-rarity-epic      { --mf-rarity: var(--mf-r-epic); }
+.mf-shop-cell.mf-rarity-legendary { --mf-rarity: var(--mf-r-legendary); }
+
+.mf-shop-cell.mf-rarity-rare {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 16px color-mix(in srgb, var(--mf-r-rare) 35%, transparent),
+    0 5px 0 rgba(0, 0, 0, 0.3);
+}
+.mf-shop-cell.mf-rarity-epic {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 18px color-mix(in srgb, var(--mf-r-epic) 42%, transparent),
+    0 5px 0 rgba(0, 0, 0, 0.3);
+}
+.mf-shop-cell.mf-rarity-legendary {
+  background:
+    radial-gradient(ellipse at 50% -20%, rgba(255, 213, 79, 0.16), transparent 60%),
+    linear-gradient(180deg, rgba(40, 34, 18, 0.85) 0%, rgba(20, 16, 8, 0.85) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 24px color-mix(in srgb, var(--mf-r-legendary) 55%, transparent),
+    0 5px 0 rgba(0, 0, 0, 0.3);
+}
+/* legendary sheen: a slow diagonal light sweep across the card */
+.mf-shop-cell.mf-rarity-legendary::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(105deg,
+    transparent 0%, rgba(255, 245, 200, 0.35) 50%, transparent 100%);
+  transform: skewX(-18deg);
+  pointer-events: none;
+  z-index: 2;
+  animation: mf-legendary-sheen 3.6s ease-in-out 0.6s infinite;
+}
+/* keep the owned check above the sheen for legendary owned items */
+.mf-shop-cell-owned.mf-rarity-legendary::after {
+  animation: mf-legendary-sheen 3.6s ease-in-out 0.6s infinite;
+}
+
+/* fallback for engines without color-mix(): plain coloured borders */
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .mf-shop-cell.mf-rarity-common    { border-color: var(--mf-r-common); }
+  .mf-shop-cell.mf-rarity-rare      { border-color: var(--mf-r-rare); }
+  .mf-shop-cell.mf-rarity-epic      { border-color: var(--mf-r-epic); }
+  .mf-shop-cell.mf-rarity-legendary { border-color: var(--mf-r-legendary); }
+}
+
+/* --------------------------------------------------------------------------
+   IN-CELL ACTION BUTTONS (new <button> classes) — BUY (gold) / EQUIP (teal).
+   -------------------------------------------------------------------------- */
+.mf-shop-act {
+  appearance: none;
+  -webkit-appearance: none;
+  margin-top: 2px;
+  padding: 6px 14px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease,
+              border-color 0.12s ease;
+}
+.mf-shop-act:active { transform: translateY(2px) scale(0.96); }
+.mf-shop-act:focus-visible { outline: 3px dashed var(--mf-purple); outline-offset: 3px; }
+.mf-shop-act .mf-coin-ico { width: 14px; height: 14px; flex: 0 0 14px; }
+
+/* BUY — coin/gold themed, inviting */
+.mf-shop-act-buy {
+  border-color: rgba(255, 213, 79, 0.7);
+  background: linear-gradient(180deg, #ffe79a 0%, #ffd24a 55%, #e6a700 100%);
+  color: #3a2c00;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 0 14px rgba(255, 213, 79, 0.4),
+    0 4px 0 #9c7400,
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+.mf-shop-act-buy:hover {
+  filter: brightness(1.07);
+  border-color: #fff0b8;
+  box-shadow:
+    0 0 20px rgba(255, 213, 79, 0.6),
+    0 4px 0 #9c7400,
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* EQUIP — green/teal themed */
+.mf-shop-act-equip {
+  border-color: rgba(124, 252, 154, 0.7);
+  background: linear-gradient(180deg, #b6ffce 0%, #5fe487 55%, #2fae62 100%);
+  color: #06321a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 0 14px rgba(124, 252, 154, 0.45),
+    0 4px 0 #1d7a44,
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.mf-shop-act-equip:hover {
+  filter: brightness(1.07);
+  border-color: #d8ffe4;
+  box-shadow:
+    0 0 22px rgba(124, 252, 154, 0.7),
+    0 4px 0 #1d7a44,
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* can't afford — dimmed/disabled look (works on either variant) */
+.mf-shop-act-cant,
+.mf-shop-act.mf-shop-act-cant:hover {
+  filter: saturate(0.35) brightness(0.7);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* --------------------------------------------------------------------------
+   UPGRADE ROWS — polished cards, track-tinted icon badge + progress fill.
+   -------------------------------------------------------------------------- */
+.mf-upg-row {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid rgba(179, 136, 255, 0.3);
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at 0% -30%, rgba(255, 255, 255, 0.06), transparent 55%),
+    linear-gradient(180deg, rgba(20, 26, 56, 0.78) 0%, rgba(10, 14, 34, 0.78) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 0 18px rgba(179, 136, 255, 0.05),
+    0 5px 0 rgba(0, 0, 0, 0.28),
+    0 6px 16px rgba(0, 0, 0, 0.32);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.mf-upg-row:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 8px 0 rgba(0, 0, 0, 0.28),
+    0 10px 22px rgba(0, 0, 0, 0.4);
+}
+/* a thin track-coloured spine down the left edge of each row */
+.mf-upg-row[data-track]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--mf-track, var(--mf-purple));
+  box-shadow: 0 0 12px var(--mf-track, var(--mf-purple));
+  opacity: 0.85;
+}
+
+/* the emoji icon badge/chip */
+.mf-upg-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  font-size: 24px;
+  line-height: 1;
+  border-radius: 14px;
+  border: 2px solid color-mix(in srgb, var(--mf-track, var(--mf-purple)) 60%, transparent);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.18), transparent 60%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--mf-track, var(--mf-purple)) 28%, rgba(10, 14, 34, 0.9)),
+      rgba(8, 11, 26, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 14px color-mix(in srgb, var(--mf-track, var(--mf-purple)) 40%, transparent),
+    0 3px 0 rgba(0, 0, 0, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .mf-upg-icon {
+    border-color: var(--mf-track, var(--mf-purple));
+    background: rgba(10, 14, 34, 0.9);
+  }
+}
+
+/* per-track accents: colour the spine, icon badge and filled bar segments */
+.mf-upg-row[data-track="speed"]        { --mf-track: var(--mf-t-speed); }
+.mf-upg-row[data-track="beam"]         { --mf-track: var(--mf-t-beam); }
+.mf-upg-row[data-track="warpSpeed"]    { --mf-track: var(--mf-t-warpspeed); }
+.mf-upg-row[data-track="warpStrength"] { --mf-track: var(--mf-t-warpstrength); }
+.mf-upg-row[data-track="hull"]         { --mf-track: var(--mf-t-hull); }
+
+/* progress bar: glossier track + glowing track-tinted fill */
+.mf-upg-bar {
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(4, 6, 18, 0.9), rgba(10, 14, 34, 0.7));
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+.mf-upg-seg { border-radius: 999px; }
+.mf-upg-row[data-track] .mf-upg-seg-on {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--mf-track) 55%, #ffffff) 0%,
+    var(--mf-track) 55%,
+    color-mix(in srgb, var(--mf-track) 60%, #000000) 100%);
+  box-shadow:
+    0 0 8px color-mix(in srgb, var(--mf-track) 75%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .mf-upg-row[data-track] .mf-upg-seg-on {
+    background: var(--mf-track);
+    box-shadow: 0 0 8px var(--mf-track), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  }
+}
+/* level readout tinted to the track */
+.mf-upg-row[data-track] .mf-upg-lvl {
+  color: var(--mf-track, var(--mf-green));
+}
+
+/* BUY button — already gold; add a little more invitation + shine */
+.mf-btn-buy {
+  border-radius: 16px;
+  box-shadow:
+    0 0 20px rgba(255, 213, 79, 0.45),
+    0 6px 0 #9c7400,
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -3px 6px rgba(156, 116, 0, 0.4);
+}
+.mf-btn-buy:not(.mf-btn-cant):not(.mf-btn-maxed):hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 0 28px rgba(255, 213, 79, 0.7),
+    0 8px 0 #9c7400,
+    inset 0 2px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* MAX state — celebratory purple pill with a gentle sparkle pulse */
+.mf-btn-buy.mf-btn-maxed {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(179, 136, 255, 0.25), transparent 60%),
+    rgba(14, 18, 42, 0.8);
+  border-color: rgba(179, 136, 255, 0.7);
+  color: var(--mf-purple);
+  text-shadow: 0 0 12px rgba(179, 136, 255, 0.7);
+  box-shadow:
+    0 5px 0 rgba(0, 0, 0, 0.3),
+    0 0 18px rgba(179, 136, 255, 0.4),
+    inset 0 0 14px rgba(179, 136, 255, 0.16);
+  animation: mf-max-glow 2.4s ease-in-out infinite;
+}
+.mf-buy-max { font-weight: 900; letter-spacing: 0.16em; }
+
+/* --------------------------------------------------------------------------
+   Scrollbar polish for the option grid (keeps scrolling intact).
+   -------------------------------------------------------------------------- */
+.mf-shop-grid {
+  scrollbar-color: rgba(179, 136, 255, 0.5) transparent;
+}
+.mf-shop-grid::-webkit-scrollbar { width: 8px; }
+.mf-shop-grid::-webkit-scrollbar-track { background: transparent; }
+.mf-shop-grid::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(179, 136, 255, 0.6), rgba(124, 252, 154, 0.5));
+}
+
+/* --------------------------------------------------------------------------
+   Responsive tweaks for the restyle (additive — base @media still applies).
+   -------------------------------------------------------------------------- */
+@media (max-width: 760px) {
+  .mf-shop-panel { border-radius: 22px; }
+  .mf-upg-icon { width: 40px; height: 40px; font-size: 21px; border-radius: 12px; }
+  .mf-shop-cell.mf-rarity-legendary::after { animation-duration: 4.5s; }
+}
+
+/* --------------------------------------------------------------------------
+   Restyle keyframes (transform/opacity only — performant).
+   -------------------------------------------------------------------------- */
+@keyframes mf-preview-glow {
+  0%, 100% { opacity: 0.75; transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: 1;    transform: translate(-50%, -50%) scale(1.08); }
+}
+@keyframes mf-legendary-sheen {
+  0%   { transform: translateX(0) skewX(-18deg); opacity: 0; }
+  12%  { opacity: 1; }
+  40%  { transform: translateX(360%) skewX(-18deg); opacity: 0; }
+  100% { transform: translateX(360%) skewX(-18deg); opacity: 0; }
+}
+@keyframes mf-max-glow {
+  0%, 100% { box-shadow:
+    0 5px 0 rgba(0, 0, 0, 0.3),
+    0 0 16px rgba(179, 136, 255, 0.35),
+    inset 0 0 12px rgba(179, 136, 255, 0.14); }
+  50%      { box-shadow:
+    0 5px 0 rgba(0, 0, 0, 0.3),
+    0 0 26px rgba(179, 136, 255, 0.6),
+    inset 0 0 18px rgba(179, 136, 255, 0.22); }
+}
+
+/* honour reduced-motion for the new decorative loops */
+@media (prefers-reduced-motion: reduce) {
+  .mf-preview::before,
+  .mf-shop-cell.mf-rarity-legendary::after,
+  .mf-btn-buy.mf-btn-maxed { animation: none; }
+}

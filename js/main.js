@@ -279,7 +279,7 @@ function beginLevel(i) {
 async function beginRound() {
   resetRound();
   hud.show();
-  hud.update({ score, timeLeft, health: ufo.health, combo: 0, warpEnergy: ufo.warpEnergy, cows: 0, goal: target });
+  hud.update({ score, timeLeft, health: ufo.health, maxHealth: ufo.maxHealth, combo: 0, warpEnergy: ufo.warpEnergy, cows: 0, goal: target });
   state = State.COUNTDOWN;
   await ui.countdown();
   state = State.PLAYING;
@@ -596,7 +596,7 @@ function frame() {
     canComplete = mode === 'campaign' && target > 0 && score >= target;
 
     hud.update({
-      score, timeLeft, health: ufo.health,
+      score, timeLeft, health: ufo.health, maxHealth: ufo.maxHealth,
       combo: comboTimer > 0 ? Math.min(comboCount, CFG.COMBO_MAX) : 0,
       warpEnergy: ufo.warpEnergy, cows: cowsGrabbed, goal: target,
       canComplete,

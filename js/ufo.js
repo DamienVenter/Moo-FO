@@ -53,6 +53,7 @@ export class UFO {
     this.beamMul = 1;
     this.warpSpeedMul = 1;
     this.warpStrengthMul = 1;
+    this.hullMul = 1;
     this.beamRadius = CFG.BEAM_RADIUS;
     this.beamLiftSpeed = CFG.BEAM_LIFT_SPEED;
     this._rainbowBeam = false;
@@ -151,6 +152,10 @@ export class UFO {
     this.beamMul = up ? up.mult('beam') : 1;
     this.warpSpeedMul = up ? up.mult('warpSpeed') : 1;
     this.warpStrengthMul = up ? up.mult('warpStrength') : 1;
+    this.hullMul = up ? up.mult('hull') : 1;
+    // hull scales the ship's max HP off the tuned baseline (level 0 ≈ one hit).
+    this.maxHealth = Math.max(1, Math.round(CFG.UFO_MAX_HEALTH * this.hullMul));
+    if (this.health > this.maxHealth) this.health = this.maxHealth;
     this.beamRadius = CFG.BEAM_RADIUS * this.beamMul;
     this.beamLiftSpeed = CFG.BEAM_LIFT_SPEED * this.beamMul;
   }
