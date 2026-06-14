@@ -1269,15 +1269,15 @@ button {
    The solid background-color only shows if the image fails to load. */
 .mf-mode-campaign {
   background-color: #2b1d4d;
-  background-image: url('../assets/img/mode-campaign.png');
+  background-image: url('../assets/img/campaign.jpg');
 }
 .mf-mode-multiplayer {
   background-color: #123a4d;
-  background-image: url('../assets/img/mode-multiplayer.png');
+  background-image: url('../assets/img/multiplayer.jpg');
 }
 .mf-mode-freeplay {
   background-color: #14402a;
-  background-image: url('../assets/img/mode-freeplay.png');
+  background-image: url('../assets/img/free-play.jpg');
 }
 
 /* dark gradient scrim for legibility under the text */
