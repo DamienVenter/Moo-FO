@@ -165,6 +165,36 @@ export class FarmerManager {
     this._updateBullets(dt, ufo, ufoAlive);
   }
 
+  // ============================== external alerts ==============================
+
+  /**
+   * A sheepdog rats the player out: nudge the nearest NON-aggroed farmer into
+   * the chase, pointed at `pos`, even if it couldn't see the UFO itself.
+   * Safe + cheap to call frequently — no-op when every farmer is already
+   * aggroed. Sets the aggro flags + pops the existing "!" so the normal
+   * chase→shoot state machine takes over from the next update().
+   */
+  alertNearest(pos) {
+    let best = null;
+    let bestD2 = Infinity;
+    for (let i = 0; i < this.farmers.length; i++) {
+      const f = this.farmers[i];
+      if (f.aggroed) continue; // already chasing/shooting — leave it alone
+      const dx = pos.x - f.group.position.x;
+      const dz = pos.z - f.group.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) { bestD2 = d2; best = f; }
+    }
+    if (!best) return; // everyone's already aggroed — nothing to do
+    best.aggroed = true;
+    best.state = 'chase';
+    best.tx = pos.x;
+    best.tz = pos.z;
+    best.bangT = 0;            // trigger the "!" pop
+    best.bang.visible = true;
+    best.fireT = Math.max(best.fireT, 0.25);
+  }
+
   // ============================== states ==============================
 
   _doPatrol(f, dt) {

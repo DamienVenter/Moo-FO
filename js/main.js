@@ -14,7 +14,10 @@ import { Controls } from './controls.js';
 import { HUD } from './hud.js';
 import { UI } from './ui.js';
 import { AudioManager } from './audio.js';
-import { Campaign } from './campaign.js';
+import { Campaign, STAR_COINS } from './campaign.js';
+import { MissionTracker, evaluateLevel } from './missions.js';
+import { Wallet } from './wallet.js';
+import { DogManager } from './dogs.js';
 import { submitScore } from './leaderboard.js';
 
 // ---------------------------------------------------------------------------
@@ -54,6 +57,10 @@ const ufo = new UFO(scene, world, effects, audio);
 
 let cows = null;
 let farmers = null;
+let dogs = null;
+
+const wallet = new Wallet();
+const tracker = new MissionTracker();
 
 // ---------------------------------------------------------------------------
 // Game state
@@ -78,9 +85,10 @@ let endDelay = 0;
 // Mode / campaign run state
 const campaign = new Campaign();
 let mode = 'free';            // 'free' | 'campaign'
-let level = 0;               // current campaign level index (1..20), 0 in free play
+let level = 0;               // current campaign level index (1..15), 0 in free play
 let target = 0;              // score goal for the current campaign level (0 = none)
 let timeLimit = CFG.GAME_DURATION;
+let canComplete = false;     // campaign: score target reached → COMPLETE available
 
 const HS_KEY = 'moofo-highscore';
 const getHighscore = () => Number(localStorage.getItem(HS_KEY) || 0);
@@ -89,13 +97,15 @@ const setHighscore = (v) => localStorage.setItem(HS_KEY, String(v));
 // ---------------------------------------------------------------------------
 // Scoring / damage callbacks
 // ---------------------------------------------------------------------------
-function onAbduct({ kind, points, pos }) {
+function onAbduct({ kind, variant, points, pos }) {
   comboCount = comboTimer > 0 ? comboCount + 1 : 1;
   comboTimer = CFG.COMBO_WINDOW;
   const mult = Math.min(comboCount, CFG.COMBO_MAX);
   const gained = points * mult;
   score += gained;
   if (kind !== 'chicken') cowsGrabbed += 1;
+  tracker.onAbduct(kind, variant);
+  tracker.onCombo(mult);
 
   const color = kind === 'golden' ? COLORS.gold : kind === 'chicken' ? 0xffffff :
                 kind === 'sheep' ? 0xeae6da : COLORS.uiGreen;
@@ -109,7 +119,9 @@ function onAbduct({ kind, points, pos }) {
 
 function onHitPlayer(damage) {
   if (state !== State.PLAYING) return;
+  const landed = ufo._invuln <= 0 && !ufo.dead && !ufo.crashing;
   const died = ufo.takeDamage(damage);
+  if (landed) tracker.onHit();   // count a real hit for the "no-hit" star
   hud.flashDamage();
   shake = Math.min(shake + 0.7, 1.4);
   if (died) {
@@ -128,21 +140,22 @@ function spawnEntities() {
   cows = new CowManager(scene, world, effects, audio, { onAbduct });
   cows.populate();
   farmers = new FarmerManager(scene, world, effects, audio, { onHitPlayer });
+  dogs = new DogManager(scene, world, effects, audio, { farmers });
 }
 
 function disposeEntities() {
-  for (const mgr of [cows, farmers]) {
+  for (const mgr of [cows, farmers, dogs]) {
     if (!mgr) continue;
     if (typeof mgr.dispose === 'function') {
       mgr.dispose();
     } else {
-      for (const e of mgr.cows || mgr.farmers || []) {
+      for (const e of mgr.cows || mgr.farmers || mgr.dogs || []) {
         if (e.group) scene.remove(e.group);
       }
       if (mgr._bullets) for (const b of mgr._bullets) scene.remove(b.mesh);
     }
   }
-  cows = farmers = null;
+  cows = farmers = dogs = null;
 }
 
 function resetRound() {
@@ -153,6 +166,8 @@ function resetRound() {
   comboCount = 0;
   comboTimer = 0;
   shake = 0;
+  tracker.reset();
+  canComplete = false;
   // Fresh random spawn over open ground every round.
   const sp = world.randomSpawn();
   ufo.reset(sp.x, sp.z);
@@ -166,7 +181,22 @@ function resetRound() {
 // ---------------------------------------------------------------------------
 // UI / controls wiring
 // ---------------------------------------------------------------------------
-const controls = new Controls({ onPause: () => togglePause() });
+const controls = new Controls({
+  onPause: () => togglePause(),
+  onComplete: () => requestComplete(),
+});
+
+// Campaign: once the score target is met, the run keeps going (chase the bonus
+// stars) until the player hits COMPLETE (Q / the button) or time runs out.
+function requestComplete() {
+  if (state !== State.PLAYING || mode !== 'campaign' || !canComplete) return;
+  state = State.ESCAPE;
+  escapeConfettiDone = false;
+  endDelay = 0;
+  ufo.forceStopBeam();
+  controls.setTouchVisible(false);
+  hud.announce('MISSION COMPLETE!', { color: '#7cfc9a' });
+}
 
 const ui = new UI({
   onStart: startGame,
@@ -175,6 +205,7 @@ const ui = new UI({
   onQuitToMenu: quitToMenu,
   onToggleMute: () => { audio.setMuted(!audio.muted); ui.setMuteUI(audio.muted); },
   controls,
+  wallet,
   campaign,
   onStartLevel: startLevel,
   onRetryLevel: () => { ui.hideEnd(); beginLevel(level); },
@@ -190,6 +221,7 @@ const ui = new UI({
 });
 
 const hud = new HUD(world);
+hud.onComplete = requestComplete;   // in-game COMPLETE button
 
 async function startGame() {
   await audio.init();
@@ -290,13 +322,22 @@ function finishLevel() {
   hud.hide();
   controls.setTouchVisible(false);
   audio.stopLoop('waterfall');
-  const won = score >= target;
-  const isNewBest = won ? campaign.complete(level, score) : false;
+  const L = campaign.levels[level - 1];
+  const evalRes = evaluateLevel(L, score, tracker);
+  const won = evalRes.scoreDone;
+  const rec = campaign.recordRun(level, score, evalRes.bonusMet);
+  const prevBalance = wallet.getBalance();
+  const newBalance = rec.coinsEarned > 0 ? wallet.add(rec.coinsEarned) : prevBalance;
   if (won) submitScore(score, 'campaign');
   audio.play(won ? 'win' : 'lose', { volume: 0.9 });
   ui.showLevelResult({
-    won, index: level, score, target, time: timeLimit,
-    isNewBest, starsEarned: 0,   // stars removed — pass/fail only (0 keeps old UI safe)
+    won, index: level, score, target,
+    objectives: evalRes.objectives,   // [{label,done} ×3]; row 1 is the score
+    stars: rec.stars,                 // 0..3 earned this run
+    coinRewards: STAR_COINS,          // [50, 100, 150]
+    coinsEarned: rec.coinsEarned,
+    prevBalance, newBalance,
+    isNewBest: rec.isNewBest,
     hasNext: won && level < campaign.levels.length,
   });
   state = won ? State.WIN : State.GAMEOVER;
@@ -451,7 +492,9 @@ function frame() {
     ufo.update(dt, cameraRelativeInput());
     cows.update(dt, ufo);
     farmers.update(dt, ufo);
+    dogs.update(dt, ufo);
     effects.warpStreaks(ufo.warping, ufo.group);
+    if (ufo.warping) tracker.onWarp();
 
     if (comboTimer > 0) {
       comboTimer -= dt;
@@ -473,10 +516,15 @@ function frame() {
       hud.announce("TIME'S UP!", {});
     }
 
+    // Campaign: the goal being met no longer auto-ends the run — it just arms
+    // the COMPLETE control so you can keep chasing the bonus stars.
+    canComplete = mode === 'campaign' && target > 0 && score >= target;
+
     hud.update({
       score, timeLeft, health: ufo.health,
       combo: comboTimer > 0 ? Math.min(comboCount, CFG.COMBO_MAX) : 0,
       warpEnergy: ufo.warpEnergy, cows: cowsGrabbed, goal: target,
+      canComplete,
     });
 
     minimapAcc += dt;
@@ -487,18 +535,11 @@ function frame() {
         cows: cows.cows.filter((c) => c.kind !== 'duck')
           .map((c) => ({ x: c.group.position.x, z: c.group.position.z, kind: c.kind })),
         farmers: farmers.farmers.map((f) => ({ x: f.group.position.x, z: f.group.position.z })),
+        dogs: dogs.dogs.map((d) => ({ x: d.group.position.x, z: d.group.position.z })),
       });
-    }
-
-    // Campaign: hitting the goal completes the mission instantly — the clock is
-    // cut and the ship is lifted away in triumph (handled by the ESCAPE state).
-    if (mode === 'campaign' && target > 0 && score >= target && state === State.PLAYING) {
-      state = State.ESCAPE;
-      escapeConfettiDone = false;
-      endDelay = 0;
-      ufo.forceStopBeam();
-      controls.setTouchVisible(false);
-      hud.announce('MISSION COMPLETE!', { color: '#7cfc9a' });
+      if (mode === 'campaign') {
+        hud.setObjectives(evaluateLevel(campaign.levels[level - 1], score, tracker).objectives);
+      }
     }
 
     // Flew into the mountain (or otherwise crashed): you lose.
@@ -550,6 +591,7 @@ window.__MOOFO = {
   get ufo() { return ufo; },
   get cows() { return cows; },
   get farmers() { return farmers; },
+  get dogs() { return dogs; },
   get cycle() { return cycle; },
   get mode() { return mode; },
   get level() { return level; },

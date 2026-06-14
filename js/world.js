@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { CFG, COLORS, ENABLE_SHADOWS } from './config.js';
-import { terrainHeight, riverX, riverW, WATER_LEVEL, MOUNTAIN, WFALL_POOL, WFALL_STREAM } from './terrain.js';
+import { terrainHeight, riverX, riverW, WATER_LEVEL, MOUNTAIN, WFALL_POOL, WFALL_STREAM, BASINS, WFALL_POOL_SHAPE, blobRadius } from './terrain.js';
 import * as M from './models.js';
 
 const H = CFG.MAP_HALF;
@@ -50,25 +50,58 @@ function makeFlowTexture() {
 }
 
 // Vertical whitewater streaks for the waterfall sheet — opaque so the sheet
-// stays bright; scrolled downward fast for a rushing-water read.
-function makeFallTexture() {
+// stays bright; scrolled downward fast for a rushing-water read. `seed` varies
+// the streak pattern so layered sheets don't look identical.
+function makeFallTexture(seed = 0) {
   const c = document.createElement('canvas');
   c.width = 32; c.height = 64;
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#dff1ff';
   ctx.fillRect(0, 0, 32, 64);
-  for (let i = 0; i < 10; i++) {
-    ctx.strokeStyle = i % 2 ? '#ffffff' : '#b6dcf7';
-    ctx.lineWidth = 1 + Math.random() * 2;
-    const x = Math.random() * 32;
+  const rnd = (() => { let s = seed * 9973 + 1; return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; })();
+  for (let i = 0; i < 12; i++) {
+    ctx.strokeStyle = i % 3 === 0 ? '#ffffff' : i % 3 === 1 ? '#cfeaff' : '#a8d2f2';
+    ctx.lineWidth = 1 + rnd() * 2.4;
+    const x = rnd() * 32;
     ctx.beginPath();
     ctx.moveTo(x, 0);
-    ctx.lineTo(x + (Math.random() - 0.5) * 4, 64);
+    let cx = x;
+    for (let y = 0; y <= 64; y += 8) {
+      cx += (rnd() - 0.5) * 3;
+      ctx.lineTo(cx, y);
+    }
+    ctx.stroke();
+  }
+  // a few horizontal foam ripples to suggest churn
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  for (let i = 0; i < 4; i++) {
+    const y = rnd() * 64;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= 32; x += 6) ctx.lineTo(x, y + Math.sin(x * 0.6 + i) * 1.5);
     ctx.stroke();
   }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(1, 4);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Soft round foam puff sprite — for the crest foam, churning base whitewater,
+// and the spreading ripple rings on the plunge pool.
+function makeFoamTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.5, 'rgba(235,247,255,0.55)');
+  g.addColorStop(1, 'rgba(220,240,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
@@ -149,6 +182,7 @@ export class World {
     this._buildFields();
     this._buildPastures();
     this._buildForestRing();
+    this._buildForest();
     this._buildMountainDecor();
     this._buildScatter();
     this._buildRiverDetail();
@@ -200,6 +234,27 @@ export class World {
   }
 
   // ------------------------------------------------------------- water
+  // Mark water cells inside an ORGANIC blob outline (same shape the basin is
+  // carved to in terrain.js, via the shared blobRadius), so isWater() tracks
+  // the real pond edge rather than a perfect ellipse.
+  _stampWaterBlob(b) {
+    const maxR = 1.2;
+    const x0 = Math.max(0, Math.floor((b.x - b.rx * maxR + H) / CELL));
+    const x1 = Math.min(GRID_N - 1, Math.ceil((b.x + b.rx * maxR + H) / CELL));
+    const z0 = Math.max(0, Math.floor((b.z - b.rz * maxR + H) / CELL));
+    const z1 = Math.min(GRID_N - 1, Math.ceil((b.z + b.rz * maxR + H) / CELL));
+    for (let gz = z0; gz <= z1; gz++) {
+      for (let gx = x0; gx <= x1; gx++) {
+        const wx = gx * CELL - H + CELL / 2;
+        const wz = gz * CELL - H + CELL / 2;
+        const ang = Math.atan2((wz - b.z) / b.rz, (wx - b.x) / b.rx);
+        const rmul = blobRadius(b.seed, ang);
+        const d = Math.hypot((wx - b.x) / (b.rx * rmul), (wz - b.z) / (b.rz * rmul));
+        if (d <= 1.0) this._water[gz * GRID_N + gx] = 1;
+      }
+    }
+  }
+
   _stampWaterCircle(cx, cz, rx, rz) {
     const x0 = Math.max(0, Math.floor((cx - rx + H) / CELL));
     const x1 = Math.min(GRID_N - 1, Math.ceil((cx + rx + H) / CELL));
@@ -221,29 +276,55 @@ export class World {
     this._flowTex = flowTex;
     const waterMat = new THREE.MeshLambertMaterial({
       color: COLORS.water, transparent: true, opacity: 0.93, map: flowTex,
-      side: THREE.DoubleSide,   // river strip normals face down — light both faces
+      side: THREE.DoubleSide,   // light both faces
     });
     waterMat.emissive = new THREE.Color(COLORS.waterDeep);
     waterMat.emissiveIntensity = 0.25;
     this._anim.waterMats.push(waterMat);
 
-    // River surface: a strip spanning bank-to-bank (riverW) so it fills the
-    // carved channel edge-to-edge. UVs run v along the length for flow scroll.
+    // Submerged-wall material for river side faces — darker deep water so the
+    // channel reads as a filled body, never a flat see-through strip.
+    const wallMat = new THREE.MeshLambertMaterial({
+      color: COLORS.waterDeep, transparent: true, opacity: 0.96, side: THREE.DoubleSide,
+    });
+    wallMat.emissive = new THREE.Color(COLORS.waterDeep);
+    wallMat.emissiveIntensity = 0.15;
+    this._anim.waterMats.push(wallMat);
+
+    // River as a FILLED channel: a flowing top surface spanning bank-to-bank,
+    // plus two vertical side walls dropping from each water edge down to the
+    // carved bed. The walls close off the underside so from low angles you see
+    // water meeting the bank — never under the strip. UVs run v along length.
     const pts = [];
     for (let z = -H; z <= H; z += 6) pts.push({ x: riverX(z), z, w: riverW(z) });
+    const RIVER_BED_Y = -1.8;            // matches terrain.js RIVER_BED
+    const surfY = WATER_Y - 0.04;        // sit a touch below the bank crests
     const pos = [];
     const uv = [];
     const idx = [];
+    const wallPos = [];
+    const wallIdx = [];
     let runLen = 0;
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       if (i > 0) runLen += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z);
-      const half = p.w / 2 + 0.5;          // hair of overlap onto the bank toe
-      pos.push(p.x - half, WATER_Y, p.z, p.x + half, WATER_Y, p.z);
+      const half = p.w / 2 + 0.6;          // hair of overlap onto the bank toe
+      const lx = p.x - half, rxw = p.x + half;
+      pos.push(lx, surfY, p.z, rxw, surfY, p.z);
       uv.push(0, runLen / 14, 1, runLen / 14);
       if (i > 0) {
         const a = (i - 1) * 2;
         idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+      // side-wall ring verts: [Ltop, Lbot, Rtop, Rbot]
+      const b = i * 4;
+      wallPos.push(lx, surfY, p.z, lx, RIVER_BED_Y, p.z, rxw, surfY, p.z, rxw, RIVER_BED_Y, p.z);
+      if (i > 0) {
+        const pb = (i - 1) * 4;
+        // left wall quad
+        wallIdx.push(pb, pb + 1, b, pb + 1, b + 1, b);
+        // right wall quad
+        wallIdx.push(pb + 2, b + 2, pb + 3, pb + 3, b + 2, b + 3);
       }
       this._stampWaterCircle(p.x, p.z, half + 1, 4);
     }
@@ -255,19 +336,48 @@ export class World {
     const river = new THREE.Mesh(riverGeo, waterMat);
     river.receiveShadow = ENABLE_SHADOWS;
     this.scene.add(river);
+
+    const rWallGeo = new THREE.BufferGeometry();
+    rWallGeo.setAttribute('position', new THREE.Float32BufferAttribute(wallPos, 3));
+    rWallGeo.setIndex(wallIdx);
+    rWallGeo.computeVertexNormals();
+    const riverWalls = new THREE.Mesh(rWallGeo, wallMat);
+    this.scene.add(riverWalls);
+
     this._riverPts = pts;
 
     // Dam wall sits in the carved riverbed.
     const damZ = -150;
-    const lake = { x: riverX(-195), z: -198, rx: 46, rz: 40 };
+    // Lake/ponds use the EXACT BASINS records from terrain.js (same seed +
+    // radii) so each water surface matches its carved organic basin.
+    const lakeB = BASINS.find((b) => b.name === 'lake');
+    const pondEB = BASINS.find((b) => b.name === 'pondE');
+    const pondWB = BASINS.find((b) => b.name === 'pondW');
+    const lake = { x: lakeB.x, z: lakeB.z, rx: lakeB.rx, rz: lakeB.rz, seed: lakeB.seed, depth: lakeB.depth };
     this._map.lake = lake;
-    this._addEllipseWater(lake.x, lake.z, lake.rx, lake.rz, waterMat);
+    this._addBlobWater(lakeB, waterMat);
 
+    // Dam embeds INTO the carved riverbed: its base sinks ~2.5 below the bed so
+    // it reads as keyed into the channel, not perched on it. A wider buttress
+    // foot ties it into both banks. A wet darker streak runs the downstream face.
     const bedY = terrainHeight(riverX(damZ), damZ);
     const damLen = riverW(damZ) + 26;
-    const dam = new THREE.Mesh(new THREE.BoxGeometry(damLen, 8.5, 7), M.mat(COLORS.stone));
-    dam.position.set(riverX(damZ), bedY + 4.25, damZ);
+    const embed = 2.6;
+    const damH = 8.5 + embed;
+    const dam = new THREE.Mesh(new THREE.BoxGeometry(damLen, damH, 7), M.mat(COLORS.stone));
+    dam.position.set(riverX(damZ), bedY + 4.25 - embed / 2, damZ);
     this.scene.add(dam);
+    // buttress foot wedged into the bed
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(damLen + 6, 3, 11), M.mat(0x8a8a8a));
+    foot.position.set(riverX(damZ), bedY - 1, damZ);
+    this.scene.add(foot);
+    // wet streak on the downstream (south) face under the spillway
+    const wetMat = new THREE.MeshLambertMaterial({ color: 0x4a5560 });
+    wetMat.emissive = new THREE.Color(0x223040);
+    wetMat.emissiveIntensity = 0.25;
+    const wet = new THREE.Mesh(new THREE.PlaneGeometry(damLen * 0.5, damH - 1), wetMat);
+    wet.position.set(riverX(damZ), bedY + 4.25 - embed / 2, damZ + 3.55);
+    this.scene.add(wet);
     const crest = new THREE.Mesh(new THREE.BoxGeometry(damLen + 2, 1.2, 8.4), M.mat(0xb5b5b5));
     crest.position.set(riverX(damZ), bedY + 9, damZ);
     this.scene.add(crest);
@@ -284,17 +394,22 @@ export class World {
     }
     this._blockers.push({ x: riverX(damZ), z: damZ, r: damLen / 2 + 2 });
 
-    const ponds = [{ x: 210, z: 185, r: 23 }, { x: -305, z: 70, r: 17 }];
+    // ponds carry their basin record (x,z,rx,rz,seed) so the minimap + scatter
+    // can draw/sample the organic outline; `r` kept for legacy consumers.
+    const ponds = [
+      { x: pondEB.x, z: pondEB.z, r: pondEB.rx, rx: pondEB.rx, rz: pondEB.rz, seed: pondEB.seed, depth: pondEB.depth, _b: pondEB },
+      { x: pondWB.x, z: pondWB.z, r: pondWB.rx, rx: pondWB.rx, rz: pondWB.rz, seed: pondWB.seed, depth: pondWB.depth, _b: pondWB },
+    ];
     for (const p of ponds) {
-      this._addEllipseWater(p.x, p.z, p.r, p.r * 0.82, waterMat);
+      this._addBlobWater(p._b, waterMat);
       this._map.ponds.push(p);
-      this.duckAreas.push({ x: p.x, z: p.z, rx: p.r * 0.7, rz: p.r * 0.55 });
+      this.duckAreas.push({ x: p.x, z: p.z, rx: p.rx * 0.7, rz: p.rz * 0.55 });
     }
     this.duckAreas.push({ x: lake.x, z: lake.z, rx: lake.rx * 0.6, rz: lake.rz * 0.55 });
 
     // waterfall plunge pool + the stream that carries its overflow to the lake
-    this._addEllipseWater(WFALL_POOL.x, WFALL_POOL.z, WFALL_POOL.rx, WFALL_POOL.rz, waterMat);
-    this._map.ponds.push({ x: WFALL_POOL.x, z: WFALL_POOL.z, r: WFALL_POOL.rx });
+    this._addBlobWater(WFALL_POOL_SHAPE, waterMat);
+    this._map.ponds.push({ x: WFALL_POOL.x, z: WFALL_POOL.z, r: WFALL_POOL.rx, rx: WFALL_POOL.rx, rz: WFALL_POOL.rz, seed: WFALL_POOL_SHAPE.seed });
     this._addStreamWater(WFALL_STREAM, waterMat, flowTex);
     this._buildWaterfall();
 
@@ -312,18 +427,31 @@ export class World {
     const nz = ux;
     const half = s.w / 2 + 0.5;
     const steps = Math.max(2, Math.ceil(len / 5));
+    const surfY = WATER_Y - 0.04;
+    const bedY = -1.8;
     const pos = [];
     const uv = [];
     const idx = [];
+    const wpos = [];
+    const widx = [];
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const cx = s.x1 + dx * t;
       const cz = s.z1 + dz * t;
-      pos.push(cx + nx * half, WATER_Y, cz + nz * half, cx - nx * half, WATER_Y, cz - nz * half);
+      const lx = cx + nx * half, lz = cz + nz * half;
+      const rx = cx - nx * half, rz = cz - nz * half;
+      pos.push(lx, surfY, lz, rx, surfY, rz);
       uv.push(0, (len * t) / 12, 1, (len * t) / 12);
       if (i > 0) {
         const a = (i - 1) * 2;
         idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+      const b = i * 4;
+      wpos.push(lx, surfY, lz, lx, bedY, lz, rx, surfY, rz, rx, bedY, rz);
+      if (i > 0) {
+        const pb = (i - 1) * 4;
+        widx.push(pb, pb + 1, b, pb + 1, b + 1, b);
+        widx.push(pb + 2, b + 2, pb + 3, pb + 3, b + 2, b + 3);
       }
       this._stampWaterCircle(cx, cz, half + 1, 4);
     }
@@ -335,14 +463,24 @@ export class World {
     const m = new THREE.Mesh(geo, mat);
     m.receiveShadow = ENABLE_SHADOWS;
     this.scene.add(m);
+    const wgeo = new THREE.BufferGeometry();
+    wgeo.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
+    wgeo.setIndex(widx);
+    wgeo.computeVertexNormals();
+    const wallMat = new THREE.MeshLambertMaterial({
+      color: COLORS.waterDeep, transparent: true, opacity: 0.96, side: THREE.DoubleSide,
+    });
+    this._anim.waterMats.push(wallMat);
+    this.scene.add(new THREE.Mesh(wgeo, wallMat));
   }
 
-  // The waterfall: a cascading sheet down the mountain's SE face into the pool,
-  // foam crest at the top, and a persistent splash + mist cloud at the base.
+  // The premium waterfall: a wet darker streak down the rock, MULTIPLE layered
+  // falling sheets at varied widths/speeds, a foam crest at the top lip,
+  // churning whitewater + heavy mist at the base, splashing droplets, and
+  // ripple rings spreading on the plunge pool. Everything it touches goes wet.
   _buildWaterfall() {
     const top = { x: -276, z: -280 };          // a notch high on the SE face
     const base = { x: WFALL_POOL.x, z: WFALL_POOL.z };
-    const topY = terrainHeight(top.x, top.z);   // high up the cone
     const baseY = WATER_Y;
     const dx = base.x - top.x;
     const dz = base.z - top.z;
@@ -351,48 +489,128 @@ export class World {
     const uz = dz / horiz;
     const nx = -uz;                              // across-flow
     const nz = ux;
+    const foamTex = makeFoamTexture();
+    this._foamTex = foamTex;
 
-    const sheetMat = new THREE.MeshLambertMaterial({
-      color: 0xdff1ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide,
-    });
-    sheetMat.emissive = new THREE.Color(0xbfe2ff);
-    sheetMat.emissiveIntensity = 0.5;
-    this._wfallMat = sheetMat;
-
-    // cascade hugging the slope from the notch down to the pool
-    const steps = 16;
-    const width = 6;
-    const pos = [];
-    const uv = [];
-    const idx = [];
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const cx = top.x + dx * t;
-      const cz = top.z + dz * t;
-      const groundHere = terrainHeight(cx, cz);
-      const y = (i === steps) ? baseY + 0.4 : Math.max(groundHere + 0.35, baseY + 0.4);
-      pos.push(cx + nx * width / 2, y, cz + nz * width / 2, cx - nx * width / 2, y, cz - nz * width / 2);
-      uv.push(0, t * 6, 1, t * 6);
-      if (i > 0) {
-        const a = (i - 1) * 2;
-        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    // helper: build one cascade sheet hugging the slope, at a given half-width
+    // and lateral offset, returning {mesh, tex}.
+    const buildSheet = (width, lateral, opacity, seed, uvScale) => {
+      const steps = 18;
+      const pos = [], uv = [], idx = [];
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const cx = top.x + dx * t + nx * lateral;
+        const cz = top.z + dz * t + nz * lateral;
+        const groundHere = terrainHeight(cx, cz);
+        const y = (i === steps) ? baseY + 0.4 : Math.max(groundHere + 0.35, baseY + 0.4);
+        pos.push(cx + nx * width / 2, y, cz + nz * width / 2, cx - nx * width / 2, y, cz - nz * width / 2);
+        uv.push(0, t * uvScale, 1, t * uvScale);
+        if (i > 0) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
       }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    const fallTex = makeFallTexture();
-    this._wfallTex = fallTex;
-    sheetMat.map = fallTex;
-    const sheet = new THREE.Mesh(geo, sheetMat);
-    this.scene.add(sheet);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const tex = makeFallTexture(seed);
+      const mat = new THREE.MeshLambertMaterial({
+        color: 0xeaf6ff, transparent: true, opacity, side: THREE.DoubleSide,
+        map: tex, depthWrite: false,
+      });
+      mat.emissive = new THREE.Color(0xbfe2ff);
+      mat.emissiveIntensity = 0.5;
+      const mesh = new THREE.Mesh(geo, mat);
+      this.scene.add(mesh);
+      return { tex };
+    };
 
-    // persistent splash: a puff of white particles bobbing at the base
-    const N = 60;
+    // wet darker rock streak BEHIND the sheets, running the full drop on the
+    // mountain face — wider than the water, slightly glossy/wet material.
+    {
+      const steps = 18, width = 11;
+      const pos = [], idx = [];
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const cx = top.x + dx * t;
+        const cz = top.z + dz * t;
+        const groundHere = terrainHeight(cx, cz);
+        const y = Math.max(groundHere + 0.18, baseY + 0.2);
+        pos.push(cx + nx * width / 2, y, cz + nz * width / 2, cx - nx * width / 2, y, cz - nz * width / 2);
+        if (i > 0) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const wetMat = new THREE.MeshLambertMaterial({ color: 0x3a4750, side: THREE.DoubleSide });
+      wetMat.emissive = new THREE.Color(0x1e2c38);
+      wetMat.emissiveIntensity = 0.3;
+      this.scene.add(new THREE.Mesh(geo, wetMat));
+    }
+
+    // THREE layered sheets: a broad back sheet, a main sheet, a thin fast
+    // foreground ribbon — each scrolls at a different speed.
+    this._wfallTexes = [];
+    this._wfallTexes.push({ tex: buildSheet(7.5, 0, 0.78, 1, 6).tex, speed: 1.9 });
+    this._wfallTexes.push({ tex: buildSheet(5.0, 0.4, 0.92, 7, 7).tex, speed: 2.6 });
+    this._wfallTexes.push({ tex: buildSheet(2.2, -1.6, 0.85, 13, 9).tex, speed: 3.4 });
+    // legacy single-tex handle kept for update() back-compat
+    this._wfallTex = this._wfallTexes[1].tex;
+
+    // foam crest sprites along the top lip
+    this._crestFoam = [];
+    const crestY = Math.max(terrainHeight(top.x, top.z) + 0.6, baseY + 0.4);
+    for (let i = 0; i < 7; i++) {
+      const s = (i / 6 - 0.5) * 8;
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: foamTex, transparent: true, opacity: 0.9, depthWrite: false,
+      }));
+      const fx = top.x + nx * s + ux * 1.5;
+      const fz = top.z + nz * s + uz * 1.5;
+      spr.position.set(fx, crestY + 0.3, fz);
+      spr.scale.set(3 + Math.random() * 1.5, 2.4, 1);
+      this.scene.add(spr);
+      this._crestFoam.push({ spr, phase: Math.random() * 6, base: crestY + 0.3 });
+    }
+
+    // churning whitewater puffs sitting on the plunge pool around the impact
+    this._churn = [];
+    for (let i = 0; i < 12; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 1 + Math.random() * 6;
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: foamTex, transparent: true, opacity: 0.7, depthWrite: false,
+      }));
+      const cx = base.x + Math.cos(a) * r;
+      const cz = base.z + Math.sin(a) * r;
+      spr.position.set(cx, baseY + 0.5, cz);
+      const sc = 2.5 + Math.random() * 2.5;
+      spr.scale.set(sc, sc * 0.7, 1);
+      this.scene.add(spr);
+      this._churn.push({ spr, x: cx, z: cz, phase: Math.random() * 6, sc });
+    }
+
+    // heavy MIST column — two stacked translucent cylinders that slowly billow.
+    this._mistMeshes = [];
+    for (let layer = 0; layer < 2; layer++) {
+      const mist = new THREE.Mesh(
+        new THREE.CylinderGeometry(6.5 - layer, 3.5, 11 + layer * 3, 12, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: 0xeaf6ff, transparent: true, opacity: 0.14 - layer * 0.04,
+          depthWrite: false, side: THREE.DoubleSide,
+        })
+      );
+      mist.position.set(base.x, baseY + 5 + layer * 1.5, base.z);
+      this.scene.add(mist);
+      this._mistMeshes.push(mist);
+    }
+
+    // splashing droplets — fine fast particles flung up off the impact + the
+    // persistent bobbing spray cloud (drives the existing update() logic).
+    const N = 90;
     const sp = new Float32Array(N * 3);
     this._splashBase = new Float32Array(N * 3);
+    this._splashVel = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = Math.random() * 6;
@@ -401,37 +619,116 @@ export class World {
       sp[i * 3] = this._splashBase[i * 3] = x;
       sp[i * 3 + 1] = this._splashBase[i * 3 + 1] = baseY + Math.random() * 4;
       sp[i * 3 + 2] = this._splashBase[i * 3 + 2] = z;
+      this._splashVel[i] = 1 + Math.random() * 3;
     }
     const sgeo = new THREE.BufferGeometry();
     sgeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
     const smat = new THREE.PointsMaterial({
-      color: 0xffffff, size: 4, sizeAttenuation: true, transparent: true,
-      opacity: 0.85, depthWrite: false,
+      color: 0xffffff, size: 2.4, sizeAttenuation: true, transparent: true,
+      opacity: 0.9, depthWrite: false, map: foamTex,
     });
     this._splash = new THREE.Points(sgeo, smat);
     this.scene.add(this._splash);
 
-    // mist column hint
-    const mist = new THREE.Mesh(
-      new THREE.CylinderGeometry(5.5, 3, 9, 10, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xeaf6ff, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide })
-    );
-    mist.position.set(base.x, baseY + 4.5, base.z);
-    this.scene.add(mist);
+    // ripple rings spreading out on the plunge pool surface
+    this._ripples = [];
+    const rippleMat = new THREE.MeshBasicMaterial({
+      color: 0xeaf6ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false,
+    });
+    for (let i = 0; i < 4; i++) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.2, 24), rippleMat.clone());
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(base.x, baseY + 0.08, base.z);
+      this.scene.add(ring);
+      this._ripples.push({ mesh: ring, t: i / 4 });
+    }
+
+    // wet glossy rocks ringing the plunge pool (darker than the dry scatter)
+    const wetRockMat = new THREE.MeshLambertMaterial({ color: 0x5a6168 });
+    wetRockMat.emissive = new THREE.Color(0x202a30);
+    wetRockMat.emissiveIntensity = 0.22;
+    const wetRocks = [];
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + Math.random() * 0.4;
+      const rr = WFALL_POOL.rx * (1.0 + Math.random() * 0.25);
+      const x = base.x + Math.cos(a) * rr;
+      const z = base.z + Math.sin(a) * rr * (WFALL_POOL.rz / WFALL_POOL.rx);
+      wetRocks.push({ x, z, rotY: Math.random() * Math.PI * 2, s: 0.7 + Math.random() * 1.0 });
+    }
+    const wetRockTemplate = M.createRock(1);
+    wetRockTemplate.traverse((o) => { if (o.isMesh) o.material = wetRockMat; });
+    this._instance(wetRockTemplate, wetRocks);
 
     // sound anchor for main.js proximity loop
     this.waterfallPos = { x: base.x, y: baseY + 2, z: base.z };
   }
 
-  _addEllipseWater(x, z, rx, rz, mat) {
-    const geo = new THREE.CircleGeometry(1, 26);
-    geo.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(geo, mat);
-    m.scale.set(rx, 1, rz);
-    m.position.set(x, WATER_Y, z);
+  // Organic pond/lake surface: an irregular blob polygon at WATER_Y matching
+  // the carved basin outline, PLUS a short downward "skirt" wall ringing the
+  // edge so that from a low angle you see a wet wall sinking into the bank, not
+  // a floating disc edge. The surface is inset a hair so it tucks under the
+  // raised bank crest (carved in terrain.js) with no visible gap.
+  _addBlobWater(b, mat) {
+    const SEG = 40;
+    const surfMat = mat;
+    // ---- top surface (triangle fan) ----
+    const pos = [b.x, WATER_Y, b.z];          // center vertex
+    const uv = [0.5, 0.5];
+    const rim = [];                            // remember rim ring for the wall
+    for (let i = 0; i <= SEG; i++) {
+      const ang = (i / SEG) * Math.PI * 2;
+      const rmul = blobRadius(b.seed, ang) * 0.995;   // tuck just under the bank
+      const rx = b.rx * rmul;
+      const rz = b.rz * rmul;
+      const x = b.x + Math.cos(ang) * rx;
+      const z = b.z + Math.sin(ang) * rz;
+      pos.push(x, WATER_Y, z);
+      uv.push(0.5 + Math.cos(ang) * 0.5, 0.5 + Math.sin(ang) * 0.5);
+      rim.push({ x, z });
+    }
+    const idx = [];
+    for (let i = 1; i <= SEG; i++) idx.push(0, i, i + 1);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, surfMat);
     m.receiveShadow = ENABLE_SHADOWS;
     this.scene.add(m);
-    this._stampWaterCircle(x, z, rx, rz);
+
+    // ---- skirt wall: a ribbon dropping from the rim down below the bed so no
+    // see-through gap exists at the water's edge from low angles ----
+    const wallBottom = WATER_Y - (b.depth || 2.4) - 0.5;
+    const wpos = [];
+    const widx = [];
+    for (let i = 0; i < rim.length; i++) {
+      const r = rim[i];
+      wpos.push(r.x, WATER_Y, r.z, r.x, wallBottom, r.z);
+    }
+    for (let i = 0; i < rim.length - 1; i++) {
+      const a = i * 2;
+      widx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    const wgeo = new THREE.BufferGeometry();
+    wgeo.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
+    wgeo.setIndex(widx);
+    wgeo.computeVertexNormals();
+    const wallMat = new THREE.MeshLambertMaterial({
+      color: COLORS.waterDeep, transparent: true, opacity: 0.95, side: THREE.DoubleSide,
+    });
+    wallMat.emissive = new THREE.Color(COLORS.waterDeep);
+    wallMat.emissiveIntensity = 0.18;
+    this._anim.waterMats.push(wallMat);
+    const wall = new THREE.Mesh(wgeo, wallMat);
+    this.scene.add(wall);
+
+    this._stampWaterBlob(b);
+  }
+
+  // Kept for back-compat: route any ellipse request through the organic builder.
+  _addEllipseWater(x, z, rx, rz, mat) {
+    this._addBlobWater({ x, z, rx, rz, depth: 2.4, seed: x * 0.7 + z * 0.3 }, mat);
   }
 
   isWater(x, z) {
@@ -593,6 +890,29 @@ export class World {
       if (h > 34) tmp.copy(cSnow);
       else if (h > 16) tmp.lerp(cRock, Math.min(1, (h - 16) / 10));
       else if (h > 5) tmp.multiplyScalar(1 - Math.min(0.18, (h - 5) * 0.025));
+
+      // rock striations + colour variation up the big mountain: alternating
+      // warm/cool bands by altitude plus a noise mottle, so the cone reads as
+      // layered stone rather than a flat grey wedge.
+      const dMtn = Math.hypot(x - MOUNTAIN.x, z - MOUNTAIN.z);
+      if (dMtn < MOUNTAIN.r && h > 12 && h <= 34) {
+        const band = Math.sin(h * 0.55) * 0.5 + 0.5;          // horizontal strata
+        tmp.lerp(cBed, band * 0.18);                           // warm brown bands
+        const mottle = (Math.sin(x * 0.3 + 11) * Math.cos(z * 0.3 - 4));
+        tmp.multiplyScalar(1 + mottle * 0.06);
+        // WET darker streak where the waterfall runs down the SE face
+        const wfTop = { x: -276, z: -280 };
+        const wfBase = { x: WFALL_POOL.x, z: WFALL_POOL.z };
+        const wdx = wfBase.x - wfTop.x, wdz = wfBase.z - wfTop.z;
+        const wl2 = wdx * wdx + wdz * wdz;
+        let wt = ((x - wfTop.x) * wdx + (z - wfTop.z) * wdz) / wl2;
+        wt = wt < 0 ? 0 : wt > 1 ? 1 : wt;
+        const wdist = Math.hypot(x - (wfTop.x + wdx * wt), z - (wfTop.z + wdz * wt));
+        if (wdist < 9 && h > WATER_LEVEL) {
+          const wet = (1 - wdist / 9) * 0.6;
+          tmp.multiplyScalar(1 - wet);                         // darker = wet rock
+        }
+      }
 
       // sandy shores + visible riverbed
       if (h < WATER_LEVEL - 0.1) tmp.copy(cBed);
@@ -836,9 +1156,21 @@ export class World {
     this.cowSpawnAreas.push({ x: -20, z: -200, r: 30, count: CFG.COW_COUNT - fenced - front });
     this._clearRects.push({ x: -20, z: -200, w: 56, d: 56 });
 
-    // sheep meadow (open, hilly edge)
-    this.sheepSpawnAreas.push({ x: -255, z: 170, r: 24, count: CFG.SHEEP_COUNT });
-    this._clearRects.push({ x: -255, z: 170, w: 46, d: 46 });
+    // SHEEP meadow — a clear, open, fenced pasture plus surrounding flocks so
+    // sheep are plentiful and visible. cows.js spawns `count` sheep per area, so
+    // several areas give a full meadow well beyond the base CFG.SHEEP_COUNT.
+    const sheepBase = CFG.SHEEP_COUNT;          // 10
+    // main meadow with its own fence ring (gate on top) so it reads as a paddock
+    this._fenceRect(-255, 170, 56, 46, [0]);
+    this.sheepSpawnAreas.push({ x: -255, z: 170, r: 22, count: sheepBase + 6 });
+    this._clearRects.push({ x: -255, z: 170, w: 60, d: 50 });
+    // satellite flocks grazing the open grass around the meadow
+    this.sheepSpawnAreas.push({ x: -210, z: 130, r: 16, count: 6 });
+    this._clearRects.push({ x: -210, z: 130, w: 34, d: 34 });
+    this.sheepSpawnAreas.push({ x: -290, z: 210, r: 16, count: 5 });
+    this._clearRects.push({ x: -290, z: 210, w: 34, d: 34 });
+    this.sheepSpawnAreas.push({ x: -200, z: 200, r: 14, count: 5 });
+    this._clearRects.push({ x: -200, z: 200, w: 30, d: 30 });
   }
 
   // ----------------------------------------------------------- forest ring
@@ -867,6 +1199,106 @@ export class World {
     this._instance(M.createTree(1), types[1]);
     this._instance(M.createTree(2), types[2]);
     this._forestInner = inner;
+  }
+
+  // -------------------------------------------------------- deep dense forest
+  // A lush forest filling the SE corner quadrant — far from the farm core and
+  // every pasture. Tons of instanced trees (oak/pine/birch mix), an understory
+  // of bushes + rocks, scattered fallen logs, and two open clearings. Trunk
+  // colliders ring the forest edge so a low pass clips them; the dense interior
+  // stays collider-light to keep things cheap. Everything is instanced.
+  _buildForest() {
+    // forest footprint (SE corner)
+    const FX = 250, FZ = 250;       // center
+    const FR = 130;                  // radius of the forest blob
+    // two clearings to break up the canopy
+    const clearings = [
+      { x: 225, z: 215, r: 22 },
+      { x: 300, z: 290, r: 26 },
+    ];
+    this._forestArea = { x: FX, z: FZ, r: FR };
+    this._map.fields.push({ x: FX, z: FZ, w: FR * 1.6, d: FR * 1.6, color: '#1f4527' });
+
+    const inClearing = (x, z) => clearings.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r);
+    const inForest = (x, z) => {
+      const d = Math.hypot(x - FX, z - FZ);
+      // soft irregular edge so it isn't a perfect circle
+      const edge = FR * (0.85 + 0.15 * Math.sin(Math.atan2(z - FZ, x - FX) * 3));
+      return d < edge;
+    };
+    const nearEdge = (x, z) => Math.hypot(x - FX, z - FZ) > FR * 0.7;
+
+    const trees = [[], [], []];   // oak / pine / birch
+    const bushesA = [], bushesB = [];
+    const rocks = [[], [], []];
+    const logs = [];
+
+    // dense tree fill — jittered grid for a packed-but-natural look
+    const STEP = 7.5;
+    for (let x = FX - FR; x <= FX + FR; x += STEP) {
+      for (let z = FZ - FR; z <= FZ + FR; z += STEP) {
+        const jx = x + (Math.random() - 0.5) * STEP * 0.9;
+        const jz = z + (Math.random() - 0.5) * STEP * 0.9;
+        if (!inForest(jx, jz)) continue;
+        if (inClearing(jx, jz)) continue;
+        if (!this._isFree(jx, jz, 1.6)) continue;       // respects water/roads/props/pastures
+        if (terrainHeight(jx, jz) > 30) continue;        // treeline
+        // pine-dominant deep forest with oak + birch mixed in
+        const roll = Math.random();
+        const type = roll < 0.55 ? 1 : roll < 0.82 ? 0 : 2;
+        trees[type].push({ x: jx, z: jz, rotY: Math.random() * Math.PI * 2, s: 0.8 + Math.random() * 0.6 });
+        this._blockers.push({ x: jx, z: jz, r: 1.6 });
+        // collider only near the forest edge (cheap interior)
+        if (nearEdge(jx, jz)) {
+          this.colliders.push({ x: jx, z: jz, r: 1.4, h: terrainHeight(jx, jz) + (type === 0 ? 6 : 9) });
+        }
+        // understory: a bush tucked beside many trees
+        if (Math.random() < 0.4) {
+          const bx = jx + (Math.random() - 0.5) * 5;
+          const bz = jz + (Math.random() - 0.5) * 5;
+          (Math.random() < 0.5 ? bushesA : bushesB).push({ x: bx, z: bz, rotY: Math.random() * Math.PI, s: 0.8 + Math.random() * 0.6 });
+        }
+      }
+    }
+
+    // mossy rocks + a few standalone bushes scattered through the floor
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(Math.random()) * FR;
+      const x = FX + Math.cos(a) * rr;
+      const z = FZ + Math.sin(a) * rr;
+      if (!inForest(x, z) || inClearing(x, z)) continue;
+      if (!this._isFree(x, z, 1.2)) continue;
+      if (Math.random() < 0.55) {
+        rocks[(Math.random() * 3) | 0].push({ x, z, rotY: Math.random() * Math.PI * 2, s: 0.6 + Math.random() * 1.1 });
+      } else {
+        (Math.random() < 0.5 ? bushesA : bushesB).push({ x, z, rotY: Math.random() * Math.PI, s: 0.8 + Math.random() * 0.6 });
+      }
+    }
+
+    // fallen logs lying on the forest floor (reuse the river-log model, laid flat)
+    for (let i = 0; i < 16; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(Math.random()) * FR * 0.92;
+      const x = FX + Math.cos(a) * rr;
+      const z = FZ + Math.sin(a) * rr;
+      if (!inForest(x, z) || inClearing(x, z)) continue;
+      if (!this._isFree(x, z, 2)) continue;
+      logs.push({ x, z, rotY: Math.random() * Math.PI * 2, s: 0.9 + Math.random() * 0.7 });
+      this._blockers.push({ x, z, r: 1.6 });
+    }
+
+    this._instance(M.createTree(0), trees[0]);
+    this._instance(M.createTree(1), trees[1]);
+    this._instance(M.createTree(2), trees[2]);
+    this._instance(M.createBush(0), bushesA);
+    this._instance(M.createBush(1), bushesB);
+    this._instance(M.createRock(0), rocks[0]);
+    this._instance(M.createRock(1), rocks[1]);
+    this._instance(M.createRock(2), rocks[2]);
+    this._instance(M.createLog(), logs);
+
+    this._forestTreeCount = trees[0].length + trees[1].length + trees[2].length;
   }
 
   // ---------------------------------------------------------------- scatter
@@ -1004,6 +1436,29 @@ export class World {
     this._instance(M.createTree(1), pines);
     this._instance(M.createTree(0), oaks);
     this._instance(M.createRock(0), rocks);
+
+    // Extra surface detail: craggy rock OUTCROP slabs studded up the cone so the
+    // face reads as layered, broken stone (striations) rather than a smooth wedge.
+    const outcrops = [];
+    const stoneMat = M.mat(COLORS.rockGray, true);
+    const dkStoneMat = M.mat(0x70777c, true);
+    for (let i = 0; i < 70; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = 22 + Math.random() * (MOUNTAIN.r - 30);
+      const x = MOUNTAIN.x + Math.cos(a) * rr;
+      const z = MOUNTAIN.z + Math.sin(a) * rr;
+      if (Math.abs(x) > H - 4 || Math.abs(z) > H - 4) continue;
+      const h = terrainHeight(x, z);
+      if (h < 14 || h > 70) continue;
+      outcrops.push({ x, z, rotY: Math.random() * Math.PI * 2, s: 0.9 + Math.random() * 1.6 });
+    }
+    // a simple angular slab template (flat-ish wedge) for striation crags
+    const slab = new THREE.Group();
+    const s1 = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.0, 1.3), stoneMat);
+    s1.rotation.z = 0.3; slab.add(s1);
+    const s2 = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, 1.0), dkStoneMat);
+    s2.position.set(0.6, 0.7, 0.2); s2.rotation.z = -0.25; slab.add(s2);
+    this._instance(slab, outcrops);
   }
 
   // More life and craft along the water: a working water mill beside the dam,
@@ -1227,6 +1682,15 @@ export class World {
     ctx.fillRect(sizePx - band, 0, band, sizePx);
     ctx.globalAlpha = 1;
 
+    // the dense SE forest patch
+    if (this._forestArea) {
+      const f = this._forestArea;
+      ctx.fillStyle = '#13361d';
+      ctx.beginPath();
+      ctx.arc(px(f.x), py(f.z), f.r * 0.95 * k, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.strokeStyle = '#8a7445';
     ctx.lineWidth = Math.max(1, 4 * k);
     for (const r of this._roads) {
@@ -1243,16 +1707,27 @@ export class World {
     this._riverPts.forEach((p, i) => (i ? ctx.lineTo(px(p.x), py(p.z)) : ctx.moveTo(px(p.x), py(p.z))));
     ctx.stroke();
 
+    // Lake + ponds drawn as their ORGANIC blob outlines (same blobRadius the
+    // basins are carved/filled with) so the minimap matches the real shapes.
     ctx.fillStyle = '#3f7fd6';
-    const lk = this._map.lake;
-    ctx.beginPath();
-    ctx.ellipse(px(lk.x), py(lk.z), lk.rx * k, lk.rz * k, 0, 0, Math.PI * 2);
-    ctx.fill();
-    for (const p of this._map.ponds) {
+    const drawBlob = (b) => {
+      const seed = b.seed !== undefined ? b.seed : b.x * 0.7 + b.z * 0.3;
+      const rx = b.rx !== undefined ? b.rx : b.r;
+      const rz = b.rz !== undefined ? b.rz : (b.r * 0.82);
       ctx.beginPath();
-      ctx.ellipse(px(p.x), py(p.z), p.r * k, p.r * 0.82 * k, 0, 0, Math.PI * 2);
+      const SEG = 28;
+      for (let i = 0; i <= SEG; i++) {
+        const ang = (i / SEG) * Math.PI * 2;
+        const rmul = blobRadius(seed, ang);
+        const x = px(b.x + Math.cos(ang) * rx * rmul);
+        const y = py(b.z + Math.sin(ang) * rz * rmul);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
       ctx.fill();
-    }
+    };
+    drawBlob(this._map.lake);
+    for (const p of this._map.ponds) drawBlob(p);
 
     const dam = this._map.dam;
     ctx.fillStyle = '#9e9e9e';
@@ -1284,14 +1759,49 @@ export class World {
       this._flowTex.offset.y = (this._flowTex.offset.y - dt * 0.35) % 1;
       this._flowTex.offset.x = Math.sin(elapsed * 0.6) * 0.04;
     }
-    // waterfall sheet + dam spillway rush downward; splash bobs at the base
-    if (this._wfallTex) this._wfallTex.offset.y = (this._wfallTex.offset.y - dt * 2.4) % 1;
+    // waterfall: layered sheets scroll at their own speeds; foam crest bobs;
+    // churn pulses; mist billows; ripples spread; droplets fling up and reset.
+    if (this._wfallTexes) {
+      for (const s of this._wfallTexes) s.tex.offset.y = (s.tex.offset.y - dt * s.speed) % 1;
+    } else if (this._wfallTex) {
+      this._wfallTex.offset.y = (this._wfallTex.offset.y - dt * 2.4) % 1;
+    }
     if (this._anim.spillTex) this._anim.spillTex.offset.y = (this._anim.spillTex.offset.y - dt * 2.1) % 1;
+    if (this._crestFoam) {
+      for (const f of this._crestFoam) {
+        f.spr.position.y = f.base + Math.sin(elapsed * 4 + f.phase) * 0.25;
+        f.spr.material.opacity = 0.7 + Math.abs(Math.sin(elapsed * 3 + f.phase)) * 0.3;
+      }
+    }
+    if (this._churn) {
+      for (const c of this._churn) {
+        const p = 0.85 + Math.sin(elapsed * 3.5 + c.phase) * 0.25;
+        c.spr.scale.set(c.sc * p, c.sc * 0.7 * p, 1);
+        c.spr.position.y = WATER_Y + 0.5 + Math.abs(Math.sin(elapsed * 4 + c.phase)) * 0.4;
+      }
+    }
+    if (this._mistMeshes) {
+      for (let i = 0; i < this._mistMeshes.length; i++) {
+        const m = this._mistMeshes[i];
+        m.rotation.y += dt * (0.15 + i * 0.1);
+        m.material.opacity = (0.12 - i * 0.03) + Math.sin(elapsed * 0.8 + i) * 0.03;
+      }
+    }
+    if (this._ripples) {
+      for (const rp of this._ripples) {
+        rp.t = (rp.t + dt * 0.4) % 1;
+        const s = 1 + rp.t * (WFALL_POOL.rx * 0.8);
+        rp.mesh.scale.set(s, s, 1);
+        rp.mesh.material.opacity = 0.5 * (1 - rp.t);
+      }
+    }
     if (this._splash) {
       const arr = this._splash.geometry.attributes.position.array;
       const base = this._splashBase;
-      for (let i = 1; i < arr.length; i += 3) {
-        arr[i] = base[i] + Math.abs(Math.sin(elapsed * 3 + i)) * 1.7;
+      const vel = this._splashVel;
+      for (let j = 0, i = 1; i < arr.length; i += 3, j++) {
+        const v = vel ? vel[j] : 2;
+        arr[i] = base[i] + (Math.abs(Math.sin(elapsed * (1.5 + v) + i)) ** 2) * 2.6;
       }
       this._splash.geometry.attributes.position.needsUpdate = true;
     }

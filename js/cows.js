@@ -326,6 +326,7 @@ export class CowManager {
     this.scene.add(group);
     const c = {
       kind,                          // 'cow' | 'golden' | 'chicken' | 'sheep' | 'duck'
+      variant,                       // cow coat: 'holstein' | 'brown' (else null)
       group,
       groundY: gy,
       jumpCd: 0,
@@ -426,7 +427,7 @@ export class CowManager {
     this.cows[i] = this.cows[this.cows.length - 1];
     this.cows.pop();
     if (kind === 'golden') this._goldenT = CFG.GOLDEN_RESPAWN;
-    if (this.onAbduct) this.onAbduct({ kind, points, pos });
+    if (this.onAbduct) this.onAbduct({ kind, variant: c.variant, points, pos });
   }
 
   _fall(c, dt, beamOn, bp) {

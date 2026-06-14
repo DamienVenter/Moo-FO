@@ -66,6 +66,7 @@ export class HUD {
       warpFull: null,
       goalOn: null,
       goalHit: null,
+      canComplete: false,
     };
   }
 
@@ -104,6 +105,35 @@ export class HUD {
     });
     this._goalEl.innerHTML = TARGET_SVG;
     this._goalTxt = el('span', '', this._goalEl, '');
+
+    // --- Campaign objectives (top-center, below the goal; out of the way) ---
+    this._objEl = el('div', 'mf-objectives', root);
+    Object.assign(this._objEl.style, {
+      position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 86px)',
+      left: '50%', transform: 'translateX(-50%)', display: 'none',
+      flexDirection: 'column', gap: '3px', alignItems: 'flex-start',
+      font: '700 12px/1.2 system-ui, sans-serif', pointerEvents: 'none',
+      padding: '6px 10px', borderRadius: '10px', background: 'rgba(20,16,40,0.42)',
+    });
+    this._objRows = [];
+
+    // --- Campaign COMPLETE button (bottom-center; hidden until goal met) ---
+    this._completeBtn = document.createElement('button');
+    this._completeBtn.type = 'button';
+    this._completeBtn.innerHTML =
+      'MISSION COMPLETE <span style="opacity:.65;font-size:.85em">Q</span>';
+    Object.assign(this._completeBtn.style, {
+      position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+      bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)',
+      display: 'none', pointerEvents: 'auto', cursor: 'pointer',
+      font: '900 16px/1 system-ui, sans-serif', letterSpacing: '0.5px',
+      color: '#1a1230', background: 'linear-gradient(180deg,#ffe07a,#ffc23a)',
+      border: '3px solid #7a5a18', borderRadius: '999px', padding: '10px 20px',
+      boxShadow: '0 4px 0 rgba(0,0,0,0.35), 0 0 18px rgba(255,210,80,0.55)',
+    });
+    this._completeBtn.addEventListener('click', () => { if (this.onComplete) this.onComplete(); });
+    root.appendChild(this._completeBtn);
+    this.onComplete = null;
 
     // --- Bars (bottom-left) ---
     const bars = el('div', 'mf-bars', root);
@@ -172,12 +202,54 @@ export class HUD {
   // Public API
   // ======================================================================
 
-  show() { this.root.classList.remove('mf-hidden'); }
-  hide() { this.root.classList.add('mf-hidden'); }
+  show() {
+    this.root.classList.remove('mf-hidden');
+    // reset campaign-only widgets each round (re-populated if in campaign)
+    this._objEl.style.display = 'none';
+    this._completeBtn.style.display = 'none';
+    this._prev.canComplete = false;
+  }
+  hide() {
+    this.root.classList.add('mf-hidden');
+    this._objEl.style.display = 'none';
+    this._completeBtn.style.display = 'none';
+  }
+
+  /** Campaign objectives panel: rows of {label, done}. Pass null to hide. */
+  setObjectives(objectives) {
+    if (!objectives || !objectives.length) { this._objEl.style.display = 'none'; return; }
+    this._objEl.style.display = 'flex';
+    while (this._objRows.length < objectives.length) {
+      const row = el('div', '', this._objEl);
+      Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' });
+      const mark = el('span', '', row);
+      Object.assign(mark.style, { width: '14px', display: 'inline-block', textAlign: 'center', fontWeight: '900' });
+      const txt = el('span', '', row);
+      this._objRows.push({ row, mark, txt });
+    }
+    for (let i = 0; i < this._objRows.length; i++) {
+      const r = this._objRows[i];
+      if (i >= objectives.length) { r.row.style.display = 'none'; continue; }
+      r.row.style.display = 'flex';
+      const o = objectives[i];
+      r.mark.textContent = o.done ? '✓' : '•';
+      r.mark.style.color = o.done ? '#7cfc9a' : 'rgba(255,255,255,0.5)';
+      r.txt.textContent = o.label;
+      r.txt.style.color = o.done ? '#dffbe6' : 'rgba(255,255,255,0.82)';
+      r.txt.style.textShadow = '0 1px 2px rgba(0,0,0,0.6)';
+    }
+  }
 
   /** Called every frame by main — only touches DOM when a value changed. */
-  update({ score, timeLeft, health, combo, warpEnergy, cows, goal } = {}) {
+  update({ score, timeLeft, health, combo, warpEnergy, cows, goal, canComplete } = {}) {
     const p = this._prev;
+
+    // Campaign COMPLETE button — appears once the score goal is met.
+    if (typeof canComplete === 'boolean' && canComplete !== p.canComplete) {
+      p.canComplete = canComplete;
+      this._completeBtn.style.display = canComplete ? 'block' : 'none';
+      if (canComplete) this._repop(this._completeBtn, 'mf-pop');
+    }
 
     // Campaign goal pill (target icon + "score / target"); greener once hit.
     if (typeof goal === 'number') {
@@ -276,8 +348,9 @@ export class HUD {
     }
   }
 
-  /** ~10 Hz: blit pre-rendered map, then stamp entity dots + player arrow. */
-  updateMinimap({ player, cows = [], farmers = [] } = {}) {
+  /** ~10 Hz: a simplified map — muted terrain + little cow/sheep/farmer/dog
+   *  icons + the golden cow + the player arrow. */
+  updateMinimap({ player, cows = [], farmers = [], dogs = [] } = {}) {
     const ctx = this._mctx;
     const size = this._mapSize;
     const scale = size / (CFG.MAP_HALF * 2);
@@ -286,16 +359,54 @@ export class HUD {
 
     ctx.clearRect(0, 0, size, size);
     ctx.drawImage(this._mapStatic, 0, 0, size, size);
+    // Simplify: wash out the detailed terrain so only faint water/roads show
+    // through and the icons read clearly.
+    ctx.fillStyle = 'rgba(42, 78, 48, 0.5)';
+    ctx.fillRect(0, 0, size, size);
 
-    // Keep the minimap uncluttered: show only the objective (golden cow),
-    // the threats (farmers) and the player — not the whole herd.
     let golden = null;
+    // cows (white box + black spot) and sheep (fluffy cream circle)
     for (let i = 0; i < cows.length; i++) {
-      if (cows[i].kind === 'golden') { golden = cows[i]; break; }
+      const c = cows[i];
+      if (c.kind === 'golden') { golden = c; continue; }
+      const x = toX(c.x), y = toY(c.z);
+      if (c.kind === 'cow') {
+        ctx.fillStyle = '#f5f5f0';
+        ctx.fillRect(x - 2, y - 1.5, 4, 3);
+        ctx.fillStyle = '#2b2b2b';
+        ctx.fillRect(x - 1.6, y - 1, 1.6, 1.4);
+      } else if (c.kind === 'sheep') {
+        ctx.fillStyle = '#eae6da';
+        ctx.beginPath();
+        ctx.arc(x, y, 2.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#3a3330';
+        ctx.fillRect(x + 0.7, y - 0.8, 1.3, 1.6);
+      }
+      // chickens omitted to keep the map clean
     }
 
+    // dogs (Astro): orange body with a black collie face patch
+    for (let i = 0; i < dogs.length; i++) {
+      const x = toX(dogs[i].x), y = toY(dogs[i].z);
+      ctx.fillStyle = '#d98a3a';
+      ctx.fillRect(x - 1.9, y - 1.3, 3.8, 2.6);
+      ctx.fillStyle = '#2b2b2b';
+      ctx.fillRect(x - 1.9, y - 1.3, 1.5, 2.6);
+    }
+
+    // farmers (red body + dark hat brim)
+    for (let i = 0; i < farmers.length; i++) {
+      const x = toX(farmers[i].x), y = toY(farmers[i].z);
+      ctx.fillStyle = '#ff5252';
+      ctx.fillRect(x - 2, y - 1.4, 4, 3.4);
+      ctx.fillStyle = '#7a1414';
+      ctx.fillRect(x - 2.2, y - 2.2, 4.4, 1.1);
+    }
+
+    // golden cow — pulsing gold (the prize)
     if (golden) {
-      const r = 3.5 + Math.sin(performance.now() * 0.008) * 0.7; // 2.8–4.2px
+      const r = 3.4 + Math.sin(performance.now() * 0.008) * 0.7;
       ctx.fillStyle = '#ffd54f';
       ctx.shadowColor = '#ffd54f';
       ctx.shadowBlur = 6;
@@ -305,13 +416,7 @@ export class HUD {
       ctx.shadowBlur = 0;
     }
 
-    // Farmers: red 3px
-    ctx.fillStyle = '#ff5252';
-    for (let i = 0; i < farmers.length; i++) {
-      ctx.fillRect(toX(farmers[i].x) - 1.5, toY(farmers[i].z) - 1.5, 3, 3);
-    }
-
-    // Player: green triangle rotated by heading (heading 0 = -Z = map up)
+    // player — green arrow (heading 0 = -Z = map up)
     if (player) {
       ctx.save();
       ctx.translate(toX(player.x), toY(player.z));
@@ -320,10 +425,10 @@ export class HUD {
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(0, -5.5);
-      ctx.lineTo(4, 4);
+      ctx.moveTo(0, -6);
+      ctx.lineTo(4.2, 4.2);
       ctx.lineTo(0, 2);
-      ctx.lineTo(-4, 4);
+      ctx.lineTo(-4.2, 4.2);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();

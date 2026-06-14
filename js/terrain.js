@@ -105,13 +105,43 @@ const FLATS = [
 ];
 
 // Water basins (must match world.js shapes): lake + ponds carve below 0.
-const BASINS = [
-  { x: riverX(-195), z: -198, rx: 46, rz: 40 },  // reservoir lake
-  { x: 210, z: 185, rx: 23, rz: 19 },
-  { x: -305, z: 70, rx: 17, rz: 14 },
+// Each has a `seed` that drives an organic, blobby outline shared with the
+// water surface built in world.js — so the carved bank exactly tracks the
+// water edge (no floating-disc gap). `depth` is the basin floor below WATER.
+export const BASINS = [
+  { x: riverX(-195), z: -198, rx: 46, rz: 40, depth: 3.0, seed: 11.0, name: 'lake' },  // reservoir lake
+  { x: 210, z: 185, rx: 23, rz: 19, depth: 2.4, seed: 4.0, name: 'pondE' },
+  { x: -305, z: 70, rx: 17, rz: 14, depth: 2.2, seed: 7.3, name: 'pondW' },
 ];
 
+// Plunge pool also gets an organic outline (shared with world.js).
+export const WFALL_POOL_SHAPE = { x: WFALL_POOL.x, z: WFALL_POOL.z, rx: WFALL_POOL.rx, rz: WFALL_POOL.rz, depth: 2.6, seed: 19.0 };
+
 function clamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+
+// Organic radius multiplier for a blobby pond outline. Returns a smooth value
+// roughly in [0.72, 1.18] that varies with angle, deterministic per `seed`.
+// Shared by terrain.js (basin carve) and world.js (water surface polygon) so
+// the two always agree edge-to-edge.
+export function blobRadius(seed, ang) {
+  return 1
+    + 0.16 * Math.sin(ang * 2 + seed)
+    + 0.10 * Math.sin(ang * 3 - seed * 1.7)
+    + 0.06 * Math.sin(ang * 5 + seed * 0.6);
+}
+
+// Signed "inside" factor for an organic basin: returns how deep into the blob a
+// point is. >0 inside the water outline, ramps to 0 at `skirt` units beyond the
+// bank toe. `b` is a BASINS-style record with x,z,rx,rz,seed.
+function basinField(x, z, b, skirt) {
+  const dx = x - b.x;
+  const dz = z - b.z;
+  const ang = Math.atan2(dz / b.rz, dx / b.rx);
+  const rmul = blobRadius(b.seed, ang);
+  // normalized elliptical distance, 1 at the (organic) water edge
+  const d = Math.hypot(dx / (b.rx * rmul), dz / (b.rz * rmul));
+  return d;
+}
 
 export function terrainHeight(x, z) {
   // base rolling hills (broader + taller now for more elevation variety)
@@ -167,23 +197,39 @@ export function terrainHeight(x, z) {
     h = h + (RIVER_BED - h) * t;
   }
 
-  // water basins carve below water level
+  // water basins carve below water level, following each pond's ORGANIC blob
+  // outline. Inside the outline the bed sits at -depth (well under WATER_LEVEL);
+  // a skirt just outside the outline raises a bank ABOVE water so the surface
+  // fills the bowl edge-to-edge with no exposed disc rim.
   for (let i = 0; i < BASINS.length; i++) {
     const b = BASINS[i];
-    const d = Math.hypot((x - b.x) / (b.rx + 12), (z - b.z) / (b.rz + 12));
-    if (d < 1) {
-      const t = smooth(clamp01(1 - d));
-      h = h + (-1.6 - h) * t;
+    const d = basinField(x, z, b);          // 1 at the water edge
+    if (d < 1.5) {
+      // inside (d<=1): full carve to the floor.
+      // bank ring (1<d<1.5): lift the rim up so it crests above water.
+      if (d <= 1) {
+        const t = smooth(clamp01(1 - d * 0.85));      // deepest at center
+        h = h + (-b.depth - h) * t;
+      } else {
+        const bt = smooth(clamp01(1 - (d - 1) / 0.5)); // 1 at edge → 0 outside
+        const bankTop = 1.1;                            // bank crest above water
+        h = h + (bankTop - h) * bt * 0.7;
+      }
     }
   }
 
-  // waterfall plunge pool at the mountain's foot
+  // waterfall plunge pool at the mountain's foot — organic, carved + banked.
   {
-    const d = Math.hypot((x - WFALL_POOL.x) / (WFALL_POOL.rx + 10),
-                         (z - WFALL_POOL.z) / (WFALL_POOL.rz + 10));
-    if (d < 1) {
-      const t = smooth(clamp01(1 - d));
-      h = h + (-1.9 - h) * t;
+    const b = WFALL_POOL_SHAPE;
+    const d = basinField(x, z, b);
+    if (d < 1.5) {
+      if (d <= 1) {
+        const t = smooth(clamp01(1 - d * 0.85));
+        h = h + (-b.depth - h) * t;
+      } else {
+        const bt = smooth(clamp01(1 - (d - 1) / 0.5));
+        h = h + (1.0 - h) * bt * 0.6;
+      }
     }
   }
 

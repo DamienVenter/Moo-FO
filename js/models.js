@@ -684,6 +684,80 @@ export function createFarmer(variant = 0) {
 }
 
 /* ------------------------------------------------------------------ *
+ *  createDog — "Astro" the border collie sheepdog. ~1.4 long, ~0.9 tall.
+ *  Origin at the BOTTOM-CENTER; faces +Z like every character.
+ *  userData: { legs: [FL, FR, BL, BR], tail, head }
+ *  legs pivot at the hips (rotation.x = run cycle), tail pivots at the base
+ *  (rotation.y wag / rotation.x stream), head pivots at the neck (bark bob).
+ *  Classic black-and-white collie: white base coat with black saddle/face
+ *  patches, a folded-tip perky ear pair, a snout, a fluffy plumed tail, and
+ *  a RED BANDANNA around the neck. ≤ ~30 meshes; geometry/material shared.
+ * ------------------------------------------------------------------ */
+
+export function createDog() {
+  const g = new THREE.Group();
+  const white = mat(0xf5f5f0);          // collie white coat
+  const black = mat(0x232323);          // black collie patches
+  const pink = mat(COLORS.cowPink);     // tongue / inner ear
+  const nose = mat(0x14110e);           // nose + eyes
+  const bandana = mat(0xc62828);        // red neck bandanna
+
+  // Body — white barrel with a black saddle patch over the back, lower chest.
+  box(g, 0.46, 0.42, 0.92, white, 0, 0.56, -0.02);          // main torso
+  box(g, 0.4, 0.16, 0.62, white, 0, 0.34, 0.02);            // lower belly/chest
+  box(g, 0.48, 0.34, 0.5, black, 0, 0.62, -0.18);           // black back saddle
+  box(g, 0.3, 0.12, 0.2, black, 0.1, 0.66, 0.22);           // small shoulder fleck
+  box(g, 0.4, 0.26, 0.2, white, 0, 0.46, 0.4);              // white chest blaze
+
+  // Legs — pivot at the hip (y = 0.42). Order: FL, FR, BL, BR. White socks.
+  const legs = [];
+  for (const [lx, lz] of [[0.16, 0.32], [-0.16, 0.32], [0.16, -0.34], [-0.16, -0.34]]) {
+    const hip = pivot(g, lx, 0.42, lz);
+    box(hip, 0.15, 0.34, 0.16, white, 0, -0.18, 0);          // leg
+    box(hip, 0.17, 0.1, 0.2, white, 0, -0.36, 0.02);         // white paw/sock
+    legs.push(hip);
+  }
+
+  // Tail — pivot at the base; fluffy plume that streams when running.
+  const tail = pivot(g, 0, 0.62, -0.48);
+  const tailSeg = box(tail, 0.13, 0.13, 0.34, white, 0, 0.02, -0.16);
+  tailSeg.rotation.x = -0.5;                                  // lifts up at rest
+  const tailTip = box(tail, 0.16, 0.16, 0.18, white, 0, 0.16, -0.34);
+  tailTip.rotation.x = -0.5;
+  box(tail, 0.1, 0.1, 0.12, black, 0, 0.06, -0.22).rotation.x = -0.5; // dark mid-band
+
+  // Red bandanna around the neck (knot at the front).
+  const band = box(g, 0.42, 0.16, 0.3, bandana, 0, 0.62, 0.34);
+  band.rotation.x = 0.3;
+  box(g, 0.12, 0.14, 0.1, bandana, 0, 0.5, 0.5);             // bandanna knot
+
+  // Head — pivot at the neck; bobs down with rotation.x for the bark.
+  const head = pivot(g, 0, 0.72, 0.4);
+  box(head, 0.34, 0.32, 0.32, white, 0, 0.06, 0.06);         // white skull
+  box(head, 0.36, 0.2, 0.18, black, 0, 0.16, -0.02);         // black crown/mask top
+  box(head, 0.16, 0.26, 0.16, black, -0.1, 0.04, 0.08);      // left face patch (split mask)
+  // Snout + black nose + pink tongue.
+  box(head, 0.18, 0.16, 0.24, white, 0, -0.02, 0.26);        // muzzle
+  box(head, 0.1, 0.08, 0.06, nose, 0, 0.04, 0.4);            // nose
+  const tongue = box(head, 0.08, 0.04, 0.12, pink, 0, -0.08, 0.34);
+  tongue.rotation.x = 0.4;                                    // lolling tongue
+  // Eyes.
+  box(head, 0.06, 0.08, 0.04, nose, -0.1, 0.12, 0.21);
+  box(head, 0.06, 0.08, 0.04, nose, 0.1, 0.12, 0.21);
+  // Ears — perky base with a folded-over collie tip.
+  for (const s of [-1, 1]) {
+    const ear = box(head, 0.1, 0.18, 0.07, black, s * 0.16, 0.28, 0.0);
+    ear.rotation.z = s * 0.2;
+    const fold = box(head, 0.1, 0.07, 0.08, white, s * 0.17, 0.36, 0.04); // folded tip
+    fold.rotation.set(0.5, 0, s * 0.2);
+    box(head, 0.05, 0.1, 0.04, pink, s * 0.15, 0.27, 0.02);  // pink inner ear
+  }
+
+  g.userData = { legs, tail, head };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
  *  createChicken — ~0.55 tall. userData: { head, wings: [l, r] }
  * ------------------------------------------------------------------ */
 

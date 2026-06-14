@@ -117,7 +117,7 @@ export class UI {
     onStart, onResume, onRestart, onQuitToMenu, onToggleMute, onSelectMode,
     controls,
     // --- campaign additions (all optional / duck-typed) ---
-    campaign,
+    campaign, wallet,
     onStartLevel, onRetryLevel, onNextLevel, onLevelSelect,
   } = {}) {
     this.cb = {
@@ -139,10 +139,15 @@ export class UI {
     // if it isn't wired up yet.
     this.controls = controls || null;
     // Campaign model: { levels:[{index,target,time}], unlockedCount (getter),
-    // isCompleted(i), bestScore(i) }. Levels are pass/fail — there are no
-    // stars. Fully optional — every access is guarded so a missing campaign
-    // just yields an empty map.
+    // isCompleted(i), bestScore(i), starsFor(i) (0..3), totalStars (getter),
+    // beachUnlocked (getter), BEACH_STARS }. Fully optional — every access is
+    // guarded so a missing/partial campaign just yields an empty map.
     this.campaign = campaign || null;
+    // Cow-coin wallet store: { getBalance() -> number }. Optional & duck-typed
+    // so the coin widget shows 0 (and never throws) if no wallet is wired up.
+    this.wallet = wallet || null;
+    this._coinShown = 0;   // last value rendered into the coin widget
+    this._coinRaf = 0;     // rAF handle for the count-up animation
 
     this._startVisible = false;
     this._pauseVisible = false;
@@ -170,10 +175,10 @@ export class UI {
   _levels() {
     const c = this.campaign;
     if (c && Array.isArray(c.levels) && c.levels.length) return c.levels;
-    // Fallback: synthesise 20 placeholder levels so the map still renders.
+    // Fallback: synthesise 15 placeholder levels so the map still renders.
     if (!this._fallbackLevels) {
-      this._fallbackLevels = Array.from({ length: 20 }, (_, i) => ({
-        index: i + 1, target: 500 + i * 250, time: 90,
+      this._fallbackLevels = Array.from({ length: 15 }, (_, i) => ({
+        index: i + 1, target: 1000 + i * 640, time: 90,
       }));
     }
     return this._fallbackLevels;
@@ -195,6 +200,155 @@ export class UI {
   _bestScore(i) {
     try { return Number(this.campaign?.bestScore?.(i)) || 0; }
     catch (_) { return 0; }
+  }
+
+  // Stars earned on a completed level (0..3). Tolerates a campaign that
+  // doesn't expose starsFor() yet (older builds returned 0/stub) by falling
+  // back to a single "completed" star.
+  _starsFor(i) {
+    try {
+      const s = this.campaign?.starsFor?.(i);
+      if (s == null) return this._isCompleted(i) ? 1 : 0;
+      return Math.max(0, Math.min(3, s | 0));
+    } catch (_) { return this._isCompleted(i) ? 1 : 0; }
+  }
+
+  // Sum of stars across the campaign (drives the BEACH gate).
+  _totalStars() {
+    try {
+      const c = this.campaign;
+      if (c && c.totalStars != null) return Math.max(0, c.totalStars | 0);
+    } catch (_) { /* fall through */ }
+    let n = 0;
+    for (const lv of this._levels()) n += this._starsFor(lv.index ?? 0);
+    return n;
+  }
+
+  // Stars required to unlock the BEACH world (campaign.BEACH_STARS, else 35).
+  _beachStars() {
+    try {
+      const c = this.campaign;
+      if (c && c.BEACH_STARS != null) return c.BEACH_STARS | 0;
+    } catch (_) { /* fall through */ }
+    return 35;
+  }
+
+  _beachUnlocked() {
+    try {
+      const c = this.campaign;
+      if (c && c.beachUnlocked != null) return !!c.beachUnlocked;
+    } catch (_) { /* fall through */ }
+    return this._totalStars() >= this._beachStars();
+  }
+
+  // Current cow-coin balance from the wallet store (0 if unwired).
+  _coinBalance() {
+    try { return Math.max(0, Number(this.wallet?.getBalance?.()) || 0); }
+    catch (_) { return 0; }
+  }
+
+  // ----------------------------------------------------------------------
+  // COW-COIN balance widget — a small gold coin (drawn SVG: gold disc + a
+  // little cow face) followed by the live balance. The same widget appears
+  // on the mode selector and the level-select header; both share this._coins
+  // (a list) so setCoinBalance / animateCoinBalance update every instance.
+  // ----------------------------------------------------------------------
+  _buildCoinWidget(parent, extraCls = '') {
+    const wrap = el('div', `mf-coin-widget ${extraCls}`, parent);
+    wrap.appendChild(this._svgCoin());
+    const num = el('span', 'mf-coin-num', wrap, fmt(this._coinShown || this._coinBalance()));
+    wrap._numEl = num;
+    if (!this._coins) this._coins = [];
+    this._coins.push(wrap);
+    return wrap;
+  }
+
+  // Drawn cow-coin: a gold disc with a rim, plus a minimal cow face (white
+  // muzzle, two dark spots/ears, nostrils). NO emoji — pure SVG.
+  _svgCoin() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'mf-coin-ico');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    const mk = (tag, attrs) => {
+      const n = document.createElementNS(ns, tag);
+      for (const k in attrs) n.setAttribute(k, attrs[k]);
+      svg.appendChild(n);
+      return n;
+    };
+    mk('circle', { cx: 12, cy: 12, r: 11, class: 'mf-coin-disc' });
+    mk('circle', { cx: 12, cy: 12, r: 8.6, class: 'mf-coin-inner' });
+    // cow ears (two dark blobs up top)
+    mk('ellipse', { cx: 7.4, cy: 7.6, rx: 2.0, ry: 1.4, transform: 'rotate(-28 7.4 7.6)', class: 'mf-coin-cow' });
+    mk('ellipse', { cx: 16.6, cy: 7.6, rx: 2.0, ry: 1.4, transform: 'rotate(28 16.6 7.6)', class: 'mf-coin-cow' });
+    // a head spot
+    mk('ellipse', { cx: 9.4, cy: 10.4, rx: 2.0, ry: 1.7, class: 'mf-coin-cow' });
+    // muzzle (light) with two nostrils
+    mk('ellipse', { cx: 12, cy: 14.6, rx: 4.2, ry: 3.0, class: 'mf-coin-muzzle' });
+    mk('circle', { cx: 10.5, cy: 14.7, r: 0.8, class: 'mf-coin-cow' });
+    mk('circle', { cx: 13.5, cy: 14.7, r: 0.8, class: 'mf-coin-cow' });
+    return svg;
+  }
+
+  /** Public: snap the coin balance widget(s) to `n`. */
+  setCoinBalance(n) {
+    if (this._coinRaf) { cancelAnimationFrame(this._coinRaf); this._coinRaf = 0; }
+    const v = Math.max(0, Math.round(Number(n) || 0));
+    this._coinShown = v;
+    this._renderCoin(v);
+  }
+
+  /** Public: smooth count-up of the coin balance widget(s) from→to (ease-out). */
+  animateCoinBalance(from, to, { duration = 900 } = {}) {
+    if (this._coinRaf) { cancelAnimationFrame(this._coinRaf); this._coinRaf = 0; }
+    const a = Math.max(0, Math.round(Number(from) || 0));
+    const b = Math.max(0, Math.round(Number(to) || 0));
+    if (a === b) { this.setCoinBalance(b); return; }
+    const t0 = performance.now();
+    const tick = (now) => {
+      const t = Math.max(0, Math.min(1, (now - t0) / duration));
+      const e = 1 - Math.pow(1 - t, 3);            // ease-out cubic
+      const v = Math.round(a + (b - a) * e);
+      this._coinShown = v;
+      this._renderCoin(v);
+      // pop the widget(s) each frame the value changes (handled via class)
+      if (t < 1) this._coinRaf = requestAnimationFrame(tick);
+      else { this._coinRaf = 0; this._coinShown = b; this._renderCoin(b); }
+    };
+    this._pulseCoins();
+    this._coinRaf = requestAnimationFrame(tick);
+  }
+
+  _renderCoin(v) {
+    const txt = fmt(v);
+    if (!this._coins) return;
+    for (const w of this._coins) {
+      if (w && w._numEl && w._numEl.textContent !== txt) w._numEl.textContent = txt;
+    }
+  }
+
+  _pulseCoins() {
+    if (!this._coins) return;
+    for (const w of this._coins) {
+      if (!w) continue;
+      w.classList.remove('mf-coin-pop');
+      void w.offsetWidth;
+      w.classList.add('mf-coin-pop');
+    }
+  }
+
+  /** Refresh every coin widget to the wallet's current balance (no animation). */
+  _refreshCoinWidgets() {
+    this.setCoinBalance(this._coinBalance());
+  }
+
+  /** Toggle the header BEACH world chip locked/unlocked from the star total. */
+  _refreshBeachWorld() {
+    const w = this._lsBeachWorld;
+    if (!w) return;
+    const unlocked = this._beachUnlocked();
+    w.classList.toggle('mf-ls-world-locked', !unlocked);
+    w.classList.toggle('mf-ls-world-on', unlocked);
   }
 
   // ======================================================================
@@ -298,13 +452,15 @@ export class UI {
     this._modesBackBtn = backButton('mf-modes-back', head, 'BACK',
       () => this._setStartView('title'));
     el('h2', 'mf-panel-title mf-modes-title', head, 'SELECT MODE');
+    // Persistent cow-coin balance widget (top-right of the mode selector).
+    this._modesCoin = this._buildCoinWidget(head, 'mf-coin-modes');
 
     const grid = el('div', 'mf-mode-grid', view);
 
     // CAMPAIGN is now playable (opens LEVEL SELECT). MULTIPLAYER stays locked
     // ("coming soon"). FREE PLAY runs the normal start flow.
     const MODES = [
-      { key: 'campaign',    name: 'CAMPAIGN',    sub: '20 missions across the farm galaxy', locked: false },
+      { key: 'campaign',    name: 'CAMPAIGN',    sub: '15 missions across the farm galaxy', locked: false },
       { key: 'multiplayer', name: 'MULTIPLAYER', sub: 'Beam-off against your friends',       locked: true },
       { key: 'freeplay',    name: 'FREE PLAY',   sub: '90-second high-score rush',           locked: false },
     ];
@@ -349,6 +505,7 @@ export class UI {
     this._startTitleView.classList.toggle('mf-startview-on', !toModes);
     this._startModesView.classList.toggle('mf-startview-on', toModes);
     if (toModes) {
+      this._refreshCoinWidgets();
       // Restart the entrance animation for the cards every time.
       this._startModesView.classList.remove('mf-startview-anim');
       void this._startModesView.offsetWidth;
@@ -452,12 +609,14 @@ export class UI {
   // hi-res <canvas> (DPR-scaled) paints the world ONCE into an offscreen
   // cache; we only re-blit the visible slice on scroll / day-phase change.
   // A single smooth dirt road is the hero, winding bottom→top; all scenery
-  // (a meandering river crossed only by little wooden bridges, crop fields,
-  // pastures with grazing cows, a farm hamlet, trees) is composed AROUND it,
-  // and a hazy mountain range backdrops the summit at the very top. 20
-  // numbered UFO nodes ride the road as absolutely-positioned DOM buttons; a
-  // locked BEACH world teases beyond the FINISH. Own overlay so it floats
-  // over the start screen and re-tints with the live day cycle.
+  // (a smooth river crossed only by little wooden bridges + sourced from the
+  // mountains, outline-only cow pens with grazing cows & sheep, organic ponds,
+  // a tidy upright farm hamlet, trees) is composed AROUND it, and a detailed
+  // hazy mountain range backdrops the summit at the very top. One numbered UFO
+  // node per campaign level (count = campaign.levels.length, NOT hardcoded)
+  // rides the road as absolutely-positioned DOM buttons; a locked BEACH world
+  // teases beyond the FINISH. FULL-SCREEN: the map fills the entire viewport
+  // edge-to-edge with floating chrome overlaid. Re-tints with the day cycle.
   // ======================================================================
 
   _buildLevelSelect() {
@@ -467,27 +626,9 @@ export class UI {
     // Day-cycle scrim — driven by --mf-phase-glow (set on :root by the HUD).
     el('div', 'mf-ls-sky', s);
 
-    // Everything below lives in one centred column sized to the panel width so
-    // the header lines up with the framed map (no off-centre drift).
-    const shell = el('div', 'mf-ls-shell', s);
-
-    // Header: BACK · CAMPAIGN title · worlds indicator.
-    const head = el('div', 'mf-ls-head', shell);
-    this._lsBackBtn = backButton('mf-ls-back', head, 'BACK',
-      () => this._closeLevelSelect());
-    const titleWrap = el('div', 'mf-ls-titlewrap', head);
-    el('h2', 'mf-panel-title mf-ls-title', titleWrap, 'CAMPAIGN');
-    // Worlds indicator: FARM (active, drawn check) · BEACH (locked, drawn lock).
-    const worlds = el('div', 'mf-ls-worlds', head);
-    const wFarm = el('div', 'mf-ls-world mf-ls-world-on', worlds);
-    el('span', 'mf-ls-world-mark mf-ls-world-check', wFarm);
-    el('span', 'mf-ls-world-name', wFarm, 'FARM');
-    const wBeach = el('div', 'mf-ls-world mf-ls-world-locked', worlds);
-    el('span', 'mf-ls-world-mark mf-ls-world-lock', wBeach);
-    el('span', 'mf-ls-world-name', wBeach, 'BEACH');
-
-    // Scroll viewport for the tall map — this IS the big framed panel.
-    const scroll = el('div', 'mf-ls-scroll', shell);
+    // FULL-SCREEN map: the scroll viewport fills the ENTIRE screen edge-to-edge
+    // (100vw × 100vh, no framed inset, no gutters). All chrome floats OVER it.
+    const scroll = el('div', 'mf-ls-scroll', s);
     this._lsScroll = scroll;
     const stage = el('div', 'mf-ls-stage', scroll);
     this._lsStage = stage;
@@ -499,6 +640,27 @@ export class UI {
     this._lsSpacer = el('div', 'mf-ls-spacer', stage);
     // Node/marker layer (also tall — scrolls with the content).
     this._lsNodeLayer = el('div', 'mf-ls-nodes', stage);
+
+    // Floating chrome OVER the full-screen map:
+    //   • a floating BACK button (top-left)
+    //   • the CAMPAIGN title + FARM/BEACH worlds indicator (top, overlaid)
+    //   • a persistent cow-coin balance widget (top-right)
+    const overlay = el('div', 'mf-ls-overlay', s);
+    this._lsBackBtn = backButton('mf-ls-back', overlay, 'BACK',
+      () => this._closeLevelSelect());
+    const titleWrap = el('div', 'mf-ls-titlewrap', overlay);
+    el('h2', 'mf-panel-title mf-ls-title', titleWrap, 'CAMPAIGN');
+    // Worlds indicator: FARM (active, drawn check) · BEACH (locked, drawn lock).
+    const worlds = el('div', 'mf-ls-worlds', titleWrap);
+    const wFarm = el('div', 'mf-ls-world mf-ls-world-on', worlds);
+    el('span', 'mf-ls-world-mark mf-ls-world-check', wFarm);
+    el('span', 'mf-ls-world-name', wFarm, 'FARM');
+    const wBeach = el('div', 'mf-ls-world mf-ls-world-locked', worlds);
+    el('span', 'mf-ls-world-mark mf-ls-world-lock', wBeach);
+    el('span', 'mf-ls-world-name', wBeach, 'BEACH');
+    this._lsBeachWorld = wBeach;
+    // Coin balance widget (top-right of the level select).
+    this._lsCoin = this._buildCoinWidget(overlay, 'mf-coin-ls');
 
     // Wheel + drag + keyboard scrolling all funnel through the container's
     // native scrollTop; a scroll listener re-blits the canvas slice.
@@ -624,10 +786,7 @@ export class UI {
     const ctrl = [start, ...pts, finish];
     const samples = this._lsSampleSpline(ctrl, 14); // {x,y} densely along road
 
-    // Quick road-x lookup by height (nearest sample) so the river can be built
-    // road-AWARE: it hugs whichever side of the road has the most room, then
-    // smoothly swings ACROSS the road at a couple of chosen crossing heights.
-    // This GUARANTEES water meets the road only where we place a bridge.
+    // Quick road-x lookup by height (nearest sample).
     const roadXAtY = (y) => {
       let bx = samples[0].x, bd = 1e9;
       for (const s of samples) { const d = Math.abs(s.y - y); if (d < bd) { bd = d; bx = s.x; } }
@@ -635,35 +794,58 @@ export class UI {
     };
     const top = samples[0].y, bot = samples[samples.length - 1].y;
     const span = bot - top || 1;
-    // two crossing fractions, well spaced along the journey (deterministic).
-    const crossF = [0.34, 0.72];
-    const crossY = crossF.map((f) => bot - f * span);
-    // gap (px) the river keeps from the road centreline when NOT crossing.
-    const gap = Math.max(70, W * 0.18);
-    const riverPath = [];
-    for (let s = 0; s <= 1; s += 0.02) {
-      const y = bot - s * span;
-      const rx = roadXAtY(y);
-      // baseline side: left if there's more room left of the road, else right.
-      const side = rx > midX ? -1 : 1;
-      // crossing blend: 0 normally, →1 right at a crossing height (so the
-      // river sweeps from its side, through the road, and back).
-      let cross = 0, csign = 1;
-      for (let k = 0; k < crossY.length; k++) {
-        const t = 1 - Math.min(1, Math.abs(y - crossY[k]) / (nodeStep * 0.9));
-        if (t > cross) { cross = t; csign = k % 2 ? -1 : 1; }
+
+    // ----- THE RIVER: a SMOOTH, gentle, low-frequency curve -----------------
+    // Its SOURCE is the mountain range at the very top: it begins up in the
+    // haze (above the FINISH, at the mountains' foot) and flows down to leave
+    // the map at the bottom. We choose just a handful of control anchors so the
+    // curve has only a FEW soft bends (no hooks/kinks). Each anchor sits a
+    // comfortable GAP to one side of the road; we flip sides exactly TWICE, and
+    // place a bridge at each flip (the only places water meets the road).
+    const gap = Math.max(74, W * 0.20);     // how far the river sits off the road
+    // crossing heights (where the river swaps sides under a bridge), well
+    // spaced along the journey so the two bridges never bunch up.
+    const crossY = [bot - 0.30 * span, bot - 0.68 * span];
+    // The river "source" anchor sits up in the mountain foot, slightly off the
+    // map centre so it reads as spilling out of a specific valley.
+    const srcY = top - nodeStep * 0.55;     // up in the haze (above FINISH)
+    const srcX = clampX(midX - amp * 0.34);
+
+    // Build river control anchors top→bottom. Side starts on whichever side of
+    // the road the source favours, then flips at each crossing height.
+    const sideAt = (idx) => (idx % 2 === 0 ? 1 : -1); // +1 = right of road
+    // anchors run TOP→BOTTOM, i.e. ascending y (source first, then each
+    // crossing in descending screen height, then a final off-map anchor).
+    const anchorY = [srcY, ...crossY.slice().sort((a, b) => a - b), bot + nodeStep * 0.5];
+    const riverCtrl = [];
+    // source: blended out of the mountains (sits near map centre, faded later).
+    riverCtrl.push({ x: srcX, y: srcY });
+    let seg = 0;
+    for (let i = 0; i < anchorY.length; i++) {
+      const ay = anchorY[i];
+      if (i > 0 && i <= crossY.length) {
+        // a crossing anchor sits right ON the road centreline (the bridge).
+        riverCtrl.push({ x: roadXAtY(ay), y: ay });
+        seg++;
+      } else if (i > crossY.length) {
+        // final anchor below the map: park it to the current side, off-road.
+        const side = sideAt(seg);
+        riverCtrl.push({ x: clampX(roadXAtY(ay) + side * gap), y: ay });
       }
-      // off-road offset (eased), flipping to the far side as we cross.
-      const e = cross * cross * (3 - 2 * cross); // smoothstep
-      const off = side * gap * (1 - e) + (-side) * gap * e;
-      let x = rx + off + Math.sin(s * 6.0 + 0.7) * (W * 0.04) * (1 - cross);
-      x = Math.max(W * 0.06, Math.min(W * 0.94, x));
-      riverPath.push({ x, y });
+      // between crossings, drop ONE gentle mid anchor offset to the active side
+      // so each reach bows softly instead of running dead straight.
+      const next = anchorY[i + 1];
+      if (next != null) {
+        const my = (ay + next) / 2;
+        const side = sideAt(seg);
+        riverCtrl.push({ x: clampX(roadXAtY(my) + side * gap), y: my });
+      }
     }
+    // densely sample the river spline (smooth, no kinks).
+    const riverPath = this._lsSampleSpline(riverCtrl, 18);
 
     // bridges sit exactly at the crossing heights, angled to the road tangent.
     const bridges = crossY.map((cy) => {
-      // nearest sample index for the tangent
       let bi = 0, bd = 1e9;
       for (let i = 0; i < samples.length; i++) {
         const d = Math.abs(samples[i].y - cy); if (d < bd) { bd = d; bi = i; }
@@ -675,7 +857,7 @@ export class UI {
 
     return {
       W, H, vw, vh, pts, start, finish, beach, samples, riverPath, bridges,
-      nodeStep, topPad, botPad, midX, amp,
+      nodeStep, topPad, botPad, midX, amp, riverSrc: { x: srcX, y: srcY },
     };
   }
 
@@ -788,61 +970,144 @@ export class UI {
     const onLand = (x, y, rp = W * 0.13, vp = W * 0.07) =>
       clearOfRoad(x, y, rp) && clearOfRiver(x, y, vp) && x > 18 && x < W - 18;
 
-    // 2) THE RIVER — a soft meandering ribbon kept on the FAR side from the
-    // road. It is crossed only at the deliberate bridge points (drawn later
-    // on top of the road). Banks → water body → ripples → ponds.
+    // 2) THE RIVER — a single SMOOTH ribbon (built in _lsComputeLayout as a
+    // low-frequency spline). Its SOURCE is the mountain range at the top: the
+    // first stretch is drawn FADED so it dissolves into the haze/rock rather
+    // than ending in an abrupt stub. It is crossed only at the deliberate
+    // bridge points (decks drawn later, on top of the road). The river width
+    // also tapers from a thin mountain trickle at the source to a full river
+    // lower down. Banks → water body → ripples.
     g.lineCap = 'round'; g.lineJoin = 'round';
-    const traceRiver = () => {
-      g.beginPath();
-      riverPath.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+    // y at which the river has fully "emerged" from the haze (just below the
+    // mountain foot); above this it fades to nothing toward the source.
+    const srcY = layout.riverSrc ? layout.riverSrc.y : riverPath[0].y;
+    const emergeY = layout.finish.y + layout.nodeStep * 0.2;
+    // per-point emergence factor 0 (in the haze) → 1 (full river).
+    const emerge = (y) => {
+      const t = (y - srcY) / Math.max(1, emergeY - srcY);
+      return Math.max(0, Math.min(1, t));
     };
-    // sandy bank toe
-    g.strokeStyle = mix(COLORS.sand, 0x6fae5a, 0.4); g.lineWidth = 30; traceRiver(); g.stroke();
-    g.strokeStyle = shade(COLORS.waterDeep, 0.8); g.lineWidth = 24; traceRiver(); g.stroke();
-    // water body — gradient across the panel for a sunlit sheen
-    const riverGrad = g.createLinearGradient(0, 0, W, 0);
-    riverGrad.addColorStop(0, shade(COLORS.water, 0.85));
-    riverGrad.addColorStop(0.5, hex(COLORS.water));
-    riverGrad.addColorStop(1, mix(COLORS.water, 0xffffff, 0.18));
-    g.strokeStyle = riverGrad; g.lineWidth = 18; traceRiver(); g.stroke();
-    // ripple highlights along the flow
+    // Stroke the river as short segments so width + alpha can taper near the
+    // source (a single stroke can't vary width). Each layer = one pass.
+    const strokeRiver = (baseW, styleFor) => {
+      for (let i = 1; i < riverPath.length; i++) {
+        const a = riverPath[i - 1], b = riverPath[i];
+        const f = emerge((a.y + b.y) / 2);
+        if (f <= 0.001) continue;
+        g.globalAlpha = f;                 // fade in from the haze
+        g.lineWidth = baseW * (0.34 + 0.66 * f);  // trickle → full river
+        g.strokeStyle = styleFor(b);
+        g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+      }
+      g.globalAlpha = 1;
+    };
+    // water body colour by panel-x (sunlit sheen): a darker bank on the left
+    // grading to a bright sun-kissed edge on the right. All blends use int
+    // colours so mix()/shade() stay exact.
+    const waterDark = 0x366bb6;   // ≈ shade(COLORS.water, 0.85), as an int
+    const waterCol = (p) => {
+      const t = Math.max(0, Math.min(1, p.x / W));
+      if (t < 0.5) return mix(waterDark, COLORS.water, t * 2);
+      return mix(COLORS.water, 0xffffff, (t - 0.5) * 0.36);
+    };
+    // sandy bank toe, darker under-water edge, then the water body.
+    strokeRiver(30, () => mix(COLORS.sand, 0x6fae5a, 0.4));
+    strokeRiver(24, () => shade(COLORS.waterDeep, 0.8));
+    strokeRiver(18, waterCol);
+    // ripple highlights along the flow (also faded near the source).
     g.strokeStyle = 'rgba(255,255,255,0.32)'; g.lineWidth = 1.6;
     for (let i = 3; i < riverPath.length - 1; i += 3) {
       const p = riverPath[i];
+      const f = emerge(p.y);
+      if (f < 0.25) continue;
+      g.globalAlpha = f * 0.9;
       g.beginPath(); g.moveTo(p.x - 5, p.y); g.quadraticCurveTo(p.x, p.y - 3, p.x + 5, p.y); g.stroke();
     }
+    g.globalAlpha = 1;
 
-    // a couple of PONDS tucked beside the river, with lily pads.
+    // a few PONDS that sit NATURALLY in the grass — each an ORGANIC, UNIQUE
+    // blobby outline (a wobbly closed curve, NOT a perfect ellipse) with a soft
+    // darker BANK ring where the water meets the land, so it reads as sunk into
+    // the meadow rather than a disc floating on a drop-shadow. No float-shadow.
     const lilyDots = (cx, cy, rx, ry, count) => {
       for (let k = 0; k < count; k++) {
         const a = R() * 6.283, rr = R();
-        const lx = cx + Math.cos(a) * rx * 0.7 * rr;
-        const ly = cy + Math.sin(a) * ry * 0.7 * rr;
-        const lr = 2.2 + R() * 2.4;
+        const lx = cx + Math.cos(a) * rx * 0.62 * rr;
+        const ly = cy + Math.sin(a) * ry * 0.62 * rr;
+        const lr = 2.0 + R() * 2.2;
         g.fillStyle = '#3f9e54';
         g.beginPath(); g.ellipse(lx, ly, lr, lr * 0.8, 0, 0.5, 6.0); g.fill();
         if (R() < 0.4) { g.fillStyle = '#ffd9ef'; g.beginPath(); g.arc(lx, ly - lr * 0.3, lr * 0.4, 0, 6.283); g.fill(); }
       }
     };
-    const pond = (px, py, pr) => {
-      shadow(px, py + pr * 0.7 + 3, pr + 3, pr * 0.55, 0.16);
-      g.fillStyle = shade(COLORS.waterDeep, 0.75);
-      g.beginPath(); g.ellipse(px, py + 2, pr + 2, pr * 0.7 + 2, 0, 0, 6.283); g.fill();
-      const pg = g.createRadialGradient(px - pr * 0.3, py - pr * 0.3, 2, px, py, pr);
-      pg.addColorStop(0, mix(COLORS.water, 0xffffff, 0.25));
+    // trace an organic blob: N radii wobbled by a per-pond seed → a unique,
+    // believable shoreline. Returns the path so callers can fill OR stroke it.
+    const blobPath = (px, py, pr, ry, seed, inset = 1) => {
+      const N = 16;
+      g.beginPath();
+      for (let k = 0; k <= N; k++) {
+        const a = (k / N) * 6.283;
+        // two low harmonics keep the outline smooth but irregular (unique).
+        const wob = 1
+          + 0.20 * Math.sin(a * 2 + seed)
+          + 0.12 * Math.sin(a * 3 - seed * 1.7)
+          + 0.07 * Math.sin(a * 5 + seed * 0.5);
+        const rx = pr * wob * inset, rry = ry * wob * inset;
+        const x = px + Math.cos(a) * rx;
+        const y = py + Math.sin(a) * rry;
+        k ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.closePath();
+    };
+    const pond = (px, py, pr, seed) => {
+      const ry = pr * 0.72;
+      // 1) damp grassy BANK ring just OUTSIDE the water (no offset shadow) —
+      // grounds the pond in the meadow where land meets water.
+      g.save();
+      blobPath(px, py, pr, ry, seed, 1.16);
+      g.fillStyle = 'rgba(40, 70, 36, 0.32)';
+      g.fill();
+      g.restore();
+      // 2) muddy shoreline lip just inside the bank.
+      blobPath(px, py, pr, ry, seed, 1.04);
+      g.fillStyle = mix(COLORS.field, 0x6fae5a, 0.5);
+      g.fill();
+      // 3) water body — radial gradient (bright near-sky highlight upper-left
+      // → deep water), clipped to the organic outline so the rim hugs the blob.
+      g.save();
+      blobPath(px, py, pr, ry, seed, 1.0);
+      g.clip();
+      const pg = g.createRadialGradient(px - pr * 0.35, py - ry * 0.4, 2, px, py, pr * 1.1);
+      pg.addColorStop(0, mix(COLORS.water, 0xffffff, 0.30));
+      pg.addColorStop(0.7, hex(COLORS.water));
       pg.addColorStop(1, hex(COLORS.waterDeep));
       g.fillStyle = pg;
-      g.beginPath(); g.ellipse(px, py, pr, pr * 0.7, 0, 0, 6.283); g.fill();
-      g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 1.4;
-      g.beginPath(); g.ellipse(px, py, pr * 0.6, pr * 0.4, 0, 0, 3.14); g.stroke();
-      lilyDots(px, py, pr, pr * 0.7, 5);
+      g.fillRect(px - pr * 1.4, py - ry * 1.4, pr * 2.8, ry * 2.8);
+      // inner shadow at the far (lower-right) bank for depth.
+      const sh = g.createRadialGradient(px + pr * 0.3, py + ry * 0.35, 2, px, py, pr * 1.15);
+      sh.addColorStop(0, 'rgba(10,40,70,0)');
+      sh.addColorStop(1, 'rgba(8,30,60,0.4)');
+      g.fillStyle = sh;
+      g.fillRect(px - pr * 1.4, py - ry * 1.4, pr * 2.8, ry * 2.8);
+      g.restore();
+      // 4) a soft sheen streak + lily pads on top.
+      g.strokeStyle = 'rgba(255,255,255,0.30)'; g.lineWidth = 1.4;
+      g.beginPath(); g.ellipse(px - pr * 0.1, py - ry * 0.2, pr * 0.5, ry * 0.32, -0.3, 0.2, 3.0); g.stroke();
+      lilyDots(px, py, pr, ry, 5);
     };
-    // ponds on the river side, well away from the road column
-    for (const fy of [0.30, 0.74]) {
-      const py = H * fy;
-      const rx = riverXAt(py);
-      const px = rx + (rx < W / 2 ? -W * 0.09 : W * 0.09);
-      if (clearOfRoad(px, py, W * 0.14)) pond(px, py, W * 0.055);
+    // place a handful of unique ponds out in the open meadow, clear of the
+    // road AND the river, each with its own seed → its own shape.
+    {
+      let placedPonds = 0, attempt = 0;
+      const wantPonds = 3;
+      while (placedPonds < wantPonds && attempt < 80) {
+        attempt++;
+        const py = H * (0.20 + R() * 0.66);
+        const px = (R() < 0.5 ? W * (0.10 + R() * 0.22) : W * (0.68 + R() * 0.22));
+        if (!onLand(px, py, W * 0.16, W * 0.10)) continue;
+        pond(px, py, W * (0.05 + R() * 0.02), R() * 6.283);
+        placedPonds++;
+      }
     }
 
     // 3) TILLED CROP FIELDS — read as a ploughed field (soil + furrow ridges +
@@ -897,32 +1162,59 @@ export class UI {
     placeField(0.62, W * 0.24, H * 0.055, -0.03, 10, '#7dbf4a'); // veg
     placeField(0.80, W * 0.22, H * 0.05, 0.04, 11, '#cf6f3a');   // squash
 
-    // 4) FENCED PASTURES — grazed plots with mow stripes, tufts, post-and-rail
-    // fence. These host the grazing cows. Placed beside the road too.
+    // 4) COW PENS — every pen is a CLEAN rectangular FENCE OUTLINE: a ring of
+    // posts joined by two horizontal rails around the PERIMETER only, with
+    // plain grass inside and NO internal fence lines or mow stripes. These host
+    // the grazing cows & sheep. Placed beside the road.
     const pasture = (x, y, w, h) => {
       const x0 = x - w / 2, y0 = y - h / 2;
-      shadow(x + 2, y + h / 2 + 2, w * 0.5, h * 0.28, 0.14);
-      g.fillStyle = mix(COLORS.grassA, 0xeaf6c8, 0.22);
-      this._roundRect(g, x0, y0, w, h, 7); g.fill();
-      g.save();
-      this._roundRect(g, x0, y0, w, h, 7); g.clip();
-      for (let sx = x0, k = 0; sx < x0 + w; sx += 10, k++) {
-        g.fillStyle = k % 2 ? mix(COLORS.grassB, 0xffffff, 0.10) : mix(COLORS.grassA, 0x9fbf4a, 0.18);
-        g.globalAlpha = 0.55; g.fillRect(sx, y0, 10, h);
+      // a faint grassy clearing inside the pen (subtly lighter, NO stripe
+      // lines), so the enclosure reads as kept/grazed grass.
+      g.fillStyle = mix(COLORS.grassA, 0xeaf6c8, 0.16);
+      this._roundRect(g, x0, y0, w, h, 5); g.fill();
+      // a few soft tufts inside — dots, not lines — to texture the grass.
+      g.fillStyle = this._withAlpha(shade(COLORS.grassB, 0.85), 0.5);
+      for (let t = 0; t < (w * h) / 220; t++) {
+        const tx = x0 + 4 + R() * (w - 8), ty = y0 + 4 + R() * (h - 8);
+        g.beginPath(); g.arc(tx, ty, 0.9 + R() * 0.7, 0, 6.283); g.fill();
       }
-      g.globalAlpha = 1;
-      g.strokeStyle = shade(COLORS.grassB, 0.7); g.lineWidth = 1;
-      for (let t = 0; t < (w * h) / 90; t++) {
-        const tx = x0 + R() * w, ty = y0 + 2 + R() * (h - 4);
-        g.beginPath(); g.moveTo(tx, ty); g.lineTo(tx - 1.4, ty - 2.6);
-        g.moveTo(tx, ty); g.lineTo(tx + 1.4, ty - 2.6); g.stroke();
+      // POSTS around the perimeter (evenly spaced on all four sides).
+      const postW = 2.8, postH = 4.2;
+      const nx = Math.max(2, Math.round(w / 22));   // posts per horizontal edge
+      const ny = Math.max(2, Math.round(h / 22));   // posts per vertical edge
+      const postPts = [];
+      for (let i = 0; i <= nx; i++) {
+        const px = x0 + (w * i) / nx;
+        postPts.push([px, y0], [px, y0 + h]);
       }
-      g.restore();
-      g.strokeStyle = shade(COLORS.wood, 0.85); g.lineWidth = 2;
-      this._roundRect(g, x0, y0, w, h, 7); g.stroke();
-      g.fillStyle = shade(COLORS.woodDark, 1.0);
-      const posts = Math.max(2, Math.round(w / 16));
-      for (let i = 0; i <= posts; i++) g.fillRect(x0 + (w * i) / posts - 1.4, y0 - 1.5, 2.8, h + 3);
+      for (let i = 1; i < ny; i++) {
+        const py = y0 + (h * i) / ny;
+        postPts.push([x0, py], [x0 + w, py]);
+      }
+      // two RAILS around the perimeter (upper + lower rail), drawn as the pen
+      // outline only — no interior segments.
+      g.lineJoin = 'round'; g.lineCap = 'round';
+      const railOutline = (inset) => {
+        g.beginPath();
+        g.moveTo(x0 + 0.5, y0 + inset);
+        g.lineTo(x0 + w - 0.5, y0 + inset);
+        g.lineTo(x0 + w - 0.5, y0 + h - inset);
+        g.lineTo(x0 + 0.5, y0 + h - inset);
+        g.closePath();
+      };
+      g.strokeStyle = shade(COLORS.wood, 0.95); g.lineWidth = 1.8;
+      railOutline(1.4); g.stroke();      // top rail
+      g.strokeStyle = shade(COLORS.wood, 0.8); g.lineWidth = 1.6;
+      railOutline(-1.4); g.stroke();     // bottom rail (slightly lower/darker)
+      // POSTS on top of the rails, with a tiny shadow nub for solidity.
+      for (const [px, py] of postPts) {
+        g.fillStyle = 'rgba(10,31,16,0.25)';
+        g.fillRect(px - postW / 2 + 0.6, py - postH / 2 + 0.8, postW, postH);
+        g.fillStyle = shade(COLORS.woodDark, 1.05);
+        g.fillRect(px - postW / 2, py - postH / 2, postW, postH);
+        g.fillStyle = mix(COLORS.wood, 0xffffff, 0.25);
+        g.fillRect(px - postW / 2, py - postH / 2, postW * 0.4, postH);
+      }
     };
     const pastures = [];
     const placePasture = (fy, w, h) => {
@@ -964,20 +1256,27 @@ export class UI {
     this._lsDrawFlag(g, layout.start.x, layout.start.y, hex(COLORS.uiGreen), 'START');
     this._lsDrawFlag(g, layout.finish.x, layout.finish.y, hex(COLORS.gold), 'FINISH');
 
-    // 10) MOUNTAIN RANGE BACKDROP — only at the very top, behind a band of
-    // atmospheric haze so it reads as the far summit/destination.
+    // 10a) MAP-FADE HAZE — applied to the upper meadow (and the higher locked
+    // levels) so the WHOLE world dissolves into atmospheric haze toward the top
+    // and reads as continuing upward INTO the mountains. Drawn BEFORE the range
+    // so the peaks themselves stay crisp in front of it.
+    const fadeTop = layout.finish.y - layout.nodeStep * 0.55;       // mountain foot
+    const fadeBot = fadeTop + layout.nodeStep * 1.9;                 // fade reach down
+    const mapHaze = g.createLinearGradient(0, fadeTop - layout.nodeStep * 1.4, 0, fadeBot);
+    mapHaze.addColorStop(0, 'rgba(207,226,235,0.82)');
+    mapHaze.addColorStop(0.5, 'rgba(207,226,235,0.42)');
+    mapHaze.addColorStop(1, 'rgba(207,226,235,0)');
+    g.fillStyle = mapHaze;
+    g.fillRect(0, 0, W, fadeBot);
+
+    // 10b) MOUNTAIN RANGE BACKDROP — at the very top, sitting in front of the
+    // map-fade haze so the world reads as climbing up into the summit.
     this._lsDrawMountains(g, layout);
 
     // 11) BEACH — COMING SOON teaser above the summit.
     this._lsDrawBeach(g, layout);
 
-    // 12) global lighting: a soft vignette, plus atmospheric haze fading in
-    // toward the TOP so distance reads as depth.
-    const haze = g.createLinearGradient(0, layout.topPad * 0.2, 0, layout.topPad * 1.3);
-    haze.addColorStop(0, 'rgba(207,226,235,0.55)');
-    haze.addColorStop(1, 'rgba(207,226,235,0)');
-    g.fillStyle = haze; g.fillRect(0, 0, W, layout.topPad * 1.3);
-
+    // 12) global lighting: a soft vignette to seat the whole composition.
     const vig = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.62);
     vig.addColorStop(0, 'rgba(0,0,0,0)');
     vig.addColorStop(1, 'rgba(6,20,12,0.30)');
@@ -1109,66 +1408,127 @@ export class UI {
   // random corner blob. Sits between the FINISH and the BEACH crest.
   _lsDrawMountains(g, layout) {
     const { W } = layout;
+    const M = rng(0x70017A1);          // deterministic per-peak PRNG seed
     // foot of the range a touch above the FINISH chip; peaks rise toward the
     // beach so the range reads as the summit you have climbed toward.
     const baseY = layout.finish.y - layout.nodeStep * 0.55;
+    const footY = baseY + 78;        // common "ground" line all peaks rest on
     g.save();
-    // farthest, palest ridge
-    const ridge = (yOff, col, alpha, jag) => {
+
+    // 1) FAR HAZE RIDGES — two soft, low silhouettes behind the main range,
+    // each a smooth ridgeline (varied bump heights) fading into the sky so the
+    // world feels like it continues upward into distance.
+    const ridge = (yOff, col, alpha, jag, freq) => {
       g.globalAlpha = alpha;
       g.fillStyle = col;
       g.beginPath();
-      g.moveTo(-10, baseY + yOff + 60);
-      let up = true;
-      for (let x = -10, k = 0; x <= W + 10; x += W / 7, k++) {
-        const peak = baseY + yOff - (up ? jag : jag * 0.4) * (0.6 + ((k * 53) % 7) / 10);
-        g.lineTo(x, peak);
-        up = !up;
+      g.moveTo(-12, footY);
+      const step = W / freq;
+      for (let x = -12, k = 0; x <= W + 12; x += step, k++) {
+        const hh = jag * (0.45 + 0.55 * (((k * 73) % 11) / 11));
+        // mid control + peak give a soft rounded ridgeline (not zig-zag teeth).
+        const peakY = baseY + yOff - hh;
+        g.quadraticCurveTo(x - step * 0.5, peakY + hh * 0.4, x, peakY);
       }
-      g.lineTo(W + 10, baseY + yOff + 60);
+      g.lineTo(W + 12, footY);
       g.closePath(); g.fill();
     };
-    ridge(34, mix(COLORS.rockGray, 0xeaf2ff, 0.55), 0.55, 46);   // distant haze-blue
-    ridge(54, mix(COLORS.rockGray, 0xc9d6e6, 0.35), 0.7, 64);    // mid range
-    // nearest range with snow caps + sunlit faces
-    g.globalAlpha = 0.92;
-    const peaks = 5;
+    ridge(46, mix(COLORS.rockGray, 0xeaf2ff, 0.62), 0.5, 40, 6);  // farthest haze-blue
+    ridge(60, mix(COLORS.rockGray, 0xc9d6e6, 0.42), 0.66, 58, 5); // mid range
+
+    // 2) MAIN RANGE — each peak is UNIQUE: varied width/height, a slight lean,
+    // a different snow line, rock striations + a shaded (right) face and a
+    // sunlit (left) face. Heights/leans come from the seeded PRNG.
+    g.globalAlpha = 0.96;
+    const peaks = 6;
+    const slotW = W / peaks;
     for (let p = 0; p < peaks; p++) {
-      const cx = (W / peaks) * (p + 0.5);
-      const pw = (W / peaks) * 0.95;
-      const ph = 70 + ((p * 37) % 30);
-      const topY = baseY + 70 - ph;
-      // shadow face
-      g.fillStyle = shade(COLORS.rockGray, 0.78);
+      const jitter = (M() - 0.5);
+      const cx = slotW * (p + 0.5) + jitter * slotW * 0.32;
+      const pw = slotW * (0.86 + M() * 0.5);
+      const ph = 64 + M() * 92;                 // DIFFERENT SIZES per peak
+      const lean = (M() - 0.5) * pw * 0.36;      // unique sideways lean of apex
+      const apexX = cx + lean, apexY = footY - ph;
+      const lX = cx - pw / 2, rX = cx + pw / 2;
+      const snowLine = 0.24 + M() * 0.22;        // unique snow extent per peak
+
+      // shaded (right) half of the rock face — darker.
+      g.fillStyle = shade(COLORS.rockGray, 0.70);
       g.beginPath();
-      g.moveTo(cx - pw / 2, baseY + 70);
-      g.lineTo(cx, topY);
-      g.lineTo(cx + pw / 2, baseY + 70);
+      g.moveTo(apexX, apexY); g.lineTo(rX, footY); g.lineTo(apexX, footY);
       g.closePath(); g.fill();
-      // sunlit (left) face
-      g.fillStyle = mix(COLORS.rockGray, 0xffffff, 0.18);
+      // sunlit (left) half — lighter.
+      g.fillStyle = mix(COLORS.rockGray, 0xffffff, 0.16);
       g.beginPath();
-      g.moveTo(cx - pw / 2, baseY + 70);
-      g.lineTo(cx, topY);
-      g.lineTo(cx - pw * 0.12, baseY + 70);
+      g.moveTo(apexX, apexY); g.lineTo(lX, footY); g.lineTo(apexX, footY);
       g.closePath(); g.fill();
-      // snow cap
+
+      // rock STRIATIONS — diagonal strata lines following each face, clipped to
+      // the peak triangle so they never spill onto the sky.
+      g.save();
+      g.beginPath();
+      g.moveTo(lX, footY); g.lineTo(apexX, apexY); g.lineTo(rX, footY); g.closePath();
+      g.clip();
+      g.strokeStyle = 'rgba(40,46,52,0.35)'; g.lineWidth = 1;
+      for (let s = 1; s <= 6; s++) {
+        const t = s / 7;
+        const y = apexY + (footY - apexY) * t;
+        g.beginPath();
+        g.moveTo(lX - 4, y + 4);
+        g.quadraticCurveTo(apexX, y - 3, rX + 4, y + 6);
+        g.stroke();
+      }
+      // a couple of brighter cracks for craggy texture.
+      g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 0.8;
+      for (let s = 0; s < 3; s++) {
+        const sxv = lX + pw * (0.2 + M() * 0.6);
+        g.beginPath();
+        g.moveTo(sxv, footY);
+        g.lineTo(apexX + (sxv - apexX) * 0.3, apexY + ph * 0.4);
+        g.stroke();
+      }
+      g.restore();
+
+      // SNOW CAP — a unique ragged snow field below the apex, with a shaded
+      // underside so it reads as depth, not a flat triangle.
+      const snowBaseY = apexY + ph * snowLine;
       g.fillStyle = hex(COLORS.snow);
       g.beginPath();
-      g.moveTo(cx, topY);
-      g.lineTo(cx - pw * 0.16, topY + ph * 0.26);
-      g.lineTo(cx - pw * 0.06, topY + ph * 0.16);
-      g.lineTo(cx + pw * 0.05, topY + ph * 0.28);
-      g.lineTo(cx + pw * 0.16, topY + ph * 0.18);
+      g.moveTo(apexX, apexY);
+      // left jagged edge down
+      const segs = 4;
+      for (let s = 1; s <= segs; s++) {
+        const t = s / segs;
+        const ex = apexX + (lX - apexX) * t * 0.62;
+        const ey = apexY + (snowBaseY - apexY) * t + (M() - 0.5) * ph * 0.06;
+        g.lineTo(ex, ey);
+      }
+      // jagged drip line across, then back up the right edge
+      for (let s = segs; s >= 1; s--) {
+        const t = s / segs;
+        const ex = apexX + (rX - apexX) * t * 0.62;
+        const ey = apexY + (snowBaseY - apexY) * t + (M() - 0.5) * ph * 0.06;
+        g.lineTo(ex, ey);
+      }
+      g.closePath(); g.fill();
+      // bluish shadow on the snow's right side for form.
+      g.fillStyle = 'rgba(168,196,224,0.5)';
+      g.beginPath();
+      g.moveTo(apexX, apexY);
+      g.lineTo(apexX + pw * 0.14, snowBaseY * 0.5 + apexY * 0.5);
+      g.lineTo(apexX, snowBaseY * 0.7 + apexY * 0.3);
       g.closePath(); g.fill();
     }
     g.restore();
-    // a band of atmospheric haze across the foot of the range so it sits back.
-    const haze = g.createLinearGradient(0, baseY + 10, 0, baseY + 90);
+
+    // 3) a band of atmospheric HAZE across the foot of the range so it sits
+    // back AND the map below blends seamlessly UP into the mountains (no hard
+    // seam between meadow and rock).
+    const haze = g.createLinearGradient(0, baseY - 6, 0, footY + 40);
     haze.addColorStop(0, 'rgba(214,230,238,0)');
-    haze.addColorStop(0.6, 'rgba(214,230,238,0.65)');
+    haze.addColorStop(0.55, 'rgba(214,230,238,0.7)');
     haze.addColorStop(1, 'rgba(214,230,238,0)');
-    g.fillStyle = haze; g.fillRect(0, baseY + 10, W, 80);
+    g.fillStyle = haze; g.fillRect(0, baseY - 6, W, footY + 46 - (baseY - 6));
   }
 
   // Crafted hand-painted props scattered over the world: standalone trees,
@@ -1340,44 +1700,98 @@ export class UI {
       g.save(); g.globalAlpha = 0.22; g.fillStyle = '#000';
       g.beginPath(); g.ellipse(x, y, w, h, 0, 0, 6.283); g.fill(); g.restore();
     };
-    // barn
-    const bx = cx - px(26), by = cy - px(8), bw = px(34), bh = px(24);
-    shadow(bx + bw / 2, by + bh + px(3), bw * 0.6, px(5));
+    // IMPORTANT: every building here is drawn axis-aligned and UPRIGHT — no
+    // rotate(), no shear, no skewed shading arcs — so the cluster reads as a
+    // tidy, straight hamlet (this fixes the previously "skewed" look).
+
+    // --- BARN: upright body + a symmetric gable roof + a vertical door. ---
+    const bw = px(34), bh = px(22);
+    const bx = cx - px(28), by = cy - px(6);
+    shadow(bx + bw / 2, by + bh + px(3), bw * 0.58, px(4.5));
     g.fillStyle = hex(COLORS.barnRed);
-    this._roundRect(g, bx, by, bw, bh, 4); g.fill();
-    g.fillStyle = shade(COLORS.roof, 1.1);      // roof ridge
-    this._roundRect(g, bx - px(2), by - px(2), bw + px(4), px(9), 3); g.fill();
-    g.strokeStyle = hex(COLORS.barnTrim); g.lineWidth = 1.5;
-    g.beginPath(); g.moveTo(bx + bw / 2, by + px(2)); g.lineTo(bx + bw / 2, by + bh); g.stroke();
-    // silo
-    const sx = cx + px(2), sy = cy - px(4);
-    shadow(sx, sy + px(16), px(9), px(4));
-    g.fillStyle = shade(COLORS.stone, 1.05);
-    g.beginPath(); g.arc(sx, sy, px(9), 0, 6.283); g.fill();
-    g.fillStyle = shade(COLORS.stone, 0.8);
-    g.beginPath(); g.arc(sx, sy, px(9), 0.6, 0.6 + 3.14); g.fill();
-    g.fillStyle = mix(COLORS.stone, 0xffffff, 0.3);
-    g.beginPath(); g.arc(sx, sy, px(5), 0, 6.283); g.fill();
-    // farmhouse
-    const hx = cx - px(8), hy = cy + px(18), hw = px(22), hh = px(16);
-    shadow(hx + hw / 2, hy + hh + px(2), hw * 0.55, px(4));
-    g.fillStyle = mix(COLORS.wood, 0xffffff, 0.12);
-    this._roundRect(g, hx, hy, hw, hh, 3); g.fill();
+    this._roundRect(g, bx, by, bw, bh, 3); g.fill();
+    // upright plank shading (vertical, even — no lean)
+    g.strokeStyle = shade(COLORS.barnRed, 0.82); g.lineWidth = 1;
+    for (let i = 1; i < 5; i++) {
+      const lx = bx + (bw * i) / 5;
+      g.beginPath(); g.moveTo(lx, by + 1); g.lineTo(lx, by + bh - 1); g.stroke();
+    }
+    // symmetric gable roof: an isosceles triangle centred over the barn.
+    const ridge = px(11);
+    g.fillStyle = shade(COLORS.roof, 1.06);
+    g.beginPath();
+    g.moveTo(bx - px(2), by + 1);
+    g.lineTo(bx + bw / 2, by - ridge);
+    g.lineTo(bx + bw + px(2), by + 1);
+    g.closePath(); g.fill();
+    // white trim along the eaves + a centred vertical door.
+    g.strokeStyle = hex(COLORS.barnTrim); g.lineWidth = 1.4;
+    g.beginPath(); g.moveTo(bx - px(2), by + 1); g.lineTo(bx + bw + px(2), by + 1); g.stroke();
+    g.fillStyle = hex(COLORS.barnTrim);
+    g.fillRect(cx - px(28) + bw / 2 - px(4), by + bh - px(11), px(8), px(11));
+    g.strokeStyle = shade(COLORS.barnRed, 0.7); g.lineWidth = 1.2;
+    g.beginPath();
+    g.moveTo(bx + bw / 2, by + bh - px(11)); g.lineTo(bx + bw / 2, by + bh);
+    g.stroke();
+
+    // --- SILO: an upright cylinder + a SYMMETRIC dome cap (centred). ---
+    const sx = cx + px(6), sy = cy - px(2), sr = px(8);
+    shadow(sx, sy + px(17), sr + px(1), px(3.5));
+    // cylinder body (a vertical rounded rect — clearly upright)
+    g.fillStyle = shade(COLORS.stone, 1.02);
+    this._roundRect(g, sx - sr, sy - px(2), sr * 2, px(20), sr * 0.5); g.fill();
+    // left-lit / right-shadowed body, split VERTICALLY down the centre.
+    g.fillStyle = shade(COLORS.stone, 0.82);
+    this._roundRect(g, sx, sy - px(2), sr, px(20), 0); g.fill();
+    g.fillStyle = mix(COLORS.stone, 0xffffff, 0.28);
+    g.fillRect(sx - sr + px(1), sy - px(1), px(2.4), px(18));
+    // symmetric dome cap (a half-circle, flat side down, centred on the silo).
+    g.fillStyle = shade(COLORS.roof, 1.1);
+    g.beginPath(); g.arc(sx, sy - px(2), sr, Math.PI, 2 * Math.PI); g.closePath(); g.fill();
+
+    // --- FARMHOUSE: upright body + a symmetric pitched roof. ---
+    const hw = px(22), hh = px(15);
+    const hx = cx - px(11), hy = cy + px(17);
+    shadow(hx + hw / 2, hy + hh + px(2), hw * 0.55, px(3.5));
+    g.fillStyle = mix(COLORS.wood, 0xffffff, 0.14);
+    this._roundRect(g, hx, hy, hw, hh, 2.5); g.fill();
+    // symmetric pitched roof centred over the house.
     g.fillStyle = hex(COLORS.roof);
-    this._roundRect(g, hx - px(2), hy - px(2), hw + px(4), px(7), 2); g.fill();
-    // windmill (a circle + four blades)
-    const wx = cx + px(26), wy = cy + px(4);
-    shadow(wx, wy + px(12), px(7), px(3));
-    g.fillStyle = mix(COLORS.wood, 0xffffff, 0.2);
-    g.beginPath(); g.arc(wx, wy, px(7), 0, 6.283); g.fill();
+    g.beginPath();
+    g.moveTo(hx - px(2), hy + 1);
+    g.lineTo(hx + hw / 2, hy - px(7));
+    g.lineTo(hx + hw + px(2), hy + 1);
+    g.closePath(); g.fill();
+    // a centred door + two windows (all upright).
+    g.fillStyle = shade(COLORS.woodDark, 1.0);
+    g.fillRect(hx + hw / 2 - px(2.5), hy + hh - px(8), px(5), px(8));
+    g.fillStyle = mix(COLORS.water, 0xffffff, 0.4);
+    g.fillRect(hx + px(3), hy + px(4), px(4), px(4));
+    g.fillRect(hx + hw - px(7), hy + px(4), px(4), px(4));
+
+    // --- WINDMILL: an upright tower + a SYMMETRIC "+" of four blades. ---
+    const wx = cx + px(27), wy = cy + px(8), wr = px(6.5);
+    shadow(wx, wy + px(13), px(6), px(3));
+    // a short upright tapered tower under the hub.
+    g.fillStyle = mix(COLORS.wood, 0xffffff, 0.1);
+    g.beginPath();
+    g.moveTo(wx - px(4), wy + px(13));
+    g.lineTo(wx - px(2.4), wy);
+    g.lineTo(wx + px(2.4), wy);
+    g.lineTo(wx + px(4), wy + px(13));
+    g.closePath(); g.fill();
+    // hub
+    g.fillStyle = mix(COLORS.wood, 0xffffff, 0.22);
+    g.beginPath(); g.arc(wx, wy, wr * 0.5, 0, 6.283); g.fill();
+    // four blades on a perfectly symmetric "+" cross (no lean).
     g.strokeStyle = shade(COLORS.woodDark, 1.0); g.lineWidth = 2.2;
     for (let k = 0; k < 4; k++) {
-      const a = k * 1.5708 + 0.4;
+      const a = k * (Math.PI / 2);
       g.beginPath(); g.moveTo(wx, wy);
-      g.lineTo(wx + Math.cos(a) * px(11), wy + Math.sin(a) * px(11)); g.stroke();
+      g.lineTo(wx + Math.cos(a) * wr * 1.7, wy + Math.sin(a) * wr * 1.7); g.stroke();
     }
     g.fillStyle = hex(COLORS.gold);
-    g.beginPath(); g.arc(wx, wy, px(2.4), 0, 6.283); g.fill();
+    g.beginPath(); g.arc(wx, wy, px(2.2), 0, 6.283); g.fill();
   }
 
   // START / FINISH chip painted on the road (drawn, no emoji).
@@ -1442,18 +1856,79 @@ export class UI {
     }
     g.fillStyle = '#8a5a2b';
     g.beginPath(); g.arc(px2 - 4, py2 - 26, 4, 0, 6.283); g.fill();
-    // banner
+
+    // --- BEACH GATE banner: a LOCKED teaser showing star progress to 35. ---
+    const stars = this._totalStars();
+    const need = this._beachStars();
+    const unlocked = this._beachUnlocked();
     g.save();
-    g.font = '900 22px Rubik, sans-serif';
-    const label = 'BEACH — COMING SOON';
-    const bw = g.measureText(label).width + 40;
-    const by = top + 26;
-    g.fillStyle = 'rgba(10,14,34,0.82)';
-    this._roundRect(g, W / 2 - bw / 2, by - 18, bw, 36, 12); g.fill();
-    g.strokeStyle = hex(COLORS.gold); g.lineWidth = 2.5;
-    this._roundRect(g, W / 2 - bw / 2, by - 18, bw, 36, 12); g.stroke();
-    g.fillStyle = hex(COLORS.gold); g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(label, W / 2, by);
+    g.font = '900 20px Rubik, sans-serif';
+    const title = unlocked ? 'BEACH — UNLOCKED!' : 'BEACH — LOCKED';
+    const prog = `${fmt(stars)} / ${fmt(need)}`;
+    g.textAlign = 'left'; g.textBaseline = 'middle';
+    const titleW = g.measureText(title).width;
+    g.font = '900 16px Rubik, sans-serif';
+    const progW = g.measureText(prog).width;
+    const starSz = 15, gap = 6;
+    // banner width = padlock + title (row 1) and progress + 1 star (row 2)
+    const innerW = Math.max(titleW + 26, progW + starSz + gap);
+    const bw = innerW + 44;
+    const by = top + 30;
+    const bh = 52;
+    const bx = W / 2 - bw / 2;
+    g.fillStyle = 'rgba(10,14,34,0.85)';
+    this._roundRect(g, bx, by - bh / 2, bw, bh, 13); g.fill();
+    g.strokeStyle = unlocked ? hex(COLORS.uiGreen) : hex(COLORS.gold); g.lineWidth = 2.5;
+    this._roundRect(g, bx, by - bh / 2, bw, bh, 13); g.stroke();
+    // row 1: a little drawn padlock + the title.
+    const lx = bx + 16, ly = by - 11;
+    if (!unlocked) this._lsDrawLock(g, lx, ly, hex(COLORS.gold));
+    g.font = '900 18px Rubik, sans-serif';
+    g.fillStyle = unlocked ? hex(COLORS.uiGreen) : hex(COLORS.gold);
+    g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.fillText(title, bx + 32, ly);
+    // row 2: progress number + ONE drawn star (NOT an emoji).
+    const ry2 = by + 12;
+    g.font = '900 15px Rubik, sans-serif';
+    g.fillStyle = 'rgba(238,246,255,0.92)';
+    g.fillText(prog, bx + 20, ry2);
+    this._lsDrawStar(g, bx + 20 + progW + 4 + starSz / 2, ry2, starSz / 2,
+      unlocked ? hex(COLORS.gold) : hex(COLORS.gold), true);
+    g.restore();
+  }
+
+  // Draw a 5-point star on the canvas (filled gold, or grey outline if !on).
+  _lsDrawStar(g, cx, cy, r, color, on = true) {
+    g.save();
+    g.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const oa = -Math.PI / 2 + i * (2 * Math.PI / 5);
+      const ia = oa + Math.PI / 5;
+      const ox = cx + Math.cos(oa) * r, oy = cy + Math.sin(oa) * r;
+      const ix = cx + Math.cos(ia) * r * 0.46, iy = cy + Math.sin(ia) * r * 0.46;
+      i ? g.lineTo(ox, oy) : g.moveTo(ox, oy);
+      g.lineTo(ix, iy);
+    }
+    g.closePath();
+    if (on) {
+      g.fillStyle = color; g.fill();
+      g.strokeStyle = shade(COLORS.gold, 0.7); g.lineWidth = 0.8; g.stroke();
+    } else {
+      g.fillStyle = 'rgba(255,255,255,0.12)'; g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.4)'; g.lineWidth = 1; g.stroke();
+    }
+    g.restore();
+  }
+
+  // Draw a small padlock on the canvas (body + shackle), tinted `color`.
+  _lsDrawLock(g, cx, cy, color) {
+    g.save();
+    g.strokeStyle = color; g.lineWidth = 2; g.lineCap = 'round';
+    g.beginPath(); g.arc(cx, cy - 2, 4, Math.PI, 2 * Math.PI); g.stroke();
+    g.fillStyle = color;
+    this._roundRect(g, cx - 5.5, cy - 2, 11, 9, 2); g.fill();
+    g.fillStyle = 'rgba(10,14,34,0.9)';
+    g.beginPath(); g.arc(cx, cy + 2.4, 1.4, 0, 6.283); g.fill();
     g.restore();
   }
 
@@ -1471,7 +1946,8 @@ export class UI {
 
   /**
    * Build (or rebuild) the level-select map: compute layout, paint the world
-   * cache, size the spacer/canvas, and lay out the 20 node markers.
+   * cache, size the spacer/canvas, and lay out the node markers (one per
+   * campaign level — count read from campaign.levels.length, never hardcoded).
    */
   _renderLevelMap() {
     const layout = this._lsComputeLayout();
@@ -1492,6 +1968,11 @@ export class UI {
     const unlocked = this._unlockedCount();
     let firstFocus = null, currentNode = null;
 
+    // Haze band: nodes that ride up into the mountain foot are faded so the
+    // higher (locked) levels dissolve seamlessly into the range at the top.
+    const fadeTop = layout.finish.y - layout.nodeStep * 0.55;
+    const fadeStart = fadeTop + layout.nodeStep * 1.6;  // below here = full opacity
+
     for (const p of layout.pts) {
       const index = p.index;
       const completed = this._isCompleted(index);
@@ -1510,8 +1991,11 @@ export class UI {
       node.style.top = `${p.y}px`;
       node.dataset.index = String(index);
 
-      // NOTE: levels are pass/fail — there are NO stars on nodes. Completed
-      // levels show only a drawn CHECK mark (appended below).
+      // fade nodes that sit up in the mountain haze (atmospheric depth).
+      if (p.y < fadeStart) {
+        const f = Math.max(0.3, Math.min(1, (p.y - fadeTop) / (fadeStart - fadeTop)));
+        node.style.opacity = f.toFixed(2);
+      }
 
       // UFO marker (CSS art: dome + body + glowing rim) with the level NUMBER.
       const ufo = el('div', 'mf-ls-ufo', node);
@@ -1527,9 +2011,21 @@ export class UI {
         node.appendChild(this._svgLock());        // drawn padlock
         node.setAttribute('aria-disabled', 'true');
       } else {
-        if (completed) node.appendChild(this._svgCheck());   // drawn check
+        if (completed) {
+          node.appendChild(this._svgCheck());     // drawn check
+          // STARS ARE BACK: completed levels show their earned stars (0..3) as
+          // drawn SVG stars (gold filled / grey empty) below the node.
+          const stars = this._starsFor(index);
+          const row = el('div', 'mf-ls-stars', node);
+          for (let k = 0; k < 3; k++) {
+            const star = this._svgStar(k < stars);
+            star.classList.add('mf-ls-nodestar');
+            if (k >= stars) star.classList.add('mf-ls-nodestar-off');
+            row.appendChild(star);
+          }
+        }
         node.setAttribute('aria-label',
-          `Level ${index}${completed ? ', completed' : ''}${isCurrent ? ', current' : ''}, goal ${fmt(p.target)} points`);
+          `Level ${index}${completed ? `, completed, ${this._starsFor(index)} stars` : ''}${isCurrent ? ', current' : ''}, goal ${fmt(p.target)} points`);
         node.addEventListener('click', (e) => { e.preventDefault(); this._startLevel(index); });
         if (isCurrent) currentNode = node;
         if (!firstFocus) firstFocus = node;
@@ -1561,6 +2057,21 @@ export class UI {
     c.setAttribute('class', 'mf-ls-check-bg');
     const p = document.createElementNS(ns, 'path');
     p.setAttribute('d', 'M6 12.5l4 4 8-9'); p.setAttribute('class', 'mf-ls-check-tick');
+    svg.appendChild(c); svg.appendChild(p);
+    return svg;
+  }
+  // A drawn CROSS (failed objective) — a red circle with an X, mirrors the
+  // structure of _svgCheck so the result objective rows line up.
+  _svgCross() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'mf-ls-check mf-lr-cross');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    const c = document.createElementNS(ns, 'circle');
+    c.setAttribute('cx', '12'); c.setAttribute('cy', '12'); c.setAttribute('r', '11');
+    c.setAttribute('class', 'mf-lr-cross-bg');
+    const p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', 'M8 8l8 8M16 8l-8 8'); p.setAttribute('class', 'mf-lr-cross-x');
     svg.appendChild(c); svg.appendChild(p);
     return svg;
   }
@@ -1654,6 +2165,8 @@ export class UI {
     const s = this._levelSelEl;
     s.classList.remove('mf-hidden');
     this._levelSelectVisible = true;
+    this._refreshCoinWidgets();
+    this._refreshBeachWorld();
     // Render after the overlay is laid out so clientWidth/Height are real.
     requestAnimationFrame(() => {
       this._renderLevelMap();
@@ -1968,6 +2481,8 @@ export class UI {
   }
 
   hideEnd() {
+    this._lrCancelAnims();
+    this._pruneResultCoins();
     this._endEl.classList.add('mf-hidden');
     this._endEl.textContent = '';
     this._endVisible = false;
@@ -2053,12 +2568,60 @@ export class UI {
    *   (NOTE: levels are pass/fail — no stars. `starsEarned` is accepted for
    *   backward-compat but ignored.)
    */
-  showLevelResult({
-    won = false, index = 1, score = 0, target = 0, time = 0,
-    isNewBest = false, hasNext = false,
-  } = {}) {
+  /**
+   * Rich campaign result screen.
+   * @param {object} o
+   *   won:boolean, index:number, score:number, target:number, isNewBest:boolean
+   *   objectives: [{label,done} × 3]  (1 = score goal, 2 & 3 = bonus missions)
+   *   stars: 0..3 earned this run
+   *   coinRewards: [50,100,150]  (reward per star slot)
+   *   coinsEarned: coins newly banked this run
+   *   prevBalance / newBalance: cow-coin totals before / after
+   * Older callers may still pass {time, hasNext, starsEarned} — those are
+   * tolerated and sensible defaults are derived from the campaign model.
+   */
+  showLevelResult(opts = {}) {
+    const {
+      won = false, index = 1, score = 0, target = 0, isNewBest = false,
+    } = opts;
+    // hasNext is DERIVED per the contract: a next level exists only on a win.
+    const hasNext = won && index < this._levels().length;
+
+    // Stars earned this run (clamp 0..3). Backward-compat: accept starsEarned.
+    let stars = opts.stars != null ? opts.stars
+      : (opts.starsEarned != null ? opts.starsEarned : (won ? this._starsFor(index) : 0));
+    stars = Math.max(0, Math.min(3, stars | 0));
+
+    // Coin rewards per star slot.
+    const coinRewards = Array.isArray(opts.coinRewards) && opts.coinRewards.length === 3
+      ? opts.coinRewards.map((v) => Math.max(0, v | 0))
+      : [50, 100, 150];
+
+    // Objectives: exactly 3 rows. Derive a sensible default set if none given
+    // (objective 1 = the score goal; 2 & 3 = generic bonus missions).
+    let objectives = Array.isArray(opts.objectives) ? opts.objectives.slice(0, 3) : null;
+    if (!objectives || objectives.length < 3) {
+      const base = objectives || [];
+      const fill = [
+        { label: `Reach ${fmt(target)}`, done: won || (target > 0 && score >= target) },
+        { label: 'Earn 2 stars', done: stars >= 2 },
+        { label: 'Earn 3 stars', done: stars >= 3 },
+      ];
+      objectives = [base[0] || fill[0], base[1] || fill[1], base[2] || fill[2]];
+    }
+
+    // Coin balances. Default prev/new from the wallet + the earned coins.
+    const earnedDefault = coinRewards.slice(0, stars).reduce((a, b) => a + b, 0);
+    const coinsEarned = opts.coinsEarned != null ? Math.max(0, opts.coinsEarned | 0) : earnedDefault;
+    const newBalance = opts.newBalance != null ? Math.max(0, opts.newBalance | 0) : this._coinBalance();
+    const prevBalance = opts.prevBalance != null ? Math.max(0, opts.prevBalance | 0)
+      : Math.max(0, newBalance - coinsEarned);
+
     // The level-select map (if open) should give way to the result.
     if (this._levelSelectVisible) this.hideLevelSelect();
+    // Drop any coin widget left over from a previous result screen.
+    this._pruneResultCoins();
+    this._lrCancelAnims();
 
     const s = this._endEl;
     s.textContent = '';
@@ -2066,20 +2629,40 @@ export class UI {
 
     const panel = el('div', 'mf-panel mf-end-panel mf-lr-panel', s);
 
-    el('div', 'mf-lr-eyebrow', panel, `LEVEL ${index}`);
+    // Header row: eyebrow + the result-screen coin balance widget (coins fly
+    // into this one). It starts at prevBalance and counts up as stars fill.
+    const head = el('div', 'mf-lr-head', panel);
+    el('div', 'mf-lr-eyebrow', head, `LEVEL ${index}`);
+    const coinW = this._buildCoinWidget(head, 'mf-coin-lr');
+    this._lrCoinWidget = coinW;
+    // seed every coin widget (header + result) to the PREVIOUS balance.
+    this._coinShown = prevBalance;
+    this._renderCoin(prevBalance);
+
     el('h2', 'mf-panel-title mf-end-title mf-lr-title', panel,
       won ? 'MISSION COMPLETE' : 'MISSION FAILED');
+    if (!won) el('div', 'mf-end-sub mf-lr-sub', panel, 'The herd got away. Try again!');
 
-    if (won) {
-      // A big satisfying CHECK mark stamps in (NO stars — pass/fail only).
-      const badge = el('div', 'mf-lr-checkwrap', panel);
-      const check = this._svgCheck();
-      check.classList.add('mf-lr-check');
-      badge.appendChild(check);
-      if (isNewBest) el('div', 'mf-ribbon mf-lr-best', panel, 'NEW BEST!');
-    } else {
-      el('div', 'mf-end-sub mf-lr-sub', panel, 'The herd got away. Try again!');
+    // --- THREE big STAR slots in a row; each shows its coin reward inside. ---
+    // Earned stars START greyed/empty and FILL one-by-one during _lrAnimate so
+    // the player sees each star pop in sequence. Unearned stays empty/dimmed.
+    const starRow = el('div', 'mf-lr-starrow', panel);
+    const starEls = [];
+    for (let k = 0; k < 3; k++) {
+      const earned = k < stars;
+      const slot = el('div', `mf-lr-starslot${earned ? ' mf-lr-starslot-pending' : ' mf-lr-starslot-empty'}`, starRow);
+      // always draw an empty star initially; the animator swaps earned ones in.
+      const star = this._svgStar(false);
+      star.classList.add('mf-lr-bigstar', 'mf-lr-bigstar-off');
+      slot.appendChild(star);
+      slot._starEl = star;
+      // coin reward shown INSIDE each star (dimmed until the star fills).
+      const reward = el('div', `mf-lr-reward${earned ? ' mf-lr-reward-pending' : ' mf-lr-reward-dim'}`, slot, `+${coinRewards[k]}`);
+      slot._rewardEl = reward;
+      starEls.push(slot);
     }
+
+    if (isNewBest) el('div', 'mf-ribbon mf-lr-best', panel, 'NEW BEST!');
 
     // SCORE vs TARGET ("1240 / 1000").
     const scoreWrap = el('div', 'mf-lr-scoreline', panel);
@@ -2089,6 +2672,14 @@ export class UI {
     scoreWrap.classList.toggle('mf-lr-hit', won || (target > 0 && score >= target));
     countUp(scoreVal, score, { duration: 900, delay: 300 });
     el('div', 'mf-lr-scorelabel', panel, 'SCORE / TARGET');
+
+    // --- THREE objective rows (drawn check / cross + label). ---
+    const objWrap = el('div', 'mf-lr-objectives', panel);
+    for (const o of objectives) {
+      const row = el('div', `mf-lr-obj${o && o.done ? ' mf-lr-obj-done' : ''}`, objWrap);
+      row.appendChild(o && o.done ? this._svgCheck() : this._svgCross());
+      el('span', 'mf-lr-obj-label', row, (o && o.label) || '');
+    }
 
     // Buttons: NEXT (win+hasNext), RETRY, LEVEL SELECT, MENU.
     const rowBtns = el('div', 'mf-btn-row mf-lr-btns', panel);
@@ -2107,6 +2698,116 @@ export class UI {
     s.classList.remove('mf-hidden');
     this._endVisible = true;
     primary.focus({ preventScroll: true });
+
+    // Sequence the star pops + flying coins + balance count-up once laid out.
+    this._lrAnimate({ starEls, stars, coinRewards, prevBalance, newBalance, coinW, panel });
+  }
+
+  /** Drop any coin widget that belonged to a (now-stale) result screen. */
+  _pruneResultCoins() {
+    if (this._coins) {
+      this._coins = this._coins.filter((w) => !w.classList.contains('mf-coin-lr'));
+    }
+    this._lrCoinWidget = null;
+  }
+
+  /** Cancel any in-flight result-screen timers / rAFs. */
+  _lrCancelAnims() {
+    if (this._lrTimers) for (const t of this._lrTimers) clearTimeout(t);
+    this._lrTimers = [];
+    if (this._lrFlyRaf) { cancelAnimationFrame(this._lrFlyRaf); this._lrFlyRaf = 0; }
+  }
+
+  /**
+   * Choreograph the result reveal: each EARNED star pops/fills in sequence; as
+   * it fills, its coin reward FLIES (an animated coin sprite) from the star to
+   * the coin-balance widget, which counts up prevBalance → newBalance. Unearned
+   * stars stay empty/greyed with their reward dimmed. All rAF/CSS — smooth.
+   */
+  _lrAnimate({ starEls, stars, coinRewards, prevBalance, newBalance, coinW, panel }) {
+    this._lrCancelAnims();
+    if (stars <= 0) { this.setCoinBalance(newBalance); return; }
+    const s = this._endEl;
+    // cumulative coin target after each star fills (so the count-up lands on
+    // exactly newBalance after the final earned star).
+    let running = prevBalance;
+    const baseDelay = 420;       // wait for the panel-in animation to settle
+    const perStar = 540;         // cadence between star pops
+
+    for (let k = 0; k < stars; k++) {
+      const t = setTimeout(() => {
+        if (!this._endVisible || !s.classList.contains('mf-levelresult')) return;
+        const slot = starEls[k];
+        if (slot) {
+          // FILL the star: turn the empty/greyed star gold + brighten its
+          // reward, then play the pop.
+          slot.classList.remove('mf-lr-starslot-pending');
+          slot.classList.add('mf-lr-starslot-filled');
+          if (slot._starEl) slot._starEl.classList.remove('mf-lr-bigstar-off');
+          if (slot._rewardEl) slot._rewardEl.classList.remove('mf-lr-reward-pending', 'mf-lr-reward-dim');
+          slot.classList.remove('mf-lr-star-pop');
+          void slot.offsetWidth;
+          slot.classList.add('mf-lr-star-pop');
+        }
+        const from = running;
+        running += coinRewards[k];
+        const to = (k === stars - 1) ? newBalance : running;
+        // fly a coin sprite from this star to the coin widget, then count up.
+        this._lrFlyCoin(slot, coinW, () => this.animateCoinBalance(from, to, { duration: 500 }));
+      }, baseDelay + k * perStar);
+      this._lrTimers.push(t);
+    }
+    // safety: ensure the widget lands on the final balance even if a frame is
+    // dropped mid-animation.
+    const tEnd = setTimeout(() => {
+      if (this._endVisible) this.setCoinBalance(newBalance);
+    }, baseDelay + stars * perStar + 700);
+    this._lrTimers.push(tEnd);
+  }
+
+  /**
+   * Spawn an animated gold coin sprite that flies from `fromEl` to `toEl`
+   * (the coin widget) along a smooth eased arc, then invokes `onArrive`.
+   */
+  _lrFlyCoin(fromEl, toEl, onArrive) {
+    const host = this._endEl;
+    if (!fromEl || !toEl || !host) { if (onArrive) onArrive(); return; }
+    const hb = host.getBoundingClientRect();
+    const a = fromEl.getBoundingClientRect();
+    const b = toEl.getBoundingClientRect();
+    const x0 = a.left + a.width / 2 - hb.left;
+    const y0 = a.top + a.height / 2 - hb.top;
+    const x1 = b.left + b.width / 2 - hb.left;
+    const y1 = b.top + b.height / 2 - hb.top;
+
+    const sprite = el('div', 'mf-fly-coin', host);
+    sprite.appendChild(this._svgCoin());
+    sprite.style.left = `${x0}px`;
+    sprite.style.top = `${y0}px`;
+
+    const dur = 520;
+    const t0 = performance.now();
+    // arc apex lifts above the straight line for a satisfying toss.
+    const lift = Math.min(120, Math.abs(y1 - y0) * 0.5 + 50);
+    let arrived = false;
+    const tick = (now) => {
+      const t = Math.max(0, Math.min(1, (now - t0) / dur));
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOut
+      const x = x0 + (x1 - x0) * e;
+      const y = y0 + (y1 - y0) * e - Math.sin(e * Math.PI) * lift;
+      const sc = 1 - 0.45 * e;
+      sprite.style.transform = `translate(-50%,-50%) scale(${sc})`;
+      sprite.style.left = `${x}px`;
+      sprite.style.top = `${y}px`;
+      sprite.style.opacity = t > 0.85 ? String((1 - t) / 0.15) : '1';
+      if (t < 1 && this._endVisible) {
+        this._lrFlyRaf = requestAnimationFrame(tick);
+      } else {
+        sprite.remove();
+        if (!arrived) { arrived = true; this._pulseCoins(); if (onArrive) onArrive(); }
+      }
+    };
+    this._lrFlyRaf = requestAnimationFrame(tick);
   }
 
   // ======================================================================

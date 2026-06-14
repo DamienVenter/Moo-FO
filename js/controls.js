@@ -20,8 +20,8 @@ const DEFAULT_BINDS = Object.freeze({
   right: 'KeyD',
   beam: 'Space',
   warp: 'ShiftLeft',
-  camLeft: 'KeyQ',
-  camRight: 'KeyE',
+  camLeft: 'KeyZ',     // Q is reserved for the campaign COMPLETE action
+  camRight: 'KeyC',
 });
 
 // Arrows always work for movement regardless of binds.
@@ -54,8 +54,9 @@ function div(cls, parent) {
 }
 
 export class Controls {
-  constructor({ onPause } = {}) {
+  constructor({ onPause, onComplete } = {}) {
     this.onPause = typeof onPause === 'function' ? onPause : () => {};
+    this.onComplete = typeof onComplete === 'function' ? onComplete : () => {};
 
     /** Normalized, combined keyboard+touch+gamepad input. Mutated in place. */
     this.state = { x: 0, z: 0, beam: false, warp: false };
@@ -75,6 +76,9 @@ export class Controls {
       const saved = JSON.parse(localStorage.getItem(BINDS_KEY) || 'null');
       if (saved) for (const k of Object.keys(DEFAULT_BINDS)) if (saved[k]) this.binds[k] = saved[k];
     } catch (_) { /* corrupted storage — defaults */ }
+    // Q is now the COMPLETE key — migrate any saved camera bind off it.
+    if (this.binds.camLeft === 'KeyQ') this.binds.camLeft = 'KeyZ';
+    if (this.binds.camRight === 'KeyQ') this.binds.camRight = 'KeyC';
     this._capture = null;     // { action, resolve } while rebinding
 
     // --- internal input sources -------------------------------------------
@@ -304,6 +308,11 @@ export class Controls {
 
       if (code === 'Escape' || code === 'KeyP') {
         if (!e.repeat) this.onPause();
+        e.preventDefault();
+        return;
+      }
+      if (code === 'KeyQ') {   // campaign COMPLETE (no-op outside a completable run)
+        if (!e.repeat) this.onComplete();
         e.preventDefault();
         return;
       }
