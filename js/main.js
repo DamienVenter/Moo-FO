@@ -369,6 +369,14 @@ function bootJingle() {
 window.addEventListener('pointerdown', bootJingle, { once: true });
 window.addEventListener('keydown', bootJingle, { once: true });
 
+// Button click SFX on menu/UI buttons (the in-game touch controls keep their
+// own feel and are excluded).
+document.addEventListener('pointerdown', (e) => {
+  const btn = e.target.closest('button, .mf-mode-card, .mf-ls-node');
+  if (!btn || btn.closest('#mf-touch')) return;
+  audio.play('click', { volume: 0.5, ratejitter: 0.06 });
+}, true);
+
 // Waterfall ambience: a proximity loop that swells as you near the falls.
 function updateWaterfallSound() {
   const wf = world.waterfallPos;

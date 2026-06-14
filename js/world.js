@@ -1760,6 +1760,28 @@ export class World {
       this._spillCrestFoam.push({ spr, base: baseY, phase: Math.random() * 6 });
     }
 
+    // Water visibly spilling OVER the crest — a near-horizontal tongue from the
+    // reservoir lip pouring forward onto the face sheets, so from the high
+    // gameplay camera you clearly see water flowing over and down the dam.
+    {
+      const lipTex = makeFallTexture(3);
+      const lipGeo = new THREE.PlaneGeometry(spillW + 1, 3.4);
+      const lipUv = lipGeo.attributes.uv;
+      for (let i = 0; i < lipUv.count; i++) lipUv.setY(i, lipUv.getY(i) * 3);
+      lipUv.needsUpdate = true;
+      const lipMat = new THREE.MeshLambertMaterial({
+        color: 0xeaf6ff, transparent: true, opacity: 0.92, side: THREE.DoubleSide,
+        map: lipTex, depthWrite: false,
+      });
+      lipMat.emissive = new THREE.Color(0xcde6ff);
+      lipMat.emissiveIntensity = 0.6;
+      const lip = new THREE.Mesh(lipGeo, lipMat);
+      lip.position.set(dam.x, crestY + 0.05, dam.z + 2.2);
+      lip.rotation.x = -Math.PI / 2 + 0.5;   // nearly flat, tipped to pour forward
+      this.scene.add(lip);
+      this._spillSheets.push({ tex: lipTex, speed: 2.4 });
+    }
+
     // churning whitewater puffs where the sheets hit the river
     this._spillChurn = [];
     for (let i = 0; i < 12; i++) {

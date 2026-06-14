@@ -1221,26 +1221,26 @@ button {
   text-align: center;
 }
 
-/* row of TALL PORTRAIT poster tiles. The cards are deliberately portrait
-   (taller than wide) so the replacement poster art shows well with very
-   little crop. They fill most of the screen height. */
+/* row of WIDE portrait poster tiles. The cards are still portrait (taller than
+   wide) so the poster art shows well, but they are deliberately WIDE — the row
+   fills most of the screen width and each card is a substantial tile. */
 .mf-mode-grid {
   display: flex;
-  gap: 20px;
-  width: min(1180px, 94vw);
-  height: min(80vh, 760px);
+  gap: 24px;
+  width: min(1480px, 96vw);
+  height: min(72vh, 680px);
   justify-content: center;
   align-items: stretch;
 }
 
-/* --- a single mode card: TALL PORTRAIT poster tile --- */
+/* --- a single mode card: WIDE portrait poster tile --- */
 .mf-mode-card {
   position: relative;
   flex: 1 1 0;
   min-width: 0;
-  /* portrait: cap each card's width relative to its (tall) height so the
-     tiles read as upright posters, not wide banners. */
-  max-width: min(34vh, 360px);
+  /* WIDE cards: a generous per-card width cap so each tile reads as a big
+     poster, not a narrow strip. Still capped so they don't become squat. */
+  max-width: min(56vh, 480px);
   min-height: 300px;
   padding: 0;
   overflow: hidden;
@@ -1395,28 +1395,27 @@ button {
   transform: translateX(-50%) translateY(0);
 }
 
-/* narrow / mobile screens: keep the three portrait posters side-by-side in a
-   horizontally-scrollable row so each stays UPRIGHT (portrait) rather than
-   flattening into wide banners. */
+/* narrow / mobile screens: STACK the three posters vertically and make each one
+   WIDE (nearly full screen width) so they read as big tappable tiles. */
 @media (max-width: 700px) {
   .mf-mode-grid {
-    flex-direction: row;
-    width: min(560px, 96vw);
-    height: min(74vh, 620px);
-    gap: 12px;
+    flex-direction: column;
+    width: min(560px, 94vw);
+    height: auto;
+    max-height: none;
+    gap: 16px;
     justify-content: flex-start;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scroll-snap-type: x mandatory;
+    align-items: stretch;
+    overflow: visible;
   }
   .mf-mode-card {
-    flex: 0 0 64vw;
-    max-width: 64vw;
-    min-height: 0;
-    scroll-snap-align: center;
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: none;
+    min-height: 200px;
+    height: 30vh;
   }
-  .mf-modes-head { width: min(560px, 96vw); }
+  .mf-modes-head { width: min(560px, 94vw); }
   .mf-modes-title { font-size: 26px; }
 }
 
@@ -2032,22 +2031,24 @@ button {
   margin: 0;
 }
 
-/* the painted minimap canvas — sticky to the viewport, JS translates it so it
-   tracks scrollTop while we blit the matching slice (cached → cheap). Fills
-   the full panel width. */
+/* the painted minimap canvas — the ENTIRE world is rendered ONCE into this
+   single FULL-CONTENT-HEIGHT canvas (width = viewport, height = full map
+   height). It sits in NORMAL FLOW and the browser scrolls it NATIVELY: no
+   sticky, no per-scroll translate, no per-scroll re-blit. Because the whole map
+   is already painted, there is physically no unpainted region to ever flash. */
 .mf-ls-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
+  position: relative;
   z-index: 0;
   display: block;
   pointer-events: none;
 }
 
-/* gives the scroll container its full virtual height */
-.mf-ls-spacer { width: 100%; }
+/* legacy spacer — no longer used to size the scroll height (the tall canvas
+   provides it). Kept inert so old references stay harmless. */
+.mf-ls-spacer { width: 100%; height: 0; }
 
-/* node markers layer (scrolls with the content) */
+/* node markers layer (absolutely positioned OVER the canvas at the same world
+   coordinates; scrolls natively along with the tall canvas). */
 .mf-ls-nodes {
   position: absolute;
   top: 0;
@@ -2953,12 +2954,12 @@ button {
   .mf-stat { padding: 3px 4px; }
   .mf-stat-value { font-size: 22px; }
   .mf-medal { transform: scale(0.7); margin: -16px 0; }
-  /* keep the portrait posters side-by-side & shorter so the row fits a short
-     viewport (no subtext anymore — just the name plate). */
-  .mf-mode-grid { flex-direction: row; width: min(1100px, 96vw); height: 84vh; gap: 12px; }
-  .mf-mode-card { min-height: 0; max-width: min(48vh, 320px); }
+  /* keep the posters side-by-side & shorter so the row fits a short viewport,
+     but WIDE (no subtext anymore — just the name plate). */
+  .mf-mode-grid { flex-direction: row; width: min(1380px, 96vw); height: 84vh; gap: 16px; }
+  .mf-mode-card { min-height: 0; max-width: min(78vh, 440px); }
   .mf-mode-name { font-size: clamp(18px, 3.6vh, 28px); }
-  .mf-modes-head { width: min(1100px, 96vw); margin-bottom: 6px; }
+  .mf-modes-head { width: min(1380px, 96vw); margin-bottom: 6px; }
   .mf-modes-title { font-size: 22px; }
 }
 

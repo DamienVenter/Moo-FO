@@ -689,13 +689,16 @@ export class UI {
     this._lsScroll = scroll;
     const stage = el('div', 'mf-ls-stage', scroll);
     this._lsStage = stage;
-    // The painted minimap canvas (sticky to the viewport; we blit the slice).
+    // The painted minimap canvas — the ENTIRE world is rendered ONCE into this
+    // single full-content-height canvas, which sits in normal flow and scrolls
+    // natively (it alone gives the scroll container its full virtual height).
     const canvas = el('canvas', 'mf-ls-canvas', stage);
     this._lsCanvas = canvas;
     this._lsCtx = canvas.getContext('2d');
-    // A spacer that gives the scroll container its full virtual height.
+    // Legacy spacer (kept for layout symmetry; height is 0 — the tall canvas
+    // provides the scroll height now).
     this._lsSpacer = el('div', 'mf-ls-spacer', stage);
-    // Node/marker layer (also tall — scrolls with the content).
+    // Node/marker layer (absolutely positioned OVER the canvas; scrolls with it).
     this._lsNodeLayer = el('div', 'mf-ls-nodes', stage);
 
     // Floating chrome OVER the full-screen map:
@@ -713,8 +716,8 @@ export class UI {
     this._lsCoin = this._buildCoinWidget(overlay, 'mf-coin-ls');
 
     // Wheel + drag + keyboard scrolling all funnel through the container's
-    // native scrollTop; a scroll listener re-blits the canvas slice.
-    scroll.addEventListener('scroll', () => this._lsOnScroll(), { passive: true });
+    // native scrollTop. The whole map is painted into one tall canvas that the
+    // browser scrolls natively, so NO scroll listener / re-blit is needed.
     this._lsBindDrag(scroll);
 
     // --- LEVEL POPUP (modal) — built once, hidden until a node is tapped. It
@@ -725,12 +728,8 @@ export class UI {
     document.body.appendChild(s);
     this._levelSelEl = s;
 
-    // Offscreen cache canvas (filled once per layout in _lsPaintWorld).
-    this._lsCache = document.createElement('canvas');
-    this._lsCacheCtx = this._lsCache.getContext('2d');
     this._lsLayout = null;       // memoised geometry {pts, w, h, ...}
     this._lsPhase = null;        // last painted --mf-phase-glow
-    this._lsRaf = 0;
   }
 
   // ----------------------------------------------------------------------
@@ -1072,13 +1071,24 @@ export class UI {
    * its bridge decks, a hazy mountain-range backdrop at the very top, the
    * BEACH teaser, and finally soft global lighting (haze + vignette).
    */
+  // Paint the ENTIRE world ONCE into the on-screen canvas at FULL CONTENT
+  // HEIGHT (W × H). The canvas then sits in normal document flow inside the
+  // scroll container and the browser scrolls it NATIVELY — there is NO sticky
+  // positioning, NO per-scroll translate and NO per-scroll re-blit. Because the
+  // whole map (plus the baked-in day-tint scrim) is already painted into this
+  // one tall canvas, there is physically no unpainted region for the browser to
+  // ever reveal at the top/bottom extremes, so the green backing can never
+  // flash regardless of scroll speed.
   _lsPaintWorld(layout) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const { W, H, samples, riverPath, bridges } = layout;
-    const cache = this._lsCache;
+    // The visible canvas IS the full-height surface we paint into.
+    const cache = this._lsCanvas;
     cache.width = Math.round(W * dpr);
     cache.height = Math.round(H * dpr);
-    const g = this._lsCacheCtx;
+    cache.style.width = `${W}px`;
+    cache.style.height = `${H}px`;
+    const g = this._lsCtx;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
     const R = rng(0x5eed1234);
@@ -1545,6 +1555,24 @@ export class UI {
     vig.addColorStop(0, 'rgba(0,0,0,0)');
     vig.addColorStop(1, 'rgba(6,20,12,0.30)');
     g.fillStyle = vig; g.fillRect(0, 0, W, H);
+
+    // 13) DAY-CYCLE TINT — baked ONCE into the full-height canvas (formerly a
+    // per-scroll viewport overlay in _lsBlit). A soft-light wash matches the
+    // whole map to the time of day, plus a phase-tinted sky glow along the very
+    // top band of the world (where the mountains/beach sit).
+    const phase = this._lsPhase || this._lsCurrentPhase();
+    g.save();
+    g.globalAlpha = 0.22;
+    g.globalCompositeOperation = 'soft-light';
+    g.fillStyle = phase;
+    g.fillRect(0, 0, W, H);
+    g.restore();
+    const skyH = Math.min(H, (layout.vh || H) * 0.4);
+    const sky = g.createLinearGradient(0, 0, 0, skyH);
+    sky.addColorStop(0, this._withAlpha(phase, 0.22));
+    sky.addColorStop(1, this._withAlpha(phase, 0));
+    g.fillStyle = sky;
+    g.fillRect(0, 0, W, skyH);
   }
 
   // Build a tileable lush-grass texture ONCE (memoised) and return it as a
@@ -2739,15 +2767,18 @@ export class UI {
   _renderLevelMap() {
     const layout = this._lsComputeLayout();
     this._lsLayout = layout;
-    this._lsPaintWorld(layout);
+    // Capture the current day phase BEFORE painting so its tint is baked into
+    // the full-height canvas.
     this._lsPhase = this._lsCurrentPhase();
+    // Paint the ENTIRE world into the full-content-height on-screen canvas; it
+    // scrolls natively in normal flow (no sticky / translate / per-scroll blit).
+    this._lsPaintWorld(layout);
 
-    // The scroll content is as tall as the painted world.
-    this._lsSpacer.style.height = `${layout.H}px`;
+    // The node-marker layer matches the painted world's full size and scrolls
+    // with it. (The canvas itself, sized W×H inside _lsPaintWorld, already gives
+    // the scroll container its full virtual height — no separate spacer needed.)
     this._lsNodeLayer.style.height = `${layout.H}px`;
     this._lsNodeLayer.style.width = `${layout.W}px`;
-    // Canvas is sized to the VIEWPORT (we blit a slice each scroll).
-    this._lsResizeCanvas();
 
     // --- node markers (DOM buttons over the canvas) ---
     this._lsNodeLayer.textContent = '';
@@ -2899,84 +2930,6 @@ export class UI {
     } catch (_) { return '#7aa2ff'; }
   }
 
-  // Blit the visible slice of the cached world onto the viewport canvas, then
-  // a phase-tinted scrim so the map matches the time of day.
-  //
-  // SCROLL-GLITCH FIX: the whole world is pre-rendered once into the full-height
-  // offscreen cache (in _lsPaintWorld). Here we guarantee the visible canvas is
-  // ALWAYS fully covered with painted pixels at every scroll position — even
-  // during momentum overscroll past the extremes — so NO unpainted (green CSS
-  // background) band can ever flash. We do this in three steps:
-  //   1) paint a full-canvas backing of the nearest cache EDGE row (so any
-  //      region above the top of the world or below its bottom is covered with
-  //      sky/beach (top) or ground (bottom) instead of bare canvas);
-  //   2) clamp the source slice to the cache bounds and draw it at the matching
-  //      destination offset;
-  //   3) overlay the phase scrim.
-  _lsBlit() {
-    const ctx = this._lsCtx;
-    const layout = this._lsLayout;
-    if (!ctx || !layout) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const vw = this._lsCanvas.width / dpr;
-    const vh = this._lsCanvas.height / dpr;
-    const cache = this._lsCache;
-    const cdpr = cache.width / layout.W;     // cache device px per CSS px
-    const cacheHcss = cache.height / cdpr;   // cache height in CSS px (== layout.H)
-    const top = this._lsScroll.scrollTop;    // may be <0 or >H-vh mid-overscroll
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, vw, vh);
-
-    // (2) CONTENT SLICE: clamp the source rectangle to [0, cacheH] and draw it
-    // at the destination offset that keeps world-y aligned with the viewport.
-    // srcTopCss is the world-y at the top of the viewport.
-    const srcTopCss = top;
-    const srcBotCss = top + vh;
-    const visTopCss = Math.max(0, srcTopCss);
-    const visBotCss = Math.min(cacheHcss, srcBotCss);
-
-    // (1) BACKING for ANY out-of-cache bands (only when overscrolling past an
-    // extreme). Above the world top → extend the cache's TOP edge row (sky /
-    // beach); below the world bottom → extend its BOTTOM edge row (ground). In
-    // the normal mid-map case neither band exists, so nothing is drawn here.
-    if (cache.width > 0 && cache.height > 0) {
-      if (srcTopCss < 0) {
-        const bandH = Math.min(vh, -srcTopCss);     // dest band height (CSS px)
-        ctx.drawImage(cache, 0, 0, cache.width, 1, 0, 0, vw, bandH);
-      }
-      if (srcBotCss > cacheHcss) {
-        const bandH = Math.min(vh, srcBotCss - cacheHcss);
-        ctx.drawImage(cache, 0, cache.height - 1, cache.width, 1,
-          0, vh - bandH, vw, bandH);
-      }
-    }
-    if (visBotCss > visTopCss) {
-      const sx = 0;
-      const sy = visTopCss * cdpr;
-      const sw = cache.width;
-      const sh = (visBotCss - visTopCss) * cdpr;
-      const dx = 0;
-      const dy = visTopCss - srcTopCss;        // shift down when top is negative
-      const dh = visBotCss - visTopCss;
-      ctx.drawImage(cache, sx, sy, sw, sh, dx, dy, layout.W, dh);
-    }
-
-    // (3) day-cycle scrim
-    const phase = this._lsPhase || this._lsCurrentPhase();
-    ctx.save();
-    ctx.globalAlpha = 0.22;
-    ctx.globalCompositeOperation = 'soft-light';
-    ctx.fillStyle = phase;
-    ctx.fillRect(0, 0, vw, vh);
-    ctx.restore();
-    // a top sky glow of the same phase
-    const sky = ctx.createLinearGradient(0, 0, 0, vh * 0.4);
-    sky.addColorStop(0, this._withAlpha(phase, 0.22));
-    sky.addColorStop(1, this._withAlpha(phase, 0));
-    ctx.fillStyle = sky; ctx.fillRect(0, 0, vw, vh * 0.4);
-  }
-
   _withAlpha(color, a) {
     // color is 'rgb(r,g,b)' or '#rrggbb'
     if (color.startsWith('#')) {
@@ -2984,35 +2937,6 @@ export class UI {
       return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
     }
     return color.replace('rgb(', 'rgba(').replace(')', `,${a})`);
-  }
-
-  _lsResizeCanvas() {
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const layout = this._lsLayout;
-    const vw = layout ? layout.W : (this._lsScroll.clientWidth || 360);
-    // OVERSCAN the canvas a couple of CSS px taller than the viewport so that
-    // sub-pixel rounding at the top/bottom edges can never expose the bare
-    // (green) backing during a scroll. The blit fills the full overscanned
-    // height, and the extra is simply off-screen.
-    const vh = (this._lsScroll.clientHeight || 560) + 2;
-    this._lsCanvas.width = Math.round(vw * dpr);
-    this._lsCanvas.height = Math.round(vh * dpr);
-    this._lsCanvas.style.width = `${vw}px`;
-    this._lsCanvas.style.height = `${vh}px`;
-    this._lsBlit();
-  }
-
-  // Scroll handler: keep the sticky canvas pinned to the viewport and re-blit
-  // the matching slice. The translate that pins the canvas AND the blit that
-  // repaints its content are applied TOGETHER, synchronously, on every scroll
-  // event — so the painted pixels never lag the canvas position by a frame
-  // (the old deferred-rAF blit left a 1-frame stale slice that flashed the
-  // green backing at the top/bottom edges during fast scrolls). The blit is
-  // only a few drawImage calls against the cache, so this stays cheap.
-  _lsOnScroll() {
-    const top = this._lsScroll.scrollTop;
-    this._lsCanvas.style.transform = `translateY(${top}px)`;
-    this._lsBlit();
   }
 
   /** Public: open the LEVEL SELECT world map. */
@@ -3030,9 +2954,9 @@ export class UI {
       void s.offsetWidth;
       s.classList.add('mf-anim');
       // Auto-center the CURRENT level (or first playable) in the viewport.
+      // The tall canvas scrolls natively, so simply setting scrollTop is enough.
       const vh = this._lsScroll.clientHeight || 560;
       this._lsScroll.scrollTop = Math.max(0, this._lsCurrentY - vh / 2);
-      this._lsOnScroll();
       const focus = this._lsFocusNode || this._lsBackBtn;
       if (focus) focus.focus({ preventScroll: true });
       // Slow watcher: re-tint when the day phase changes.
@@ -3045,7 +2969,13 @@ export class UI {
     this._lsPhaseTimer = setInterval(() => {
       if (!this._levelSelectVisible) return;
       const phase = this._lsCurrentPhase();
-      if (phase !== this._lsPhase) { this._lsPhase = phase; this._lsBlit(); }
+      // The day tint is baked into the full-height canvas, so when the phase
+      // changes we repaint the whole world (preserving scroll position).
+      if (phase !== this._lsPhase) {
+        const keepTop = this._lsScroll ? this._lsScroll.scrollTop : 0;
+        this._renderLevelMap();
+        if (this._lsScroll) this._lsScroll.scrollTop = keepTop;
+      }
     }, 2000);
   }
   _lsStopPhaseWatch() {

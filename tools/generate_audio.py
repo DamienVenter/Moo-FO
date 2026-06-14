@@ -670,32 +670,40 @@ def make_bark():
 
 
 def make_baa():
-    """SHEEP bleat: a nasal, wavery 'maa-aa' with strong vibrato. The pitch
-    sags overall while a fast 14 Hz vibrato wobbles it (the classic bleat
-    waver), and a narrow nasal formant band gives the pinched 'maa' timbre."""
-    dur = 0.85
-    # Pitch sags slowly; quivering vibrato that deepens through the note.
-    base = curve([(0, 340.0), (0.2 * dur, 360.0), (dur, 300.0)])
-    vdep = curve([(0, 0.012), (0.25 * dur, 0.05), (dur, 0.08)])  # waver grows
-    freq = lambda t: base(t) * (1.0 + vdep(t) * math.sin(TWO_PI * 14.0 * t))
-    # Buzzy reedy source (FM) for harmonic richness, like a bleaty larynx.
-    idx = curve([(0, 1.6), (0.1 * dur, 3.0), (dur, 2.2)])
+    """SHEEP bleat: 'baa-a-a-a' — a throaty open vowel that drifts down in pitch
+    and, crucially, develops a pronounced fast AMPLITUDE warble (tremolo) in the
+    tail. That fluttery warble is what makes a bleat read as a sheep rather than
+    a generic animal vowel."""
+    dur = 0.8
+    # Lower, throatier than a lamb; a gentle rise then a downward drift.
+    base = curve([(0, 300.0), (0.18 * dur, 322.0), (dur, 246.0)])
+    vdep = curve([(0, 0.006), (0.3 * dur, 0.03), (dur, 0.055)])
+    freq = lambda t: base(t) * (1.0 + vdep(t) * math.sin(TWO_PI * 7.0 * t))
+    # Buzzy reedy larynx (FM) for harmonic body.
+    idx = curve([(0, 1.8), (0.1 * dur, 3.2), (dur, 2.4)])
     src = fm_osc(freq, 1.0, idx, dur)
-    bright = fm_osc(freq, 2.0, lambda t: 0.5 * idx(t), dur)
-    src = [a + 0.4 * b for a, b in zip(src, bright)]
-    # Nasal formant: emphasise a mid band (~900-1600) for the pinched 'maa'.
-    hi = lowpass(src, 1600.0)
-    lo = lowpass(src, 900.0)
-    nasal = [h - l for h, l in zip(hi, lo)]
-    body = lowpass(src, 700.0)
-    voice = [0.8 * b + 1.6 * n for b, n in zip(body, nasal)]
-    # 'm' onset (soft hum) -> open 'aa', gentle release.
-    env = curve([(0, 0.0), (0.04, 0.6), (0.12, 1.0), (0.7 * dur, 0.9),
+    bright = fm_osc(freq, 2.0, lambda t: 0.45 * idx(t), dur)
+    src = [a + 0.45 * b for a, b in zip(src, bright)]
+    # Open 'aa' vowel: emphasise a broad mid band (~800-1500 Hz).
+    hi = lowpass(src, 1500.0)
+    lo = lowpass(src, 800.0)
+    vowel = [h - 0.4 * l for h, l in zip(hi, lo)]
+    body = lowpass(src, 650.0)
+    voice = [0.7 * b + 1.3 * v for b, v in zip(body, vowel)]
+    # soft 'b' onset -> open vowel -> fade.
+    env = curve([(0, 0.0), (0.03, 0.7), (0.10, 1.0), (0.6 * dur, 0.92),
                  (dur, 0.0)])
     voice = apply_env(voice, env)
+    # The bleat FLUTTER: a deep ~18 Hz amplitude tremolo that ramps in over the
+    # note so the tail "baa-a-a-a-a"s.
+    n = len(voice)
+    for i in range(n):
+        t = i / SR
+        depth = min(0.55, 0.05 + (t / dur) * 0.6)
+        voice[i] *= 1.0 - depth * (0.5 + 0.5 * math.sin(TWO_PI * 18.0 * t))
     out = zeros(dur)
     mix_at(out, voice)
-    out = soft_clip(out, 1.4)
+    out = soft_clip(out, 1.3)
     return normalize(fade(out, 0.004, 0.04))
 
 
@@ -853,7 +861,9 @@ SOUNDS = [
     ('lose',      make_lose),
     ('jingle',    make_jingle),
     ('waterfall', make_waterfall),
-    ('bark',      make_bark),
+    # 'bark' is a real CC0 dog-bark sample (assets/audio/bark.wav from
+    # lavenderdotpet/CC0-Public-Domain-Sounds) — NOT synthesised here, so it is
+    # intentionally omitted from this list and left untouched by the generator.
     ('baa',       make_baa),
     ('quack',     make_quack),
     ('scream',    make_scream),
