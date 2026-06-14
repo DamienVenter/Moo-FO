@@ -209,13 +209,17 @@ export class World {
     this._roads = [];
     this._blockers = [];
     this._clearRects = [];
-    this._map = { ponds: [], lake: null, buildings: [], fields: [], bridges: [], fenceRuns: [], dam: null };
+    this._map = { ponds: [], lake: null, buildings: [], fields: [], bridges: [], fenceRuns: [], dam: null, stable: null };
     this._anim = {
       windmillBlades: null, tractor: null, waterMats: [], lilies: [],
       owls: [], bats: [],
     };
     this._goldenSpots = [];
     this._bushList = [];
+
+    // Representative paddock-centre horse position for main.js proximity SFX
+    // (set in _buildStable when createHorse/createStable are available).
+    this.horsePos = null;
 
     this._buildWater();
     this._buildRoadNet();
@@ -232,6 +236,7 @@ export class World {
     this._buildGrass();
     this._buildRoadLanterns();
     this._buildTractor();
+    this._buildStable();
     this._buildWildlife();
     this._defineSpawns();
   }
@@ -1708,96 +1713,172 @@ export class World {
     rail.position.set(dam.x, crestY + 1.1, dam.z + 4.2);
     this.scene.add(rail);
 
-    // ---- DAM SPILLWAY: reservoir water pouring over the downstream face, built
-    // to the same quality as the main waterfall — layered falling sheets with a
-    // foam crest, churning whitewater + mist/spray at the base, and ripples on
-    // the river below. The face is at z = dam.z + 3.5; water falls from `crestY`
-    // down to the river surface `WATER_Y`.
-    const faceZ = dam.z + 3.55;
-    const fallTop = crestY - 0.3;          // just below the crest cap
-    const fallBot = WATER_Y + 0.4;          // meet the river surface
-    const fallH = fallTop - fallBot;
+    // ---- DAM SPILLWAY: reservoir water genuinely POURING over the downstream
+    // face — rebuilt to match the main mountain waterfall. The water is modelled
+    // as a CURVED, voluminous nappe (a tessellated curved strip) that arcs up and
+    // over the crest lip and curves down the face to the river: it is NOT a flat
+    // vertical panel. Layered translucent sheets scroll a flow texture along the
+    // fall direction and ripple gently per frame; heavy foam at the crest lip,
+    // churning whitewater + mist/spray at the base, falling droplets down the
+    // face, and spreading ripple rings on the river just below.
+    // The crest cap sits at z = dam.z, depth 8.4 → its downstream lip is at
+    // dam.z + 4.2; water leaves there, arcs forward and plunges to WATER_Y.
+    const crestLipZ = dam.z + 4.2;          // downstream edge of the crest cap
+    const lipY = crestY + 0.55;             // a touch above the cap so it tips over
+    const fallBot = WATER_Y + 0.3;           // meet the river surface
+    const plungeZ = crestLipZ + 4.4;         // where the nappe lands on the river
+    const faceZ = crestLipZ;                 // anchor for foam/churn placement
+    const fallH = lipY - fallBot;
+    const spillW = dam.len - 4;
     const foamTex = this._foamTex || makeFoamTexture();
 
-    // one falling sheet: a tall plane on the downstream face, scrolled downward.
-    const buildSpillSheet = (width, opacity, seed, uvScale, zOff) => {
-      const geo = new THREE.PlaneGeometry(width, fallH);
-      const uvAttr = geo.attributes.uv;
-      for (let i = 0; i < uvAttr.count; i++) uvAttr.setY(i, uvAttr.getY(i) * uvScale); // stretch v
-      uvAttr.needsUpdate = true;
-      const tex = makeFallTexture(seed);   // factory leaves repeat (1,4); geo UV adds the stretch
+    // Nappe profile: as t goes 0→1 the sheet rises slightly over the lip, then
+    // accelerates downward (water falls faster with depth) while arcing FORWARD
+    // (+z) like a projectile, finally flattening into the plunge. Returns the
+    // {y,z} centreline of the curved sheet at parameter t.
+    const nappeProfile = (t) => {
+      // vertical: gentle over the lip (t small) then plunging — eased power curve.
+      const drop = Math.pow(t, 1.65);
+      let y = lipY + 0.35 * Math.sin(t * Math.PI * 0.6)   // tiny bulge up over the lip
+              - (lipY - fallBot) * drop;
+      // forward arc: leaves the lip, bulges out, settles at the plunge point.
+      const fwd = crestLipZ + (plungeZ - crestLipZ) * (0.35 * t + 0.65 * drop);
+      return { y, z: fwd };
+    };
+
+    // Build ONE curved sheet: a tessellated strip following the nappe profile,
+    // tapering slightly toward the base, normals computed so it catches light.
+    // `bulge` pushes the sheet's own surface a little proud of the centreline
+    // (toward +z) to give the falling water volume rather than a paper-thin plane.
+    const buildNappe = (width, opacity, seed, uvScale, bulge, glow) => {
+      const STEPS = 22, COLS = 8;
+      const pos = [], uv = [], idx = [];
+      for (let i = 0; i <= STEPS; i++) {
+        const t = i / STEPS;
+        const p = nappeProfile(t);
+        const w = width * (1 - 0.18 * t);          // narrows a touch as it falls
+        for (let c = 0; c <= COLS; c++) {
+          const u = c / COLS;
+          const x = dam.x + (u - 0.5) * w;
+          // round the cross-section forward so the sheet reads as voluminous,
+          // not flat: max bulge at the centre column, tapering to the edges.
+          const edge = 1 - (2 * u - 1) * (2 * u - 1);
+          pos.push(x, p.y, p.z + bulge * edge);
+          uv.push(u, t * uvScale);
+        }
+        if (i > 0) {
+          const r0 = (i - 1) * (COLS + 1), r1 = i * (COLS + 1);
+          for (let c = 0; c < COLS; c++) {
+            idx.push(r0 + c, r0 + c + 1, r1 + c, r0 + c + 1, r1 + c + 1, r1 + c);
+          }
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const tex = makeFallTexture(seed);
       const mat = new THREE.MeshLambertMaterial({
         color: 0xeaf6ff, transparent: true, opacity, side: THREE.DoubleSide,
         map: tex, depthWrite: false,
       });
-      mat.emissive = new THREE.Color(0xbfe2ff);
-      mat.emissiveIntensity = 0.5;
+      mat.emissive = new THREE.Color(0xcfe6ff);
+      mat.emissiveIntensity = glow;
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(dam.x, (fallTop + fallBot) / 2, faceZ + zOff);
-      mesh.rotation.x = -0.14;             // lean out slightly so it reads as pouring
       this.scene.add(mesh);
-      return tex;
+      // store base positions + grid dims so update() can ripple the surface.
+      return {
+        tex, geo,
+        base: Float32Array.from(pos),
+        steps: STEPS, cols: COLS, bulge,
+      };
     };
+
+    // Layered nappe sheets: a broad bright back sheet, a fuller main sheet, and
+    // a thin fast foreground ribbon — each scrolls at its own speed so the water
+    // visibly rushes; the back sheet is brightest (lit through the falling water).
     this._spillSheets = [];
-    const spillW = dam.len - 4;
-    this._spillSheets.push({ tex: buildSpillSheet(spillW, 0.8, 2, 5, 0.0), speed: 2.0 });
-    this._spillSheets.push({ tex: buildSpillSheet(spillW * 0.7, 0.92, 9, 6, 0.18), speed: 2.7 });
-    this._spillSheets.push({ tex: buildSpillSheet(spillW * 0.42, 0.85, 15, 7, 0.34), speed: 3.4 });
+    this._spillNappes = [];
+    const reg = (n, speed, rip) => {
+      this._spillSheets.push({ tex: n.tex, speed });
+      this._spillNappes.push({ ...n, speed: rip });
+    };
+    reg(buildNappe(spillW, 0.62, 2, 5, 0.55, 0.55), 1.9, 6.0);
+    reg(buildNappe(spillW * 0.82, 0.85, 9, 6, 0.9, 0.5), 2.6, 7.0);
+    reg(buildNappe(spillW * 0.4, 0.8, 15, 7, 1.25, 0.45), 3.4, 8.5);
     // back-compat handle for any existing update() reference
     this._anim.spillTex = this._spillSheets[1].tex;
 
-    // foam crest sprites strung along the spill lip
+    // heavy FOAM at the crest lip — the white turbulence where the reservoir
+    // water tips over the edge. A dense row of overlapping foam puffs sitting on
+    // the lip, bobbing + pulsing each frame.
     this._spillCrestFoam = [];
-    for (let i = 0; i < 8; i++) {
-      const x = dam.x + ((i / 7) - 0.5) * spillW;
-      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: foamTex, transparent: true, opacity: 0.9, depthWrite: false,
-      }));
-      const baseY = crestY + 0.1;
-      spr.position.set(x, baseY, faceZ + 0.2);
-      spr.scale.set(2.6 + Math.random() * 1.4, 2.0, 1);
-      this.scene.add(spr);
-      this._spillCrestFoam.push({ spr, base: baseY, phase: Math.random() * 6 });
-    }
-
-    // Water visibly spilling OVER the crest — a near-horizontal tongue from the
-    // reservoir lip pouring forward onto the face sheets, so from the high
-    // gameplay camera you clearly see water flowing over and down the dam.
-    {
-      const lipTex = makeFallTexture(3);
-      const lipGeo = new THREE.PlaneGeometry(spillW + 1, 3.4);
-      const lipUv = lipGeo.attributes.uv;
-      for (let i = 0; i < lipUv.count; i++) lipUv.setY(i, lipUv.getY(i) * 3);
-      lipUv.needsUpdate = true;
-      const lipMat = new THREE.MeshLambertMaterial({
-        color: 0xeaf6ff, transparent: true, opacity: 0.92, side: THREE.DoubleSide,
-        map: lipTex, depthWrite: false,
-      });
-      lipMat.emissive = new THREE.Color(0xcde6ff);
-      lipMat.emissiveIntensity = 0.6;
-      const lip = new THREE.Mesh(lipGeo, lipMat);
-      lip.position.set(dam.x, crestY + 0.05, dam.z + 2.2);
-      lip.rotation.x = -Math.PI / 2 + 0.5;   // nearly flat, tipped to pour forward
-      this.scene.add(lip);
-      this._spillSheets.push({ tex: lipTex, speed: 2.4 });
-    }
-
-    // churning whitewater puffs where the sheets hit the river
-    this._spillChurn = [];
     for (let i = 0; i < 12; i++) {
-      const x = dam.x + (Math.random() - 0.5) * spillW * 1.1;
-      const z = faceZ + 0.5 + Math.random() * 3;
+      const x = dam.x + ((i / 11) - 0.5) * (spillW + 2);
       const spr = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: foamTex, transparent: true, opacity: 0.7, depthWrite: false,
+        map: foamTex, transparent: true, opacity: 0.95, depthWrite: false,
+      }));
+      const baseY = lipY + 0.15;
+      spr.position.set(x, baseY, crestLipZ + 0.1);
+      const sc = 2.8 + Math.random() * 1.6;
+      spr.scale.set(sc, sc * 0.7, 1);
+      this.scene.add(spr);
+      this._spillCrestFoam.push({ spr, base: baseY, phase: Math.random() * 6, sc });
+    }
+
+    // Falling DROPLET particles streaming down the curved face — fine points
+    // that ride the nappe profile from lip to plunge and recycle, so the spill
+    // visibly pours and moves even up close.
+    {
+      const ND = 80;
+      const dp = new Float32Array(ND * 3);
+      this._spillDropT = new Float32Array(ND);     // progress 0→1 down the face
+      this._spillDropU = new Float32Array(ND);     // lateral position across width
+      this._spillDropSpeed = new Float32Array(ND);
+      for (let i = 0; i < ND; i++) {
+        const t = Math.random();
+        const u = Math.random();
+        this._spillDropT[i] = t;
+        this._spillDropU[i] = u;
+        this._spillDropSpeed[i] = 0.5 + Math.random() * 0.8;
+        const p = nappeProfile(t);
+        dp[i * 3] = dam.x + (u - 0.5) * spillW * (1 - 0.18 * t);
+        dp[i * 3 + 1] = p.y;
+        dp[i * 3 + 2] = p.z + 0.6;
+      }
+      const dgeo = new THREE.BufferGeometry();
+      dgeo.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+      const dmat = new THREE.PointsMaterial({
+        color: 0xffffff, size: 1.7, sizeAttenuation: true, transparent: true,
+        opacity: 0.9, depthWrite: false, map: foamTex,
+      });
+      this._spillDrops = new THREE.Points(dgeo, dmat);
+      this.scene.add(this._spillDrops);
+      // remember the profile + width so update() can advance the droplets along
+      // the SAME curve the sheets follow.
+      this._spillDropProfile = nappeProfile;
+      this._spillDropW = spillW;
+      this._spillDropX = dam.x;
+    }
+
+    // churning whitewater puffs where the curved nappe hits the river (heavy at
+    // the plunge line). These pulse + bob each frame for a roiling whitewater read.
+    this._spillChurn = [];
+    for (let i = 0; i < 16; i++) {
+      const x = dam.x + (Math.random() - 0.5) * spillW * 1.15;
+      const z = plungeZ - 1.5 + Math.random() * 3.5;
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: foamTex, transparent: true, opacity: 0.75, depthWrite: false,
       }));
       spr.position.set(x, WATER_Y + 0.5, z);
-      const sc = 2.2 + Math.random() * 2.2;
+      const sc = 2.4 + Math.random() * 2.4;
       spr.scale.set(sc, sc * 0.7, 1);
       this.scene.add(spr);
       this._spillChurn.push({ spr, phase: Math.random() * 6, sc });
     }
 
-    // mist/spray cloud billowing above the plunge line
+    // mist/spray cloud billowing above the plunge line where the water lands.
     this._spillMist = [];
     for (let layer = 0; layer < 2; layer++) {
       const mist = new THREE.Mesh(
@@ -1807,22 +1888,22 @@ export class World {
           depthWrite: false, side: THREE.DoubleSide,
         })
       );
-      mist.position.set(dam.x, WATER_Y + 3 + layer * 1.2, faceZ + 2);
+      mist.position.set(dam.x, WATER_Y + 3 + layer * 1.2, plungeZ);
       this.scene.add(mist);
       this._spillMist.push(mist);
     }
 
-    // ripple rings spreading downstream from the plunge line
+    // ripple rings spreading out on the river just below the plunge line.
     this._spillRipples = [];
     const rMat = new THREE.MeshBasicMaterial({
       color: 0xeaf6ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false,
     });
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.3, 22), rMat.clone());
       ring.rotation.x = -Math.PI / 2;
-      ring.position.set(dam.x, WATER_Y + 0.06, faceZ + 3);
+      ring.position.set(dam.x, WATER_Y + 0.06, plungeZ + 0.5);
       this.scene.add(ring);
-      this._spillRipples.push({ mesh: ring, t: i / 3 });
+      this._spillRipples.push({ mesh: ring, t: i / 4 });
     }
   }
 
@@ -1842,6 +1923,75 @@ export class World {
     const start = path[0];
     tractor.position.set(start.x, terrainHeight(start.x, start.z) + 0.08, start.z);
     this.tractorPos = { x: start.x, y: terrainHeight(start.x, start.z) + 0.08, z: start.z };
+  }
+
+  // ----------------------------------------------------------------- stable
+  // A horse stable on open, dry, in-bounds ground just SW of the corn field and
+  // west of the east pasture — clear of every road, building, pasture and the
+  // veg garden (verified flat ~y=1). One stable building (collider + minimap +
+  // blocker), a fenced paddock beside it with a gate facing the stable, and a
+  // few horses standing/grazing on the terrain inside. Horses are static decor
+  // groups; `world.horsePos` exposes a representative one so main.js can play a
+  // proximity "disturbed" whinny. GUARDED on M.createStable / M.createHorse so
+  // the build never throws while those models are still being added.
+  _buildStable() {
+    // Paddock occupies x[86,118], z[-76,-48]; the stable sits just south of it.
+    const padCx = 102, padCz = -62, padW = 32, padD = 28;
+    const stableX = 102, stableZ = -82, stableRotY = 0;   // door faces +z (the paddock)
+
+    if (M.createStable && this._isFree(stableX, stableZ, 8)) {
+      // Place the stable building: collider so the UFO can't fly through it, a
+      // blocker so scatter/grass/props avoid it, and a minimap footprint.
+      this._place(M.createStable(), stableX, stableZ, stableRotY, {
+        collider: { r: 7, h: 9 },
+        map: { w: 14, d: 10, color: '#6b4f3a' },
+      });
+    } else if (!M.createStable) {
+      return;   // model not yet available — skip the whole stable area cleanly
+    }
+
+    // Fenced paddock beside the stable. Gate on the BOTTOM (south) edge so it
+    // opens toward the stable door. Reuses the shared fence helper (registers
+    // solid fence segments for crossesFence + draws a minimap fence run).
+    this._fenceRect(padCx, padCz, padW, padD, [2]);
+    this._clearRects.push({ x: padCx, z: padCz, w: padW, d: padD });
+
+    // Scatter a few horses (3–5) grazing/standing inside the paddock, kept off
+    // the fence lines and spaced apart. Static decor — no AI.
+    if (M.createHorse) {
+      const count = 4;
+      const inset = 4.5;                       // keep horses off the rails
+      const placed = [];
+      let firstX = padCx, firstZ = padCz;      // fallback paddock centre
+      let attempt = 0;
+      while (placed.length < count && attempt < 80) {
+        attempt++;
+        const x = padCx + (Math.random() * 2 - 1) * (padW / 2 - inset);
+        const z = padCz + (Math.random() * 2 - 1) * (padD / 2 - inset);
+        let ok = true;
+        for (const p of placed) {
+          if ((x - p.x) ** 2 + (z - p.z) ** 2 < 7 * 7) { ok = false; break; }
+        }
+        if (!ok) continue;
+        const horse = M.createHorse();
+        horse.position.set(x, terrainHeight(x, z), z);
+        horse.rotation.y = Math.random() * Math.PI * 2;   // facing random ways
+        this.scene.add(horse);
+        placed.push({ x, z });
+        if (placed.length === 1) { firstX = x; firstZ = z; }
+      }
+      // Representative horse (the paddock centre, anchored on the first horse)
+      // for main.js proximity audio.
+      this.horsePos = { x: firstX, y: terrainHeight(firstX, firstZ), z: firstZ };
+    } else {
+      // Stable exists but horse model not ready: expose the paddock centre so
+      // consumers always have a valid horsePos to read.
+      this.horsePos = { x: padCx, y: terrainHeight(padCx, padCz), z: padCz };
+    }
+
+    // Remember the stable for the minimap (drawn explicitly as a distinct icon
+    // in addition to its building footprint).
+    this._map.stable = { x: stableX, z: stableZ, w: 14, d: 10, padCx, padCz, padW, padD };
   }
 
   // ---------------------------------------------------------------- wildlife
@@ -2016,6 +2166,19 @@ export class World {
       ctx.fillStyle = b.color || '#8a6d52';
       ctx.fillRect(px(b.x - b.w / 2), py(b.z - b.d / 2), Math.max(2, b.w * k), Math.max(2, b.d * k));
     }
+
+    // Stable + horse paddock: a dashed paddock outline plus a distinct stable
+    // marker so the horse area reads clearly on the minimap.
+    const st = this._map.stable;
+    if (st) {
+      ctx.strokeStyle = '#8a6d52';
+      ctx.lineWidth = Math.max(1, 1.5 * k);
+      ctx.strokeRect(px(st.padCx - st.padW / 2), py(st.padCz - st.padD / 2),
+        st.padW * k, st.padD * k);
+      ctx.fillStyle = '#6b4f3a';
+      ctx.fillRect(px(st.x - st.w / 2), py(st.z - st.d / 2),
+        Math.max(2, st.w * k), Math.max(2, st.d * k));
+    }
   }
 
   // ------------------------------------------------------------------ anim
@@ -2040,16 +2203,58 @@ export class World {
     } else if (this._wfallTex) {
       this._wfallTex.offset.y = (this._wfallTex.offset.y - dt * 2.4) % 1;
     }
-    // dam spillway: layered sheets scroll, crest foam bobs, churn pulses at the
-    // plunge line, mist billows, ripples spread — mirrors the main waterfall.
+    // dam spillway: the curved nappe scrolls its flow texture along the fall
+    // direction AND its surface ripples per frame; crest foam bobs, droplets
+    // pour down the face, churn pulses at the plunge, mist billows, ripples
+    // spread — mirrors the main waterfall.
     if (this._spillSheets) {
       for (const s of this._spillSheets) s.tex.offset.y = (s.tex.offset.y - dt * s.speed) % 1;
     } else if (this._anim.spillTex) {
       this._anim.spillTex.offset.y = (this._anim.spillTex.offset.y - dt * 2.1) % 1;
     }
+    // gentle surface ripple on each curved nappe sheet — nudge each vertex's z
+    // off its stored base by a travelling wave so the falling water shimmers and
+    // never reads as a static panel. Cheap: a sin per vertex on a small grid.
+    if (this._spillNappes) {
+      for (const n of this._spillNappes) {
+        const arr = n.geo.attributes.position.array;
+        const base = n.base;
+        const cols = n.cols + 1;
+        const amp = 0.18 + n.bulge * 0.12;
+        for (let i = 0; i <= n.steps; i++) {
+          const t = i / n.steps;
+          for (let c = 0; c < cols; c++) {
+            const vi = (i * cols + c) * 3;
+            const w = Math.sin(elapsed * n.speed + t * 9 + c * 0.7) * amp * (0.3 + t);
+            arr[vi + 2] = base[vi + 2] + w;             // ripple along the fall (z)
+            arr[vi + 1] = base[vi + 1] + w * 0.25;      // tiny vertical jitter
+          }
+        }
+        n.geo.attributes.position.needsUpdate = true;
+      }
+    }
+    // falling droplets ride the nappe profile from lip to plunge, then recycle.
+    if (this._spillDrops && this._spillDropProfile) {
+      const arr = this._spillDrops.geometry.attributes.position.array;
+      const prof = this._spillDropProfile;
+      for (let i = 0, j = 0; j < this._spillDropT.length; i += 3, j++) {
+        let t = this._spillDropT[j] + dt * this._spillDropSpeed[j];
+        if (t >= 1) { t -= 1; this._spillDropU[j] = Math.random(); }
+        this._spillDropT[j] = t;
+        const p = prof(t);
+        const u = this._spillDropU[j];
+        arr[i] = this._spillDropX + (u - 0.5) * this._spillDropW * (1 - 0.18 * t)
+                 + Math.sin(elapsed * 5 + j) * 0.25;
+        arr[i + 1] = p.y;
+        arr[i + 2] = p.z + 0.6 + Math.sin(elapsed * 4 + j) * 0.15;
+      }
+      this._spillDrops.geometry.attributes.position.needsUpdate = true;
+    }
     if (this._spillCrestFoam) {
       for (const f of this._spillCrestFoam) {
         f.spr.position.y = f.base + Math.sin(elapsed * 4 + f.phase) * 0.22;
+        const p = 0.85 + Math.sin(elapsed * 4.5 + f.phase) * 0.18;
+        f.spr.scale.set(f.sc * p, f.sc * 0.7 * p, 1);
         f.spr.material.opacity = 0.7 + Math.abs(Math.sin(elapsed * 3 + f.phase)) * 0.3;
       }
     }

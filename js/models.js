@@ -348,111 +348,257 @@ export function blobShadow(radius) {
 }
 
 /* ------------------------------------------------------------------ *
- *  createUFO — diameter ~5, height ~2.2. The hero model.
- *  userData: { dome, ring, lights: Mesh[8], beamAnchor }
- *  Two-tone hull (light top / dark underside), panel-line ring segments,
- *  rivets, antenna, glass dome over a blinking instrument console (no pilot
- *  — the player flies it), concentric underside rings + emissive emitter
- *  lens, 8 rim lights.
+ *  createUFO(opts) — diameter ~4.5, height ~2.3. The hero model.
+ *  opts = { shape, hull, dome, light } — cosmetic options for the shop.
+ *    shape : 'saucer' (default) | 'orb' | 'delta' | 'ringed'
+ *    hull  : 0xRRGGBB body/hull colour      (default classic two-tone)
+ *    dome  : 0xRRGGBB glass dome colour      (default COLORS.ufoDome)
+ *    light : 0xRRGGBB rim running-lights +   (default COLORS.ufoGlow)
+ *            beam-adjacent emitter glow
+ *  userData (IDENTICAL for ALL shapes — ufo.js depends on it):
+ *    { dome, ring, lights: Mesh[8], beamAnchor }
+ *      dome  — Mesh spun by ufo.js
+ *      ring  — pivot Group spun by ufo.js
+ *      lights — array of ~8 rim light meshes that blink individually
+ *      beamAnchor — Object3D under the craft the beam hangs from
+ *  Defaults reproduce the CURRENT classic saucer EXACTLY so existing
+ *  zero-arg callers are unchanged. Bottom-center origin, faces +Z.
  * ------------------------------------------------------------------ */
 
-export function createUFO() {
+export function createUFO(opts = {}) {
+  const shape = opts.shape || 'saucer';
+  // Hull palette: when a custom `hull` is given, derive a light cap / dark
+  // belly / greeble tone from it so the recolour reads as one craft; the
+  // defaults below are the exact classic hull colours.
+  const hullBase = opts.hull != null ? opts.hull : null;
+  const hullTopHex = hullBase != null ? _tint(hullBase, 1.18) : 0xb7c3d6;
+  const hullLowHex = hullBase != null ? hullBase : 0x76849b;
+  const greebleHex = hullBase != null ? _tint(hullBase, 0.72) : 0x55607a;
+  const ringHex = hullBase != null ? _tint(hullBase, 0.92) : 0x7a8696;
+  const lightHex = opts.light != null ? opts.light : COLORS.ufoGlow;
+  const domeHex = opts.dome != null ? opts.dome : COLORS.ufoDome;
+  const beamHex = opts.light != null ? opts.light : COLORS.beam;
+
   const g = new THREE.Group();
-  const hullTop = mat(0xb7c3d6, true);     // lighter top shell
-  const hullLow = mat(0x76849b, true);     // darker underside
-  const greeble = mat(0x55607a, true);
+  const hullTop = mat(hullTopHex, true);   // lighter top shell
+  const hullLow = mat(hullLowHex, true);   // darker underside
+  const greeble = mat(greebleHex, true);
 
-  // ---- Underside: emissive emitter lens + concentric detail rings.
+  // ---- Shared underside emitter lens (beam-adjacent glow uses `light`).
   const emitter = add(g, cylGeo(0.55, 0.74, 0.2, 10),
-    emat(COLORS.beam, COLORS.beam, 1.0, true), 0, 0.1, 0);
+    emat(beamHex, beamHex, 1.0, true), 0, 0.1, 0);
   emitter.castShadow = false;
-  add(g, cylGeo(1.42, 0.66, 0.55, 10), hullLow, 0, 0.5, 0);    // hub cone
-  add(g, cylGeo(1.46, 1.34, 0.1, 12), greeble, 0, 0.31, 0);    // inner ring
-  add(g, cylGeo(1.98, 1.88, 0.14, 12), hullLow, 0, 0.46, 0);   // outer ring
-  for (let i = 0; i < 4; i++) {                                 // greeble pods
-    const a = (i / 4) * PI2 + 0.4;
-    box(g, 0.34, 0.22, 0.3, i % 2 ? greeble : hullLow,
-      Math.cos(a) * 1.55, 0.5, Math.sin(a) * 1.55).rotation.y = -a;
-  }
 
-  // ---- Hull: flattened two-tone lens (light cap over dark belly).
-  const bodyTop = add(g, sphGeo(2.5, 10, 6), hullTop, 0, 1.02, 0);
-  bodyTop.scale.set(1, 0.32, 1);
-  const bodyLow = add(g, sphGeo(2.44, 10, 6), hullLow, 0, 0.92, 0);
-  bodyLow.scale.set(1, 0.3, 1);
-
-  // Panel lines: 8 radial seam strips over the upper hull.
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * PI2 + Math.PI / 8;
-    const seg = box(g, 0.05, 0.04, 0.85, greeble,
-      Math.cos(a + Math.PI / 2) * 1.78, 1.32, Math.sin(a + Math.PI / 2) * 1.78);
-    seg.rotation.order = 'YXZ';
-    seg.rotation.y = -(a + Math.PI / 2) + Math.PI / 2;
-    seg.rotation.x = 0.42;
-  }
-  // Rivet dots around the rim.
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * PI2 + 0.15;
-    const rv = box(g, 0.09, 0.07, 0.09, greeble, Math.cos(a) * 2.32, 1.16, Math.sin(a) * 2.32);
-    rv.rotation.y = -a;
-  }
-
-  // ---- Rim ring (counter-rotated by ufo.js) carrying 8 light bulbs.
+  // ---- Rim ring + 8 blinking light bulbs. The torus/halo geometry &
+  //      radius differ per shape but the contract (pivot Group `ring`
+  //      carrying an 8-entry `lights` array) is identical everywhere.
   const ring = pivot(g, 0, 1.0, 0);
-  const torus = add(ring, torusGeo(2.55, 0.18, 6, 14), mat(0x7a8696, true), 0, 0, 0);
-  torus.rotation.x = Math.PI / 2;
   const lights = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * PI2;
-    // Each bulb gets its OWN material so gameplay can blink them individually.
-    const bm = new THREE.MeshLambertMaterial({
-      color: COLORS.ufoGlow,
-      emissive: COLORS.ufoGlow,
-      emissiveIntensity: 1.0,
-      flatShading: true,
-    });
-    const b = add(ring, sphGeo(0.16, 6, 4), bm, Math.cos(a) * 2.62, -0.05, Math.sin(a) * 2.62);
-    b.castShadow = false;
-    lights.push(b);
+  // Per-shape light placement radius / height (set below).
+  let lightR = 2.62, lightY = -0.05, ringTorus = null;
+  const addRimLights = (radius, y) => {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * PI2;
+      // Each bulb gets its OWN material so gameplay can blink it alone.
+      const bm = new THREE.MeshLambertMaterial({
+        color: lightHex, emissive: lightHex, emissiveIntensity: 1.0, flatShading: true,
+      });
+      const b = add(ring, sphGeo(0.16, 6, 4), bm, Math.cos(a) * radius, y, Math.sin(a) * radius);
+      b.castShadow = false;
+      lights.push(b);
+    }
+  };
+
+  // ---- Tinted glass dome material (unique per craft — ufo.js may pulse).
+  const domeMat = new THREE.MeshLambertMaterial({
+    color: domeHex, emissive: domeHex, emissiveIntensity: 0.25,
+    transparent: true, opacity: 0.45, depthWrite: false, flatShading: true,
+  });
+
+  let dome;
+
+  if (shape === 'orb') {
+    // ---- ORB: rounded egg body, small dome on top, slim equatorial ring.
+    //      Belly center y=1.42 (r 1.36 half-height) → bottom ≈ y0, so the
+    //      egg sits ON the ground; a short pedestal fills the underside.
+    add(g, cylGeo(0.85, 0.55, 0.32, 10), hullLow, 0, 0.16, 0);  // base pedestal
+    const belly = add(g, sphGeo(1.48, 12, 9), hullLow, 0, 1.42, 0);
+    belly.scale.set(1.0, 0.92, 1.0);                            // egg belly
+    const shell = add(g, sphGeo(1.36, 12, 8), hullTop, 0, 1.64, 0);
+    shell.scale.set(1.0, 0.78, 1.0);                            // lighter upper shell
+    // Vertical hull seam ribs around the equator.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * PI2;
+      const rib = box(g, 0.08, 1.5, 0.1, greeble, Math.cos(a) * 1.4, 1.4, Math.sin(a) * 1.4);
+      rib.rotation.y = -a;
+    }
+    // Slim equatorial ring carrying the rim lights.
+    ring.position.y = 1.4;
+    ringTorus = add(ring, torusGeo(1.64, 0.1, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(1.72, 0);
+    // Small dome + collar on TOP of the egg.
+    add(g, cylGeo(0.7, 0.82, 0.14, 10), greeble, 0, 2.22, 0);   // dome collar
+    dome = add(g, domeGeo(0.66, 10, 5), domeMat, 0, 2.28, 0);
+    dome.scale.set(1, 0.92, 1);
+    dome.castShadow = false;
+    // Console + antenna sit under the small top dome.
+    _ufoConsole(g, greeble, 2.12, 0.5);
+    _ufoAntenna(g, greeble, 0.5, 2.4, -0.4);
+
+  } else if (shape === 'delta') {
+    // ---- DELTA: angular arrowhead craft, cockpit dome on the spine, rim
+    //      lights along the wing edges. The swept planform is built from a
+    //      tapered stack of body slabs: sharp nose at +Z, wide tail at -Z.
+    // Body slabs forming the delta planform (nose +Z, swept tail -Z).
+    const slab = (w, d, y, z, low) => box(g, w, 0.34, d, low ? hullLow : hullTop, 0, y, z);
+    slab(0.5, 1.0, 0.95, 1.55, false);                          // sharp nose
+    slab(1.6, 1.0, 0.92, 0.7, true);                            // mid fuselage
+    slab(2.9, 1.0, 0.9, -0.2, false);                           // broad waist
+    slab(3.8, 1.0, 0.88, -1.05, true);                          // wide tail block
+    // Raised dorsal spine ridge.
+    box(g, 0.6, 0.4, 2.6, hullTop, 0, 1.28, 0.1);
+    // Swept-back tail fins (wingtip edges) angled up.
+    for (const s of [-1, 1]) {
+      const fin = box(g, 0.16, 0.7, 1.0, greeble, s * 1.7, 1.15, -1.0);
+      fin.rotation.z = s * 0.4;
+    }
+    // Underside emitter recess panel.
+    box(g, 1.3, 0.16, 1.3, greeble, 0, 0.66, -0.1);
+    // Rim ring: lights run along the wing EDGES (a flat oval ring).
+    ring.position.y = 0.95;
+    ringTorus = add(ring, torusGeo(2.0, 0.12, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    ringTorus.scale.set(0.95, 1.25, 1);                         // stretch toward the tail
+    // Place 8 lights along the delta outline rather than a circle.
+    const edge = [
+      [0, 1.7], [0.95, 0.6], [1.55, -0.7], [1.55, -1.4],
+      [-1.55, -1.4], [-1.55, -0.7], [-0.95, 0.6], [0, 1.7],
+    ];
+    for (let i = 0; i < 8; i++) {
+      const [lx, lz] = edge[i];
+      const bm = new THREE.MeshLambertMaterial({
+        color: lightHex, emissive: lightHex, emissiveIntensity: 1.0, flatShading: true,
+      });
+      const b = add(ring, sphGeo(0.15, 6, 4), bm, lx, 0, lz);
+      b.castShadow = false;
+      lights.push(b);
+    }
+    // Cockpit dome on the spine + console + antenna.
+    add(g, cylGeo(0.66, 0.78, 0.12, 10), greeble, 0, 1.5, 0.2);
+    dome = add(g, domeGeo(0.62, 10, 5), domeMat, 0, 1.56, 0.2);
+    dome.scale.set(1, 0.82, 1.15);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 1.46, 0.7);
+    _ufoAntenna(g, greeble, 0.0, 1.7, -1.2);
+
+  } else if (shape === 'ringed') {
+    // ---- RINGED: compact core with a big separate halo RING around it.
+    //      The `ring` pivot IS the prominent halo; lights set into it.
+    add(g, cylGeo(0.9, 0.6, 0.4, 10), hullLow, 0, 0.32, 0);     // base cone
+    const core = add(g, sphGeo(1.3, 12, 9), hullLow, 0, 1.15, 0);
+    core.scale.set(1, 0.85, 1);                                 // compact belly
+    const cap = add(g, sphGeo(1.18, 12, 8), hullTop, 0, 1.32, 0);
+    cap.scale.set(1, 0.62, 1);                                  // lighter cap
+    // Greeble band around the core waist.
+    add(g, cylGeo(1.2, 1.2, 0.2, 12), greeble, 0, 1.1, 0);
+    // Prominent halo ring (the spinning pivot) — fat torus + 8 inset lights.
+    ring.position.y = 1.15;
+    ringTorus = add(ring, torusGeo(2.25, 0.26, 8, 18), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    // Decorative spokes/struts tying the halo to the core.
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * PI2 + 0.4;
+      const strut = box(ring, 1.0, 0.1, 0.1, greeble,
+        Math.cos(a) * 1.55, 0, Math.sin(a) * 1.55);
+      strut.rotation.y = -a;
+    }
+    addRimLights(2.25, 0);                                      // lights set INTO the halo
+    // Dome on top of the core + console + antenna.
+    add(g, cylGeo(0.96, 1.06, 0.14, 10), greeble, 0, 1.74, 0);
+    dome = add(g, domeGeo(0.92, 10, 5), domeMat, 0, 1.8, 0);
+    dome.scale.set(1, 0.82, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 1.7, 0.42);
+    _ufoAntenna(g, greeble, 0.62, 2.0, -0.42);
+
+  } else {
+    // ---- SAUCER (classic, default): flattened two-tone lens. EXACT.
+    add(g, cylGeo(1.42, 0.66, 0.55, 10), hullLow, 0, 0.5, 0);    // hub cone
+    add(g, cylGeo(1.46, 1.34, 0.1, 12), greeble, 0, 0.31, 0);    // inner ring
+    add(g, cylGeo(1.98, 1.88, 0.14, 12), hullLow, 0, 0.46, 0);   // outer ring
+    for (let i = 0; i < 4; i++) {                                 // greeble pods
+      const a = (i / 4) * PI2 + 0.4;
+      box(g, 0.34, 0.22, 0.3, i % 2 ? greeble : hullLow,
+        Math.cos(a) * 1.55, 0.5, Math.sin(a) * 1.55).rotation.y = -a;
+    }
+    const bodyTop = add(g, sphGeo(2.5, 10, 6), hullTop, 0, 1.02, 0);
+    bodyTop.scale.set(1, 0.32, 1);
+    const bodyLow = add(g, sphGeo(2.44, 10, 6), hullLow, 0, 0.92, 0);
+    bodyLow.scale.set(1, 0.3, 1);
+    // Panel lines: 8 radial seam strips over the upper hull.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * PI2 + Math.PI / 8;
+      const seg = box(g, 0.05, 0.04, 0.85, greeble,
+        Math.cos(a + Math.PI / 2) * 1.78, 1.32, Math.sin(a + Math.PI / 2) * 1.78);
+      seg.rotation.order = 'YXZ';
+      seg.rotation.y = -(a + Math.PI / 2) + Math.PI / 2;
+      seg.rotation.x = 0.42;
+    }
+    // Rivet dots around the rim.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * PI2 + 0.15;
+      const rv = box(g, 0.09, 0.07, 0.09, greeble, Math.cos(a) * 2.32, 1.16, Math.sin(a) * 2.32);
+      rv.rotation.y = -a;
+    }
+    // Rim ring carrying 8 light bulbs.
+    ringTorus = add(ring, torusGeo(2.55, 0.18, 6, 14), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(lightR, lightY);
+    // Dome collar + dome.
+    add(g, cylGeo(1.24, 1.34, 0.16, 10), greeble, 0, 1.5, 0);
+    dome = add(g, domeGeo(1.15, 10, 5), domeMat, 0, 1.35, 0);
+    dome.scale.set(1, 0.8, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 1.45, 0.42);
+    _ufoAntenna(g, greeble, 0.78, 1.9, -0.55);
   }
 
-  // ---- Dome collar + antenna with emissive tip.
-  add(g, cylGeo(1.24, 1.34, 0.16, 10), greeble, 0, 1.5, 0);
-  box(g, 0.04, 0.5, 0.04, greeble, 0.78, 1.62, -0.55);
-  const antTip = add(g, sphGeo(0.07, 5, 4), emat(0xff6b9d, 0xff2d78, 1.0, true), 0.78, 1.9, -0.55);
-  antTip.castShadow = false;
-
-  // ---- Cockpit: instrument console with two blinking lights (no pilot —
-  //      the player flies the ship). Sits under the dome as tasteful detail.
-  const console_ = pivot(g, 0, 1.45, 0);
-  box(console_, 0.56, 0.14, 0.3, greeble, 0, 0.16, 0.42);              // console desk
-  box(console_, 0.46, 0.18, 0.16, mat(0x44506a, true), 0, 0.27, 0.46); // raised instrument panel
-  const bl1 = box(console_, 0.1, 0.07, 0.06, emat(0xff5252, 0xff1744, 1.0), -0.14, 0.34, 0.46);
-  bl1.castShadow = false;
-  const bl2 = box(console_, 0.1, 0.07, 0.06, emat(0x7ce8ff, 0x00b8d4, 1.0), 0.14, 0.34, 0.46);
-  bl2.castShadow = false;
-
-  // ---- Tinted glass dome (unique material — ufo.js may pulse it).
-  const domeMat = new THREE.MeshLambertMaterial({
-    color: COLORS.ufoDome,
-    emissive: COLORS.ufoDome,
-    emissiveIntensity: 0.25,
-    transparent: true,
-    opacity: 0.45,
-    depthWrite: false,
-    flatShading: true,
-  });
-  const dome = add(g, domeGeo(1.15, 10, 5), domeMat, 0, 1.35, 0);
-  dome.scale.set(1, 0.8, 1);
-  dome.castShadow = false;
-
-  // Beam anchor at the bottom center.
+  // Beam anchor at the bottom center (under the craft).
   const beamAnchor = new THREE.Object3D();
   beamAnchor.position.set(0, 0.08, 0);
   g.add(beamAnchor);
 
   g.userData = { dome, ring, lights, beamAnchor };
   return g;
+}
+
+// Multiply an 0xRRGGBB colour by a factor per channel (clamped) — used to
+// derive light cap / dark belly / greeble tones from a single hull colour.
+function _tint(hex, f) {
+  const r = Math.min(255, Math.round(((hex >> 16) & 0xff) * f));
+  const gC = Math.min(255, Math.round(((hex >> 8) & 0xff) * f));
+  const b = Math.min(255, Math.round((hex & 0xff) * f));
+  return (r << 16) | (gC << 8) | b;
+}
+
+// Shared alien-free cockpit console (desk + panel + two blinking lights).
+// Parented onto the craft at the given y; faces +Z by `front` z offset.
+function _ufoConsole(g, greeble, y, front) {
+  const console_ = pivot(g, 0, y, 0);
+  box(console_, 0.56, 0.14, 0.3, greeble, 0, 0.16, front);
+  box(console_, 0.46, 0.18, 0.16, mat(0x44506a, true), 0, 0.27, front + 0.04);
+  const bl1 = box(console_, 0.1, 0.07, 0.06, emat(0xff5252, 0xff1744, 1.0), -0.14, 0.34, front + 0.04);
+  bl1.castShadow = false;
+  const bl2 = box(console_, 0.1, 0.07, 0.06, emat(0x7ce8ff, 0x00b8d4, 1.0), 0.14, 0.34, front + 0.04);
+  bl2.castShadow = false;
+}
+
+// Shared little antenna with an emissive pink tip.
+function _ufoAntenna(g, greeble, x, y, z) {
+  box(g, 0.04, 0.5, 0.04, greeble, x, y - 0.28, z);
+  const antTip = add(g, sphGeo(0.07, 5, 4), emat(0xff6b9d, 0xff2d78, 1.0, true), x, y, z);
+  antTip.castShadow = false;
 }
 
 /* ------------------------------------------------------------------ *
@@ -2278,5 +2424,208 @@ export function createLog() {
   const patch = box(g, 0.7, 0.05, 0.26, moss, 0.1, 0.24, -0.02);
   patch.castShadow = false;
 
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createStable — horse stable / barn, ~6 wide. Front gable faces +Z.
+ *  Plank-textured walls + a single TRIANGULAR-PRISM gable mass (same
+ *  technique as createBarn / createFarmhouse) so the shingle roof slabs
+ *  sit FLUSH on the gable faces with no rectangular block poking out.
+ *  Two Dutch half-doors (the top halves swung open), a small fenced
+ *  paddock hint to one side, two hay bales, and a horseshoe over the
+ *  door for luck. Bottom-center origin. ≤ ~70 meshes.
+ * ------------------------------------------------------------------ */
+
+export function createStable() {
+  const g = new THREE.Group();
+  const wall = mat(COLORS.wood, false, 'planks');          // warm timber plank walls
+  const trim = mat(COLORS.barnTrim);
+  const roof = mat(COLORS.roof, false, 'shingles');
+  const woodD = mat(COLORS.woodDark);
+  const dark = mat(0x2a1f18);
+
+  // Stone footing strip under the walls.
+  box(g, 6.3, 0.4, 5.3, mat(COLORS.stone, false, 'stone'), 0, 0.2, 0);
+
+  // Main wall box + a single gable prism. Eaves at (z=±2.5, y=3.0), ridge
+  // at (z=0, y=4.4). The prism's two faces lie flush under the roof slabs;
+  // its end caps form the clean front/back gable triangles. Length inset
+  // to 5.92 to avoid z-fighting the front/back wall planes.
+  box(g, 6, 2.6, 5, wall, 0, 1.5, 0);                       // walls (eave at 2.8)
+  add(g, prismXGeo([[2.8, -2.46], [2.8, 2.46], [4.4, 0]], 5.92), wall, 0, 0, 0);
+
+  // Gable roof: ridge along X at y=4.4, eaves at (z=±2.5, y=2.8). Slope run
+  // 2.5, rise 1.6 → angle atan(1.6/2.5)=0.569. Slabs sized for an even
+  // overhang on all four edges; matching ridge cap on top.
+  const rAng = Math.atan2(1.6, 2.5);                        // ≈ 0.569
+  const slabLen = Math.hypot(2.5, 1.6) + 0.5;               // slope length + overhang
+  for (const s of [-1, 1]) {
+    const slab = box(g, 6.7, 0.18, slabLen, roof, 0, 3.6, s * 1.25);
+    slab.rotation.x = s * rAng;
+  }
+  box(g, 6.8, 0.26, 0.5, mat(0x553b32), 0, 4.46, 0);        // ridge cap
+
+  // White corner boards + eave bands.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      box(g, 0.28, 2.6, 0.28, trim, sx * 2.98, 1.5, sz * 2.48);
+    }
+  }
+  box(g, 6.4, 0.22, 0.22, trim, 0, 2.82, 2.52);             // eave band (front)
+  box(g, 6.4, 0.22, 0.22, trim, 0, 2.82, -2.52);            // eave band (back)
+
+  // ---- Two Dutch half-doors on the +Z face (top halves swung outward).
+  // Each opening is 1.4 wide; doorways centered at x = ±1.0.
+  for (const dx of [-1.0, 1.0]) {
+    // Door frame + dark stall interior behind it.
+    box(g, 1.6, 2.3, 0.14, trim, dx, 1.2, 2.5);             // frame
+    box(g, 1.4, 2.1, 0.1, dark, dx, 1.2, 2.52);             // dark stall opening
+    // Bottom half-door (closed): a plank panel with a Z-brace + iron strap.
+    box(g, 1.34, 1.0, 0.1, mat(COLORS.woodDark, false, 'door'), dx, 0.65, 2.56);
+    box(g, 1.3, 0.1, 0.06, woodD, dx, 1.08, 2.62);          // top rail
+    const brace = box(g, 0.12, 1.3, 0.05, woodD, dx, 0.65, 2.63);
+    brace.rotation.z = 0.62;                                // diagonal Z-brace
+    box(g, 0.16, 0.1, 0.06, mat(0x37474f), dx + 0.5, 0.65, 2.63); // latch
+    // Top half-door swung OPEN (hinged on the outer edge, angled outward).
+    const hinge = dx < 0 ? -1 : 1;
+    const topDoor = pivot(g, dx + hinge * 0.67, 1.75, 2.55);
+    topDoor.rotation.y = hinge * 1.0;                        // swung open
+    box(topDoor, 1.34, 1.0, 0.1, mat(COLORS.woodDark, false, 'door'), -hinge * 0.67, 0, 0.04);
+    const tbr = box(topDoor, 0.12, 1.3, 0.05, woodD, -hinge * 0.67, 0, 0.1);
+    tbr.rotation.z = 0.62;
+  }
+
+  // ---- Horseshoe over the doors (open end UP for luck): a U of short iron
+  //      bar segments swept around the lower arc, with a couple of nail dots.
+  const iron = mat(0x9aa0a6, true);
+  const nail = mat(0x3a3a3a);
+  const shoeY = 2.55, shoeR = 0.3;
+  // Sweep from ~200° round the bottom to ~340° (the open ends point UP).
+  for (let i = 0; i < 7; i++) {
+    const a = Math.PI * 1.12 + (i / 6) * Math.PI * 0.76;
+    const seg = box(g, 0.12, 0.16, 0.05, iron, Math.cos(a) * shoeR, shoeY + Math.sin(a) * shoeR, 2.58);
+    seg.rotation.z = a + Math.PI / 2;                       // align the bar to the arc
+  }
+  box(g, 0.05, 0.05, 0.03, nail, -0.18, shoeY - 0.12, 2.61); // nail dots
+  box(g, 0.05, 0.05, 0.03, nail, 0.18, shoeY - 0.12, 2.61);
+
+  // ---- Hayloft vent window high on the front gable.
+  box(g, 1.0, 0.8, 0.1, trim, 0, 3.55, 2.0);               // frame
+  box(g, 0.74, 0.56, 0.06, dark, 0, 3.55, 2.04);           // dark opening
+  box(g, 0.08, 0.56, 0.07, trim, 0, 3.55, 2.07);           // mullion V
+
+  // ---- Two stall windows flanking — small framed openings on the sides.
+  for (const sz of [-1, 1]) {
+    box(g, 0.1, 0.8, 0.9, trim, 3.0, 1.7, sz * 1.1);        // +X side window frame
+    box(g, 0.06, 0.56, 0.64, dark, 3.04, 1.7, sz * 1.1);    // dark pane
+  }
+
+  // ---- Small fenced PADDOCK hint off the -X side: 3 posts + 2 rails
+  //      forming an L corner of a rail fence (charming, not a full pen).
+  //      Kept compact and tucked against the stable wall (x=-3).
+  const px0 = -3.3;
+  const postXs = [px0, px0 - 1.3, px0 - 2.6];
+  for (const x of postXs) {
+    box(g, 0.16, 1.0, 0.16, woodD, x, 0.5, 2.2);            // post
+    box(g, 0.2, 0.08, 0.2, woodD, x, 1.0, 2.2);             // post cap
+  }
+  // Two rails spanning the run (top + mid).
+  box(g, 2.6, 0.1, 0.07, mat(COLORS.wood), px0 - 1.3, 0.85, 2.2);
+  box(g, 2.6, 0.1, 0.07, mat(COLORS.wood), px0 - 1.3, 0.55, 2.2);
+  // A return corner post + short rail turning toward the stable (the L).
+  box(g, 0.16, 1.0, 0.16, woodD, px0, 0.5, 0.9);            // corner-return post
+  box(g, 0.07, 0.1, 1.3, mat(COLORS.wood), px0, 0.85, 1.55); // return rail
+  box(g, 0.07, 0.1, 1.3, mat(COLORS.wood), px0, 0.55, 1.55);
+
+  // ---- Two hay bales tucked into the paddock corner (square bales).
+  for (const [hx, hz] of [[px0 - 1.0, 1.35], [px0 - 1.7, 1.45]]) {
+    box(g, 0.8, 0.66, 0.8, mat(COLORS.straw), hx, 0.43, hz);   // bale body
+    box(g, 0.82, 0.1, 0.82, mat(0xd9b24a), hx, 0.63, hz);      // top straw cap
+    box(g, 0.84, 0.06, 0.28, woodD, hx, 0.43, hz);             // baling twine
+  }
+  // A single bale stacked on top of the first for height.
+  box(g, 0.7, 0.56, 0.7, mat(COLORS.straw), px0 - 1.0, 1.04, 1.35);
+  box(g, 0.72, 0.08, 0.72, mat(0xd9b24a), px0 - 1.0, 1.28, 1.35);
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createHorse — voxel horse, ~2 long, ~1.8 tall. Faces +Z.
+ *  variant: 'bay' (default) | 'brown' | 'white'. Origin at BOTTOM-CENTER.
+ *  userData: { head, legs: [FL, FR, BL, BR], tail }
+ *    head — pivot Group at the neck base; rotate.x to graze / startle.
+ *    legs — 4 pivot Groups at the hips/shoulders; rotate.x for the gait.
+ *    tail — pivot Group at the dock; swishes with rotation.
+ *  Body, arched neck, head with muzzle + ears, darker mane + tail, four
+ *  legs with hooves. ≤ ~30 meshes; geometry/material shared.
+ * ------------------------------------------------------------------ */
+
+export function createHorse(variant = 'bay') {
+  const g = new THREE.Group();
+  const v = variant === 'brown' ? 'brown' : variant === 'white' ? 'white' : 'bay';
+  // Coat / mane (mane + tail are darker) / muzzle palettes per variant.
+  const coatHex = v === 'white' ? 0xe9e6df : v === 'brown' ? 0x8d5a3b : 0x9c5a2b;
+  const maneHex = v === 'white' ? 0xb9b3a6 : v === 'brown' ? 0x4a2f1d : 0x2b1c12;
+  const coat = mat(coatHex);
+  const mane = mat(maneHex);
+  const hoof = mat(0x2e2722);
+  const muzzle = mat(v === 'white' ? 0xc9b9b0 : 0x5a3a26);
+  const eye = mat(0x14110e);
+
+  // Barrel body + chest + rump (bottom-center origin; legs reach to y=0).
+  const body = box(g, 0.7, 0.78, 1.5, coat, 0, 1.1, 0);
+  void body;
+  box(g, 0.66, 0.66, 0.34, coat, 0, 1.12, 0.74);           // chest
+  box(g, 0.66, 0.6, 0.3, coat, 0, 1.08, -0.74);            // rump
+  // Withers/back blanket line (slight two-tone) — purely cosmetic.
+  box(g, 0.6, 0.1, 1.3, mat(v === 'white' ? 0xd8d3c8 : _tint(coatHex, 0.86)), 0, 1.5, 0);
+
+  // ---- Legs: pivot at the shoulder/hip (y=0.78). The stack reaches DOWN
+  //      so the hoof bottom lands exactly on the ground (y=0): cannon bottom
+  //      -0.73, hoof centred -0.71 (h 0.14 → bottom -0.78 = world 0).
+  const legs = [];
+  for (const [lx, lz] of [[0.24, 0.56], [-0.24, 0.56], [0.24, -0.56], [-0.24, -0.56]]) {
+    const hip = pivot(g, lx, 0.78, lz);
+    box(hip, 0.2, 0.5, 0.22, coat, 0, -0.16, 0);            // upper leg
+    box(hip, 0.15, 0.38, 0.16, coat, 0, -0.5, 0);           // lower leg / cannon
+    box(hip, 0.18, 0.14, 0.2, hoof, 0, -0.71, 0.01);        // hoof
+    legs.push(hip);
+  }
+
+  // ---- Tail: pivot at the dock; long darker hair hanging down.
+  const tail = pivot(g, 0, 1.36, -0.86);
+  const tailSeg = box(tail, 0.16, 0.66, 0.16, mane, 0, -0.3, -0.06);
+  tailSeg.rotation.x = 0.2;
+  box(tail, 0.13, 0.2, 0.13, mane, 0, -0.62, -0.13);        // tail tip
+
+  // ---- Head: pivot at the neck base; arched neck up to the skull.
+  const head = pivot(g, 0, 1.45, 0.62);
+  // Arched neck rising forward+up.
+  const neck = box(head, 0.36, 0.7, 0.4, coat, 0, 0.28, 0.16);
+  neck.rotation.x = -0.4;
+  // Mane crest running down the neck (darker).
+  const crest = box(head, 0.14, 0.66, 0.18, mane, 0, 0.32, 0.02);
+  crest.rotation.x = -0.4;
+  // Skull + long muzzle, tilted forward at the top of the neck.
+  const skull = pivot(head, 0, 0.6, 0.4);
+  skull.rotation.x = 0.35;
+  box(skull, 0.32, 0.34, 0.42, coat, 0, 0.05, 0.16);        // head/jaw
+  box(skull, 0.24, 0.24, 0.32, coat, 0, 0.0, 0.42);         // muzzle bridge
+  box(skull, 0.22, 0.18, 0.14, muzzle, 0, -0.06, 0.6);      // soft nose
+  box(skull, 0.04, 0.05, 0.04, eye, -0.07, 0.0, 0.66);      // nostrils
+  box(skull, 0.04, 0.05, 0.04, eye, 0.07, 0.0, 0.66);
+  box(skull, 0.05, 0.07, 0.04, eye, -0.16, 0.12, 0.3);      // eyes
+  box(skull, 0.05, 0.07, 0.04, eye, 0.16, 0.12, 0.3);
+  // Forelock tuft between the ears.
+  box(skull, 0.14, 0.1, 0.1, mane, 0, 0.24, 0.18);
+  // Ears (pricked forward).
+  for (const s of [-1, 1]) {
+    const ear = box(skull, 0.1, 0.18, 0.08, coat, s * 0.12, 0.28, 0.06);
+    ear.rotation.z = s * 0.25;
+  }
+
+  g.userData = { head, legs, tail };
   return g;
 }

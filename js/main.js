@@ -17,6 +17,8 @@ import { AudioManager } from './audio.js';
 import { Campaign, STAR_COINS } from './campaign.js';
 import { MissionTracker, evaluateLevel } from './missions.js';
 import { Wallet } from './wallet.js';
+import { Upgrades } from './upgrades.js';
+import { Cosmetics } from './cosmetics.js';
 import { DogManager } from './dogs.js';
 import { submitScore } from './leaderboard.js';
 
@@ -61,6 +63,15 @@ let dogs = null;
 
 const wallet = new Wallet();
 const tracker = new MissionTracker();
+const upgrades = new Upgrades();
+const cosmetics = new Cosmetics();
+
+// Apply the equipped skin + beam to the live ship (rebuilds the model).
+function applyCosmetics() {
+  const s = cosmetics.selectedSkin();
+  const b = cosmetics.selectedBeam();
+  ufo.setStyle({ shape: s.shape, hull: s.hull, dome: s.dome, light: s.light, beamColor: b.color, rainbow: b.rainbow });
+}
 
 // ---------------------------------------------------------------------------
 // Game state
@@ -89,6 +100,7 @@ let level = 0;               // current campaign level index (1..15), 0 in free 
 let target = 0;              // score goal for the current campaign level (0 = none)
 let timeLimit = CFG.GAME_DURATION;
 let canComplete = false;     // campaign: score target reached → COMPLETE available
+let difficulty = 1;          // campaign levels ramp the farmer pressure
 
 const HS_KEY = 'moofo-highscore';
 const getHighscore = () => Number(localStorage.getItem(HS_KEY) || 0);
@@ -139,7 +151,7 @@ function spawnEntities() {
   disposeEntities();
   cows = new CowManager(scene, world, effects, audio, { onAbduct });
   cows.populate();
-  farmers = new FarmerManager(scene, world, effects, audio, { onHitPlayer });
+  farmers = new FarmerManager(scene, world, effects, audio, { onHitPlayer, difficulty });
   dogs = new DogManager(scene, world, effects, audio, { farmers });
 }
 
@@ -168,6 +180,7 @@ function resetRound() {
   shake = 0;
   tracker.reset();
   canComplete = false;
+  ufo.applyUpgrades(upgrades);   // weak at first, scales with purchased levels
   // Fresh random spawn over open ground every round.
   const sp = world.randomSpawn();
   ufo.reset(sp.x, sp.z);
@@ -207,6 +220,19 @@ const ui = new UI({
   controls,
   wallet,
   campaign,
+  upgrades,
+  cosmetics,
+  onBuyUpgrade: (track) => {
+    const ok = upgrades.buy(track, wallet);
+    if (ok) ufo.applyUpgrades(upgrades);   // reflect immediately
+    return ok;
+  },
+  onBuyCosmetic: (id) => cosmetics.buy(id, wallet),
+  onSelectCosmetic: (id) => {
+    const ok = cosmetics.select(id);
+    if (ok) applyCosmetics();
+    return ok;
+  },
   onStartLevel: startLevel,
   onRetryLevel: () => { ui.hideEnd(); beginLevel(level); },
   onNextLevel: () => { ui.hideEnd(); beginLevel(Math.min(campaign.levels.length, level + 1)); },
@@ -226,7 +252,7 @@ hud.onComplete = requestComplete;   // in-game COMPLETE button
 async function startGame() {
   await audio.init();
   audio.play('start', { volume: 0.9 });
-  mode = 'free'; level = 0; target = 0; timeLimit = CFG.GAME_DURATION;
+  mode = 'free'; level = 0; target = 0; timeLimit = CFG.GAME_DURATION; difficulty = 1;
   await ui.hideStart();
   beginRound();
 }
@@ -237,6 +263,7 @@ async function startLevel(i) {
   audio.play('start', { volume: 0.9 });
   const L = campaign.levels[i - 1];
   mode = 'campaign'; level = i; target = L.target; timeLimit = L.time;
+  difficulty = 1 + (i - 1) * 0.07;   // levels ramp the farmer pressure
   await ui.hideStart();
   beginRound();
 }
@@ -245,6 +272,7 @@ async function startLevel(i) {
 function beginLevel(i) {
   const L = campaign.levels[i - 1];
   mode = 'campaign'; level = i; target = L.target; timeLimit = L.time;
+  difficulty = 1 + (i - 1) * 0.07;
   beginRound();
 }
 
@@ -401,6 +429,21 @@ function updateTractorSound() {
   }
   if (vol > 0.02) audio.startLoop('tractor', { volume: vol });
   else audio.stopLoop('tractor');
+}
+
+// Horses whinny when the UFO disturbs them — a throttled one-shot, deliberately
+// ~40% quieter than the other animals.
+let _horseT = 0;
+function updateHorseSound(dt) {
+  const hp = world.horsePos;
+  if (!hp) return;
+  _horseT -= dt;
+  if (state !== State.PLAYING) return;
+  const d = Math.hypot(ufo.group.position.x - hp.x, ufo.group.position.z - hp.z);
+  if (d < 30 && _horseT <= 0) {
+    _horseT = 3 + Math.random() * 3.5;
+    audio.play('horse', { volume: Math.max(0.12, 1 - d / 30) * 0.42, ratejitter: 0.1 });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -610,6 +653,7 @@ function frame() {
 
   updateWaterfallSound();
   updateTractorSound();
+  updateHorseSound(dt);
   updateCamera(dt);
   renderer.render(scene, camera);
 }
@@ -636,9 +680,13 @@ window.__MOOFO = {
   clearFreeCam() { freeCam = null; },
 };
 
+applyCosmetics();   // equip the saved skin + beam on the ship
 resetRound();
 ui.showStart(getHighscore());
 ui.setMuteUI(audio.muted);
 camera.position.set(70, 38, 0);
 camera.lookAt(0, 4, 0);
+// Hide the instant loading overlay now that the first scene is ready.
+const _ld = document.getElementById('mf-loading');
+if (_ld) { _ld.style.opacity = '0'; setTimeout(() => _ld.remove(), 600); }
 frame();

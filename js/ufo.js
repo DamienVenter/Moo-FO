@@ -40,26 +40,22 @@ export class UFO {
 
     // ---- unique materials so the damage flash can't bleed into the shared mat() cache ----
     this._mats = [];
-    const seen = new Map();
-    this.group.traverse((o) => {
-      if (!o.isMesh || !o.material || Array.isArray(o.material)) return;
-      let rec = seen.get(o.material);
-      if (!rec) {
-        const m = o.material.clone();
-        rec = {
-          m,
-          hex: m.emissive ? m.emissive.getHex() : 0,
-          intensity: m.emissiveIntensity !== undefined ? m.emissiveIntensity : 1,
-        };
-        seen.set(o.material, rec);
-        this._mats.push(rec);
-      }
-      o.material = rec.m;
-    });
     this._flashed = false;
+    this._cloneOwnMats();
 
     this._lights = this.ud.lights || [];
     this._lightBase = this._lights.map((l) => l.scale.x || 1);
+
+    // ---- upgrade multipliers (1 = tuned baseline; main applies the player's
+    // purchased levels via applyUpgrades). beamRadius/beamLiftSpeed are the
+    // effective values cows.js reads for capture + lift.
+    this.speedMul = 1;
+    this.beamMul = 1;
+    this.warpSpeedMul = 1;
+    this.warpStrengthMul = 1;
+    this.beamRadius = CFG.BEAM_RADIUS;
+    this.beamLiftSpeed = CFG.BEAM_LIFT_SPEED;
+    this._rainbowBeam = false;
 
     // ---- beam: outer cone + inner bright core, hung from beamAnchor, unit height scaled to ground ----
     const beam = new THREE.Group();
@@ -125,6 +121,64 @@ export class UFO {
     this._crashT = 0;
     this._smokeT = 0;
     this._groundY = 0;       // smoothed terrain height under the ship
+  }
+
+  // Clone the ship's materials so the damage flash can't bleed into the shared
+  // mat() cache. Re-run whenever the model is rebuilt (setStyle).
+  _cloneOwnMats() {
+    this._mats = [];
+    const seen = new Map();
+    this.group.traverse((o) => {
+      if (!o.isMesh || !o.material || Array.isArray(o.material)) return;
+      let rec = seen.get(o.material);
+      if (!rec) {
+        const m = o.material.clone();
+        rec = {
+          m,
+          hex: m.emissive ? m.emissive.getHex() : 0,
+          intensity: m.emissiveIntensity !== undefined ? m.emissiveIntensity : 1,
+        };
+        seen.set(o.material, rec);
+        this._mats.push(rec);
+      }
+      o.material = rec.m;
+    });
+  }
+
+  /** Apply purchased upgrade levels (js/upgrades.js Upgrades instance). */
+  applyUpgrades(up) {
+    this.speedMul = up ? up.mult('speed') : 1;
+    this.beamMul = up ? up.mult('beam') : 1;
+    this.warpSpeedMul = up ? up.mult('warpSpeed') : 1;
+    this.warpStrengthMul = up ? up.mult('warpStrength') : 1;
+    this.beamRadius = CFG.BEAM_RADIUS * this.beamMul;
+    this.beamLiftSpeed = CFG.BEAM_LIFT_SPEED * this.beamMul;
+  }
+
+  /** Rebuild the ship with a cosmetic skin + recolour the beam (shop equip). */
+  setStyle({ shape, hull, dome, light, beamColor, rainbow } = {}) {
+    if (this.beamMesh.parent) this.beamMesh.parent.remove(this.beamMesh);
+    const pos = this.group.position.clone();
+    const rot = this.group.rotation.clone();
+    const vis = this.group.visible;
+    this.scene.remove(this.group);
+    this.group = createUFO({ shape, hull, dome, light });
+    this.group.position.copy(pos);
+    this.group.rotation.copy(rot);
+    this.group.visible = vis;
+    this.scene.add(this.group);
+    this.ud = this.group.userData || {};
+    this._flashed = false;
+    this._cloneOwnMats();
+    this._lights = this.ud.lights || [];
+    this._lightBase = this._lights.map((l) => l.scale.x || 1);
+    (this.ud.beamAnchor || this.group).add(this.beamMesh);
+    if (beamColor !== undefined && beamColor !== null) {
+      this._coneMat.color.setHex(beamColor);
+      for (const rm of this._rings) rm.material.color.setHex(beamColor);
+      if (this.beamLight) this.beamLight.color.setHex(beamColor);
+    }
+    this._rainbowBeam = !!rainbow;
   }
 
   /** Hard-exit beam mode (round end, menus) — state, sound and visuals. */
@@ -246,8 +300,9 @@ export class UFO {
     const canWarp = wasWarping ? this.warpEnergy > 0 : this.warpEnergy > 0.12;
     this.warping = wantWarpInput && canWarp;
     if (this.warping && !wasWarping) this.audio.play('warp', { volume: 0.7, ratejitter: 0.05 });
-    if (this.warping) this.warpEnergy = Math.max(0, this.warpEnergy - CFG.WARP_DRAIN * dt);
-    else this.warpEnergy = Math.min(1, this.warpEnergy + CFG.WARP_REGEN * dt);
+    // Warp capacity upgrade: higher strength → slower drain, faster regen.
+    if (this.warping) this.warpEnergy = Math.max(0, this.warpEnergy - (CFG.WARP_DRAIN / this.warpStrengthMul) * dt);
+    else this.warpEnergy = Math.min(1, this.warpEnergy + (CFG.WARP_REGEN * this.warpStrengthMul) * dt);
 
     // ---- beam toggle (warp overrides beam) ----
     const wantBeam = wantBeamInput && !this.warping;
@@ -258,14 +313,16 @@ export class UFO {
     }
 
     // ---- movement: accel toward input, exponential friction, smoothed speed cap ----
-    const capTarget = CFG.UFO_SPEED *
-      (this.warping ? CFG.WARP_MULT : 1) *
+    // Upgrades scale base speed; warp-speed upgrade scales the warp boost.
+    const warpMul = 1 + (CFG.WARP_MULT - 1) * this.warpSpeedMul;
+    const capTarget = CFG.UFO_SPEED * this.speedMul *
+      (this.warping ? warpMul : 1) *
       (this.beamActive ? CFG.BEAM_SLOW : 1);
     this._speedCap += (capTarget - this._speedCap) * Math.min(1, dt * 6);
 
     const hasInput = ix * ix + iz * iz > 0.001;
     if (hasInput) {
-      const accel = CFG.UFO_ACCEL * (this.warping ? CFG.WARP_MULT : 1);
+      const accel = CFG.UFO_ACCEL * this.speedMul * (this.warping ? warpMul : 1);
       this.velocity.x += ix * accel * dt;
       this.velocity.z += iz * accel * dt;
     }
@@ -348,8 +405,9 @@ export class UFO {
 
     // ---- banking: roll + pitch into velocity, clamped & smoothed ----
     const tiltK = 0.24 + (this.warping ? 0.08 : 0);
-    const targetRoll = THREE.MathUtils.clamp(-this.velocity.x / CFG.UFO_SPEED, -1.1, 1.1) * tiltK;
-    const targetPitch = THREE.MathUtils.clamp(this.velocity.z / CFG.UFO_SPEED, -1.1, 1.1) * tiltK;
+    const refSpeed = CFG.UFO_SPEED * this.speedMul;
+    const targetRoll = THREE.MathUtils.clamp(-this.velocity.x / refSpeed, -1.1, 1.1) * tiltK;
+    const targetPitch = THREE.MathUtils.clamp(this.velocity.z / refSpeed, -1.1, 1.1) * tiltK;
     const tk = Math.min(1, dt * 7);
     this.group.rotation.z += (targetRoll - this.group.rotation.z) * tk;
     this.group.rotation.x += (targetPitch - this.group.rotation.x) * tk;
@@ -401,12 +459,16 @@ export class UFO {
       // reach the terrain regardless of bob/tilt (a little extra to bury the tip)
       this.beamMesh.scale.y = this.group.position.y - this._groundY + 1.5;
       const pulse = 1 + Math.sin(t * 9) * 0.05;
-      this.beamMesh.scale.x = vis * pulse;
-      this.beamMesh.scale.z = vis * pulse;
+      this.beamMesh.scale.x = vis * pulse * this.beamMul;   // beam upgrade widens it
+      this.beamMesh.scale.z = vis * pulse * this.beamMul;
       this._cone.rotation.y += dt * 1.6;
       this._inner.rotation.y -= dt * 2.6;
       this._coneMat.opacity = vis * (0.2 + Math.sin(t * 9) * 0.05);
       this._innerMat.opacity = vis * (0.42 + Math.sin(t * 13 + 1) * 0.1);
+      if (this._rainbowBeam) {
+        const hue = (t * 0.18) % 1;
+        this._coneMat.color.setHSL(hue, 1, 0.6);
+      }
     }
 
     const bx = this.group.position.x;
@@ -416,7 +478,7 @@ export class UFO {
       rm.visible = on;
       if (!on) continue;
       const u = ((t / RING_CYCLE) + i / this._rings.length) % 1;
-      const r = 1 + u * (CFG.BEAM_RADIUS * 1.35 - 1);
+      const r = 1 + u * (this.beamRadius * 1.35 - 1);
       rm.scale.set(r, r, 1);
       rm.material.opacity = vis * (1 - u) * 0.5;
       rm.position.set(bx, this._groundY + 0.1 + i * 0.013, bz);

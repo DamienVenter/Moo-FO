@@ -2474,11 +2474,12 @@ button {
 .mf-coin-rim { fill: #9c6f0f; }                         /* dark outer rim ring */
 .mf-coin-bevel { fill: none; stroke: #c8911c; stroke-width: 1.1; opacity: 0.8; }
 .mf-coin-ticks line { stroke: #b9851a; stroke-width: 0.9; opacity: 0.55; }
-/* the side cow, struck in relief: dark shadow / mid body / light sunlit edge */
+/* the cow head, struck in relief: dark shadow / mid body / light sunlit edge */
 .mf-coin-cow-dark  { fill: #a06f12; }                   /* deep gold shadow */
-.mf-coin-cow-mid   { fill: #d99e1c; }                   /* mid gold body */
-.mf-coin-cow-light { fill: #ffe9a0; opacity: 0.9; }     /* light gold highlight */
-.mf-coin-cow-tail  { fill: none; stroke: #a06f12; stroke-width: 1.6; stroke-linecap: round; }
+.mf-coin-cow-mid   { fill: #e0a51e; }                   /* mid gold body */
+.mf-coin-cow-light { fill: #fff0b0; opacity: 0.92; }    /* light gold highlight */
+/* eyes + nostrils struck darker so they read against the bright muzzle */
+.mf-coin-cow-eye   { fill: #7a5409; }
 /* the count-up pop */
 .mf-coin-pop { animation: mf-coin-pop 0.4s cubic-bezier(0.34, 1.7, 0.5, 1); }
 
@@ -2654,6 +2655,479 @@ button {
 }
 
 .mf-lr-btns { margin-top: 20px; }
+
+/* ==========================================================================
+   SECONDARY BUTTONS + TITLE / MODE-SELECT ACTION ROWS (SHOP · PLAY · UPGRADES)
+   ========================================================================== */
+
+/* a purple-trimmed secondary button (SHOP / UPGRADES) — chunky like the rest
+   but visually subordinate to the big green PLAY. */
+.mf-btn-secondary {
+  border-color: rgba(179, 136, 255, 0.7);
+  background: linear-gradient(180deg, rgba(60, 40, 110, 0.85), rgba(30, 20, 60, 0.85));
+  color: #efe7ff;
+  box-shadow:
+    0 0 16px rgba(179, 136, 255, 0.3),
+    0 6px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 14px rgba(179, 136, 255, 0.1);
+}
+.mf-btn-secondary:hover {
+  border-color: var(--mf-purple);
+  box-shadow:
+    0 0 26px rgba(179, 136, 255, 0.55),
+    0 8px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 18px rgba(179, 136, 255, 0.16);
+}
+
+/* the smaller flanking variant used either side of PLAY on the title screen */
+.mf-btn-side {
+  min-height: 50px;
+  padding: 10px 22px;
+  font-size: 17px;
+  letter-spacing: 0.08em;
+}
+
+/* title action row: SHOP · PLAY · UPGRADES, centred, PLAY in the middle */
+.mf-title-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.mf-title-actions .mf-btn-start { margin-top: 0; }
+
+/* the title-screen coin widget sits below the action row, centred */
+.mf-coin-title { margin-top: 4px; }
+
+/* the title actions + coin ride the same entrance choreography as PLAY */
+.mf-start .mf-title-actions,
+.mf-start .mf-coin-title { opacity: 0; }
+.mf-start.mf-anim .mf-title-actions { animation: mf-rise 0.5s ease-out 2.05s both; }
+.mf-start.mf-anim .mf-coin-title { animation: mf-rise 0.5s ease-out 2.2s both; }
+
+/* mode-select SHOP / UPGRADES row, centred under the cards */
+.mf-modes-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   SHOP + UPGRADES — shared full-screen shell
+   ========================================================================== */
+
+.mf-shop, .mf-upg {
+  z-index: 74;                 /* above the start overlay (70) + level sel (72) */
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(8, 11, 28, 0.4) 0%, rgba(5, 7, 20, 0.86) 70%),
+    linear-gradient(180deg, #0c1130 0%, #0a0d22 100%);
+}
+
+.mf-shop.mf-anim, .mf-upg.mf-anim { animation: mf-ls-fade 0.32s ease-out both; }
+
+/* a faint twinkly scrim behind the panel */
+.mf-shop-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 22% 30%, rgba(179, 136, 255, 0.12), transparent 38%),
+    radial-gradient(circle at 80% 60%, rgba(124, 252, 154, 0.1), transparent 40%);
+}
+
+.mf-shop-panel {
+  position: relative;
+  z-index: 1;
+  width: min(1100px, 96vw);
+  margin: auto;
+  padding: 20px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mf-shop-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mf-shop-back { flex: 0 0 auto; }
+.mf-shop-title {
+  flex: 1;
+  margin: 0;
+  font-size: clamp(26px, 4.5vw, 40px);
+  text-align: center;
+}
+.mf-coin-shop { flex: 0 0 auto; }
+
+/* ==========================================================================
+   UPGRADES SCREEN — tracks (left) + UFO preview (right)
+   ========================================================================== */
+
+.mf-upg-body {
+  display: flex;
+  gap: 26px;
+  align-items: stretch;
+}
+
+.mf-upg-list {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mf-upg-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 2px solid rgba(179, 136, 255, 0.32);
+  border-radius: 18px;
+  background: rgba(10, 14, 34, 0.6);
+  box-shadow: inset 0 0 18px rgba(179, 136, 255, 0.06), 0 5px 0 rgba(0, 0, 0, 0.28);
+  animation: mf-rise 0.4s ease-out both;
+}
+
+.mf-upg-main { flex: 1 1 0; min-width: 0; text-align: left; }
+.mf-upg-name {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+.mf-upg-blurb {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(238, 246, 255, 0.6);
+  margin-bottom: 8px;
+}
+
+/* segmented progress bar — MAX_LEVEL slim segments that fill green */
+.mf-upg-bar {
+  display: flex;
+  gap: 3px;
+  height: 16px;
+  padding: 3px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9px;
+  background: var(--mf-ink-soft);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+.mf-upg-seg {
+  flex: 1;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+.mf-upg-seg-on {
+  background: linear-gradient(180deg, #9dffb8, #38b766);
+  box-shadow: 0 0 7px rgba(124, 252, 154, 0.7);
+}
+.mf-upg-seg-pop { animation: mf-seg-pop 0.45s cubic-bezier(0.3, 1.7, 0.5, 1); }
+
+.mf-upg-lvl {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--mf-green);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+.mf-upg-buywrap { flex: 0 0 auto; }
+
+/* a BUY button showing the coin icon + the next cost (or MAX) */
+.mf-btn-buy {
+  min-height: 50px;
+  min-width: 108px;
+  padding: 10px 16px;
+  font-size: 16px;
+  border-color: rgba(255, 213, 79, 0.65);
+  background: linear-gradient(180deg, #ffe79a 0%, #ffd24a 55%, #e6a700 100%);
+  color: #3a2c00;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+  box-shadow:
+    0 0 18px rgba(255, 213, 79, 0.4),
+    0 6px 0 #9c7400,
+    inset 0 2px 0 rgba(255, 255, 255, 0.5);
+}
+.mf-btn-buy:hover { filter: brightness(1.06); border-color: #fff0b8; }
+.mf-buy-cost { display: inline-flex; align-items: center; gap: 6px; }
+.mf-buy-cost .mf-coin-ico { width: 18px; height: 18px; flex: 0 0 18px; }
+.mf-buy-costnum { font-variant-numeric: tabular-nums; }
+
+/* can't afford: greyed, not-allowed */
+.mf-btn-buy.mf-btn-cant {
+  filter: saturate(0.4) brightness(0.7);
+  cursor: not-allowed;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.35);
+}
+.mf-btn-buy.mf-btn-cant:hover { transform: none; filter: saturate(0.4) brightness(0.7); }
+
+/* maxed: a quiet purple "MAX" pill */
+.mf-btn-buy.mf-btn-maxed {
+  background: rgba(10, 14, 34, 0.6);
+  border-color: rgba(179, 136, 255, 0.6);
+  color: var(--mf-purple);
+  cursor: default;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.3), inset 0 0 12px rgba(179, 136, 255, 0.12);
+}
+.mf-btn-buy.mf-btn-maxed:hover { transform: none; filter: none; }
+.mf-buy-max { font-weight: 900; letter-spacing: 0.14em; }
+
+/* right side: the UFO preview */
+.mf-upg-side {
+  flex: 0 0 40%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   SHARED UFO + BEAM PREVIEW (canvas frame)
+   ========================================================================== */
+
+.mf-preview {
+  position: relative;
+  width: 100%;
+  border: 3px solid rgba(124, 252, 154, 0.4);
+  border-radius: 20px;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(40, 60, 120, 0.5), rgba(6, 8, 22, 0.85) 70%),
+    #06081a;
+  box-shadow:
+    inset 0 0 40px rgba(124, 252, 154, 0.08),
+    0 0 26px rgba(124, 252, 154, 0.18);
+  overflow: hidden;
+}
+.mf-upg-preview { flex: 1 1 auto; min-height: 280px; }
+.mf-shop-preview { height: min(34vh, 280px); }
+.mf-preview-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mf-preview-caption,
+.mf-shop-focusinfo {
+  text-align: center;
+}
+.mf-preview-caption {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  color: rgba(238, 246, 255, 0.6);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* ==========================================================================
+   SHOP SCREEN — tabs · preview · option grid
+   ========================================================================== */
+
+/* TAB selector */
+.mf-shop-tabs {
+  position: relative;
+  display: flex;
+  align-self: center;
+  width: min(360px, 90vw);
+  border: 2px solid rgba(179, 136, 255, 0.4);
+  border-radius: 14px;
+  background: rgba(10, 14, 34, 0.6);
+  overflow: hidden;
+}
+.mf-shop-tab {
+  flex: 1 1 0;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: rgba(238, 246, 255, 0.65);
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 16px;
+  letter-spacing: 0.14em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  z-index: 1;
+  transition: color 0.2s ease;
+}
+.mf-shop-tab-on { color: #fff; }
+.mf-shop-tab:focus-visible { outline: 3px dashed var(--mf-purple); outline-offset: -4px; }
+/* sliding underline indicator (half-width, slides between the two tabs) */
+.mf-shop-tab-ind {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 50%;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--mf-purple), var(--mf-green));
+  box-shadow: 0 0 10px rgba(179, 136, 255, 0.7);
+  transform: translateX(0%);
+  transition: transform 0.28s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+
+/* the focused-item caption under the big preview */
+.mf-shop-previewwrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.mf-shop-preview { width: min(520px, 92vw); }
+.mf-shop-focusname {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+.mf-shop-focusprice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--mf-gold);
+}
+.mf-shop-focusprice-owned { color: var(--mf-green); letter-spacing: 0.2em; }
+
+/* the scrollable GRID of options */
+.mf-shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 12px;
+  max-height: 36vh;
+  overflow-y: auto;
+  padding: 4px;
+  scrollbar-width: thin;
+}
+.mf-shop-grid-anim { animation: mf-grid-fade 0.32s ease-out both; }
+
+/* a single option cell */
+.mf-shop-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 10px 10px;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  background: rgba(10, 14, 34, 0.55);
+  color: #fff;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease,
+              background 0.14s ease;
+}
+.mf-shop-cell:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.4); }
+.mf-shop-cell:focus-visible { outline: 3px dashed var(--mf-purple); outline-offset: 3px; }
+
+/* the focused (currently-previewed) cell gets a bright ring */
+.mf-shop-cell-focus {
+  border-color: var(--mf-green);
+  box-shadow: 0 0 18px rgba(124, 252, 154, 0.4), inset 0 0 14px rgba(124, 252, 154, 0.1);
+}
+
+/* owned (not equipped): a gentle gold trim */
+.mf-shop-cell-owned { border-color: rgba(255, 213, 79, 0.4); }
+/* equipped: bright green, highlighted */
+.mf-shop-cell-equipped {
+  border-color: var(--mf-green);
+  background: rgba(40, 90, 60, 0.45);
+  box-shadow: 0 0 18px rgba(124, 252, 154, 0.45), inset 0 0 14px rgba(124, 252, 154, 0.14);
+}
+
+/* colour swatch preview in each cell */
+.mf-shop-swatch {
+  position: relative;
+  width: 56px;
+  height: 36px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow: inset 0 -4px 6px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.mf-shop-swatch-dome {
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 16px;
+  border-radius: 60% 60% 14% 14% / 100% 100% 10% 10%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+}
+.mf-shop-swatch-rainbow {
+  background: linear-gradient(90deg, #ff5a5a, #ffd24a, #9dff3a, #5ad0ff, #b388ff, #ff7ad0);
+}
+
+.mf-shop-cell-name {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* the state row: price+BUY / OWNED+EQUIP / EQUIPPED */
+.mf-shop-cell-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 22px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.mf-shop-price { display: inline-flex; align-items: center; gap: 4px; color: var(--mf-gold); }
+.mf-shop-price .mf-coin-ico { width: 16px; height: 16px; flex: 0 0 16px; }
+.mf-shop-pricenum { font-variant-numeric: tabular-nums; }
+.mf-shop-buy {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffe79a, #e6a700);
+  color: #3a2c00;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+.mf-shop-buy-cant { filter: saturate(0.4) brightness(0.8); }
+.mf-shop-state-tag { color: rgba(255, 213, 79, 0.85); }
+.mf-shop-state-act {
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 2px solid rgba(124, 252, 154, 0.6);
+  color: var(--mf-green);
+  letter-spacing: 0.08em;
+}
+.mf-shop-state-equipped {
+  color: var(--mf-green);
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 10px rgba(124, 252, 154, 0.5);
+}
+
+/* narrow screens: upgrades stack ABOVE the preview; shop grid stays scrollable */
+@media (max-width: 760px) {
+  .mf-upg-body { flex-direction: column-reverse; }
+  .mf-upg-side { flex: 0 0 auto; max-width: none; width: 100%; }
+  .mf-upg-preview { min-height: 200px; height: 30vh; }
+  .mf-shop-panel { padding: 16px 14px 22px; }
+  .mf-upg-row { gap: 12px; padding: 12px; }
+  .mf-btn-buy { min-width: 92px; font-size: 15px; }
+}
 
 /* ==========================================================================
    KEYFRAMES
@@ -2902,6 +3376,19 @@ button {
   0%   { transform: scale(0.4) rotate(-24deg); opacity: 0.5; }
   60%  { transform: scale(1.22) rotate(6deg); opacity: 1; }
   100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+/* an upgrade-bar segment popping as it fills one notch */
+@keyframes mf-seg-pop {
+  0%   { transform: scale(0.4); }
+  55%  { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+
+/* shop option grid fade/rise in (on open + tab switch) */
+@keyframes mf-grid-fade {
+  0%   { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
 /* ==========================================================================

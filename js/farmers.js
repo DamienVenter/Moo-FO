@@ -21,7 +21,7 @@ function wrapAngle(a) {
 }
 
 export class FarmerManager {
-  constructor(scene, world, effects, audio, { onHitPlayer } = {}) {
+  constructor(scene, world, effects, audio, { onHitPlayer, difficulty = 1 } = {}) {
     this.scene = scene;
     this.world = world;
     this.effects = effects;
@@ -32,7 +32,15 @@ export class FarmerManager {
     this._t = 0;
 
     const bangMat = new THREE.MeshBasicMaterial({ color: COLORS.danger });
-    const spawns = world.farmerSpawns;
+    // Harder campaign levels add extra farmers and quicker shots.
+    this._fireMul = 1 / Math.max(1, difficulty);
+    const base = world.farmerSpawns;
+    const spawns = base.slice();
+    const extra = Math.round((difficulty - 1) * 5);
+    for (let e = 0; e < extra; e++) {
+      const s = base[e % base.length];
+      spawns.push({ x: s.x + (Math.random() - 0.5) * 34, z: s.z + (Math.random() - 0.5) * 34, patrolRadius: s.patrolRadius });
+    }
     for (let i = 0; i < spawns.length; i++) {
       const s = spawns[i];
       const group = createFarmer(i % 3);
@@ -246,7 +254,7 @@ export class FarmerManager {
 
     f.fireT -= dt;
     if (f.fireT <= 0 && Math.abs(diff) < 0.5) {
-      f.fireT = CFG.FARMER_FIRE_RATE * (0.85 + Math.random() * 0.35);
+      f.fireT = CFG.FARMER_FIRE_RATE * this._fireMul * (0.85 + Math.random() * 0.35);
       this._fire(f, ufo, d);
     }
   }

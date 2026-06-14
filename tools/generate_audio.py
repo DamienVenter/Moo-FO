@@ -836,6 +836,71 @@ def make_hoot():
     return normalize(fade(out, 0.006, 0.05), peak=PEAK * 0.9)
 
 
+def make_horse():
+    """HORSE WHINNY / NEIGH: a descending, fluttering, raspy 'heeeee-he-he-he' —
+    a high squeal that breaks into a lower nickering flutter.
+
+    Construction:
+      * A voiced FM larynx (rich buzzy harmonics) whose pitch GLIDES DOWN from a
+        ~520 Hz squeal to ~180 Hz, with constant vocal-fold jitter so it rasps.
+      * A fast amplitude FLUTTER (tremolo) that starts gentle (~20 Hz, shallow)
+        and INTENSIFIES through the second half (~28 Hz, deep and choppy) — the
+        'he-he-he' nicker break.
+      * A breathy filtered-noise layer (nostril air) under the voice.
+      * Two vowel-ish formant bands (crude bandpasses) so it reads as an animal
+        MOUTH/voice rather than a synth tone."""
+    dur = 1.15
+    # Pitch: high squeal that falls fast at first, then settles to the low nicker.
+    pitch = curve([(0, 520.0), (0.10 * dur, 470.0), (0.40 * dur, 300.0),
+                   (0.70 * dur, 210.0), (dur, 180.0)])
+    # Vocal-fold rasp: fast pitch jitter (two incommensurate rates) = a horsey buzz.
+    jitter = lambda t: (1.0 + 0.040 * math.sin(TWO_PI * 27.0 * t)
+                        + 0.025 * math.sin(TWO_PI * 41.0 * t))
+    freq = lambda t: pitch(t) * jitter(t)
+    # FM index high during the bright squeal, easing into the body.
+    idx = curve([(0, 4.2), (0.15 * dur, 3.6), (0.55 * dur, 2.6), (dur, 1.8)])
+    raw = fm_osc(freq, 1.0, idx, dur)
+    bright = fm_osc(freq, 2.0, lambda t: 0.5 * idx(t), dur)   # extra harmonic grit
+    src = [a + 0.40 * b for a, b in zip(raw, bright)]
+
+    # F1: low formant band (~500->750 Hz), opens on the squeal then closes.
+    f1hi = lowpass(src, curve([(0, 800.0), (0.3 * dur, 760.0), (dur, 520.0)]))
+    f1lo = lowpass(src, curve([(0, 360.0), (0.3 * dur, 420.0), (dur, 300.0)]))
+    f1 = [h - l for h, l in zip(f1hi, f1lo)]
+    # F2: brighter band (~1400->2200 Hz) that gives the squeal its 'eee' edge.
+    f2hi = lowpass(src, curve([(0, 2400.0), (0.3 * dur, 2100.0), (dur, 1500.0)]))
+    f2lo = lowpass(src, curve([(0, 1500.0), (0.3 * dur, 1300.0), (dur, 950.0)]))
+    f2 = [h - l for h, l in zip(f2hi, f2lo)]
+    voice = [1.0 * a + 1.3 * b for a, b in zip(f1, f2)]
+
+    # Overall envelope: quick squeal onset, full body, fades through the nicker.
+    env = curve([(0, 0.0), (0.03, 0.85), (0.12 * dur, 1.0),
+                 (0.55 * dur, 0.92), (0.85 * dur, 0.55), (dur, 0.0)])
+    voice = apply_env(voice, env)
+
+    # The whinny FLUTTER: amplitude tremolo whose rate and depth RAMP UP in the
+    # second half so the tail breaks into a choppy 'he-he-he-he' nicker.
+    n = len(voice)
+    fph = 0.0                                   # tremolo phase (accumulated)
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        rate = 19.0 + 11.0 * u                  # ~19 Hz -> ~30 Hz, accelerating
+        depth = min(0.85, 0.12 + (u ** 1.6) * 0.9)   # shallow -> deep & choppy
+        voice[i] *= 1.0 - depth * (0.5 + 0.5 * math.sin(fph))
+        fph += TWO_PI * rate / SR
+
+    # Breathy nostril air under the voice (more present at the start of the call).
+    breath = lowpass(noise(dur), 1800.0)
+    breath = apply_env(breath, curve([(0, 0.0), (0.04, 1.0), (0.4 * dur, 0.55),
+                                      (dur, 0.0)]))
+    out = zeros(dur)
+    mix_at(out, voice)
+    mix_at(out, breath, g=0.10)
+    out = soft_clip(out, 1.5)                   # raspy, throaty buzz
+    return normalize(fade(out, 0.004, 0.05))
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -869,6 +934,7 @@ SOUNDS = [
     ('scream',    make_scream),
     ('tractor',   make_tractor),
     ('hoot',      make_hoot),
+    ('horse',     make_horse),
 ]
 
 

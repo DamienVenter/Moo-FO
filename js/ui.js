@@ -6,6 +6,8 @@
 
 import { CFG, IS_MOBILE, COLORS } from './config.js';
 import { labelFor } from './missions.js';
+import { Upgrades, TRACK_INFO, TRACKS, MAX_LEVEL } from './upgrades.js';
+import { Cosmetics, SKINS, BEAMS } from './cosmetics.js';
 
 // 0xRRGGBB → '#rrggbb' (the shared palette stores ints).
 function hex(n) {
@@ -120,6 +122,9 @@ export class UI {
     // --- campaign additions (all optional / duck-typed) ---
     campaign, wallet,
     onStartLevel, onRetryLevel, onNextLevel, onLevelSelect,
+    // --- shop / upgrades additions (all optional / duck-typed) ---
+    upgrades, cosmetics,
+    onBuyUpgrade, onBuyCosmetic, onSelectCosmetic,
   } = {}) {
     this.cb = {
       onStart: onStart || (() => {}),
@@ -134,7 +139,18 @@ export class UI {
       onRetryLevel: onRetryLevel || (() => {}),
       onNextLevel: onNextLevel || (() => {}),
       onLevelSelect: onLevelSelect || (() => {}),
+      // Shop / upgrade buy+equip callbacks. Each returns a boolean (true on a
+      // successful purchase / equip). If the host doesn't supply them we fall
+      // back to driving the data modules + wallet directly so both screens
+      // remain fully functional standalone.
+      onBuyUpgrade: typeof onBuyUpgrade === 'function' ? onBuyUpgrade : null,
+      onBuyCosmetic: typeof onBuyCosmetic === 'function' ? onBuyCosmetic : null,
+      onSelectCosmetic: typeof onSelectCosmetic === 'function' ? onSelectCosmetic : null,
     };
+    // Upgrade + cosmetic data models. Prefer the host-supplied instances; if
+    // missing, build our own so SHOP / UPGRADES still work (and stay persisted).
+    this.upgrades = upgrades || new Upgrades();
+    this.cosmetics = cosmetics || new Cosmetics();
     // Controls instance (binds / bindLabels / rebind / resetBinds /
     // gamepadConnected). Optional & duck-typed so the UI degrades gracefully
     // if it isn't wired up yet.
@@ -165,8 +181,53 @@ export class UI {
     this._buildPause();
     this._buildEndShell();
     this._buildLevelSelect();
+    this._buildUpgrades();
+    this._buildShop();
     this._bindKeys();
   }
+
+  // ----------------------------------------------------------------------
+  // Shop / upgrade model accessors — all guarded so a missing/partial host
+  // never throws. Buys route through the supplied callbacks when present,
+  // else fall back to the data module + wallet directly.
+  // ----------------------------------------------------------------------
+
+  /** Spend coins from the wallet (used by the fallback buy paths). */
+  _walletSpend(n) {
+    try { return !!this.wallet?.spend?.(n); } catch (_) { return false; }
+  }
+
+  /** Buy the next tier on `track`. Returns true on success. */
+  _buyUpgrade(track) {
+    if (this.cb.onBuyUpgrade) { try { return !!this.cb.onBuyUpgrade(track); } catch (_) { return false; } }
+    try { return !!this.upgrades?.buy?.(track, this.wallet); } catch (_) { return false; }
+  }
+
+  /** Buy a cosmetic by id. Returns true on success. */
+  _buyCosmetic(id) {
+    if (this.cb.onBuyCosmetic) { try { return !!this.cb.onBuyCosmetic(id); } catch (_) { return false; } }
+    try { return !!this.cosmetics?.buy?.(id, this.wallet); } catch (_) { return false; }
+  }
+
+  /** Equip an owned cosmetic by id. Returns true on success. */
+  _selectCosmetic(id) {
+    if (this.cb.onSelectCosmetic) { try { return !!this.cb.onSelectCosmetic(id); } catch (_) { return false; } }
+    try { return !!this.cosmetics?.select?.(id); } catch (_) { return false; }
+  }
+
+  // -- upgrade model reads (guarded) --------------------------------------
+  _upLevel(t)   { try { return this.upgrades?.level?.(t) | 0; } catch (_) { return 0; } }
+  _upCost(t)    { try { const c = this.upgrades?.cost?.(t); return c == null ? null : c | 0; } catch (_) { return null; } }
+  _upMaxed(t)   { try { return !!this.upgrades?.maxed?.(t); } catch (_) { return false; } }
+  _upProgress(t){ try { return Math.max(0, Math.min(1, Number(this.upgrades?.progress?.(t)) || 0)); } catch (_) { return 0; } }
+
+  // -- cosmetic model reads (guarded) -------------------------------------
+  _cosOwns(id)        { try { return !!this.cosmetics?.owns?.(id); } catch (_) { return false; } }
+  _cosSelSkin(id)     { try { return !!this.cosmetics?.isSelectedSkin?.(id); } catch (_) { return false; } }
+  _cosSelBeam(id)     { try { return !!this.cosmetics?.isSelectedBeam?.(id); } catch (_) { return false; } }
+  _cosSelectedSkin()  { try { return this.cosmetics?.selectedSkin?.() || SKINS[0]; } catch (_) { return SKINS[0]; } }
+  _cosSelectedBeam()  { try { return this.cosmetics?.selectedBeam?.() || BEAMS[0]; } catch (_) { return BEAMS[0]; } }
+  _cosPriceOf(id)     { try { return this.cosmetics?.priceOf?.(id) | 0; } catch (_) { return 0; } }
 
   // ----------------------------------------------------------------------
   // Campaign model accessors — every one tolerates a missing/partial
@@ -264,13 +325,13 @@ export class UI {
     return wrap;
   }
 
-  // Drawn COW-COIN: a gold disc minted with a SIDE-PROFILE cow, slightly
-  // tilted, embossed in three shades of gold (light highlight / mid / dark
-  // shadow) so it reads as struck relief rather than a flat sticker. The cow
-  // silhouette (body, head, legs, tail, ear, a spot) is built from path data
-  // facing left. NO emoji — pure SVG. A <defs> radial gradient gives the disc
-  // its minted sheen; the cow gets a dark drop + a light top highlight copy so
-  // it looks pressed into the metal.
+  // Drawn COW-COIN: a minted gold disc struck with a CLEAN, BOLD front-facing
+  // COW HEAD silhouette in gold relief. The head reads instantly even at 16px —
+  // a single chunky shape (broad poll → cheeks → rounded muzzle) with two horns,
+  // two ears, two eyes and two nostrils. It is embossed in three shades of gold
+  // (a dark drop-shadow copy, the mid-gold body, a light sunlit highlight copy)
+  // so it looks pressed into the metal rather than a flat sticker. NO emoji —
+  // pure SVG. A <defs> radial gradient gives the disc its minted sheen.
   _svgCoin() {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
@@ -307,44 +368,47 @@ export class UI {
       mk('line', { x1, y1, x2, y2 }, ticks);
     }
 
-    // --- the SIDE COW, tilted a touch (group rotated ~ -7deg), embossed. ---
-    // A single left-facing cow silhouette path: rump → back → neck → head →
-    // muzzle → chin → chest → front leg → belly → rear leg → tail back to rump.
-    const cowD =
-      'M13.5 30.2 ' +                 // start: rear lower body
-      'C12.2 26.5 12.4 22.8 14.6 21.2 ' +  // rump curve up the back
-      'C16.4 19.9 19.5 19.6 22.2 19.8 ' +  // along the topline toward shoulder
-      'C23.6 17.2 25.2 16.0 27.4 15.7 ' +  // neck rising to the head
-      'C29.0 15.5 30.6 15.9 31.6 17.0 ' +  // forehead / poll
-      'L33.6 16.0 ' +                 // ear flick up-forward
-      'L32.6 18.1 ' +
-      'C34.0 19.0 34.6 20.4 34.4 21.7 ' + // face down to the muzzle
-      'C34.2 22.9 33.1 23.6 31.7 23.7 ' + // muzzle (nose)
-      'C30.7 23.7 29.9 23.4 29.4 22.7 ' + // chin tuck
-      'C27.8 23.2 26.4 23.3 25.2 23.0 ' + // throat / brisket
-      'L25.2 30.4 ' +                 // front leg straight down
-      'L22.7 30.4 ' +
-      'L22.7 24.6 ' +                 // up inside the front leg
-      'C20.4 24.9 18.1 25.0 16.4 24.6 ' + // under the belly
-      'L16.4 30.2 ' +                 // rear leg down
-      'L13.5 30.2 Z';                 // close at the rump
-    const tilt = mk('g', { transform: 'rotate(-7 24 24)' });
-    // 1) dark-gold shadow copy, nudged down-right (the pressed shadow).
-    mk('path', { d: cowD, class: 'mf-coin-cow-dark',
-      transform: 'translate(0.7 0.8)' }, tilt);
-    // 2) mid-gold cow body (the main relief).
-    mk('path', { d: cowD, class: 'mf-coin-cow-mid' }, tilt);
-    // 3) light-gold highlight copy, nudged up-left & clipped feel via thin
-    //    offset so only the sunlit edge shows.
-    mk('path', { d: cowD, class: 'mf-coin-cow-light',
-      transform: 'translate(-0.55 -0.6)' }, tilt);
-    // 4) a darker hide SPOT + eye + tail to sell that it's a cow.
-    mk('ellipse', { cx: 17.6, cy: 23.4, rx: 2.7, ry: 2.1, class: 'mf-coin-cow-dark' }, tilt);
-    mk('circle', { cx: 30.8, cy: 19.4, r: 0.95, class: 'mf-coin-cow-dark' }, tilt); // eye
-    // tail: a sweeping stroke off the rump with a tuft.
-    mk('path', { d: 'M13.6 23.0 C11.4 24.8 11.0 27.6 12.0 30.6',
-      class: 'mf-coin-cow-tail' }, tilt);
-    mk('circle', { cx: 12.1, cy: 30.9, r: 1.15, class: 'mf-coin-cow-dark' }, tilt); // tail tuft
+    // --- the COW HEAD — one bold front-facing silhouette, centred & big. ---
+    // Outline: from the left cheek, sweep up over the broad poll (forehead),
+    // down the right cheek, then a wide rounded MUZZLE across the bottom and
+    // back up to the start. Big, simple, high-contrast — the whole head is the
+    // hero of the coin.
+    const headD =
+      'M14.5 22.2 ' +                       // left cheek (upper)
+      'C13.6 18.4 15.4 15.0 19.0 13.8 ' +   // up the left side of the poll
+      'C21.0 13.1 27.0 13.1 29.0 13.8 ' +   // across the broad forehead/poll
+      'C32.6 15.0 34.4 18.4 33.5 22.2 ' +   // down the right cheek
+      'C33.0 24.6 31.8 26.6 30.0 28.2 ' +   // right jaw narrowing to the muzzle
+      'C28.8 31.6 25.8 33.6 24.0 33.6 ' +   // bottom-right of the muzzle
+      'C22.2 33.6 19.2 31.6 18.0 28.2 ' +   // bottom-left of the muzzle
+      'C16.2 26.6 15.0 24.6 14.5 22.2 Z';   // back up the left jaw to start
+    // EARS — two leaf shapes sticking out below the horns at the sides.
+    const earL = 'M13.8 19.0 C9.6 17.6 7.2 18.8 6.4 21.6 C9.0 22.8 12.0 22.4 14.6 20.8 Z';
+    const earR = 'M34.2 19.0 C38.4 17.6 40.8 18.8 41.6 21.6 C39.0 22.8 36.0 22.4 33.4 20.8 Z';
+    // HORNS — two short curved nubs rising from the top corners of the poll.
+    const hornL = 'M17.0 13.6 C14.6 11.0 13.2 9.4 13.8 7.6 C15.8 8.6 17.6 10.6 18.8 13.4 Z';
+    const hornR = 'M31.0 13.6 C33.4 11.0 34.8 9.4 34.2 7.6 C32.2 8.6 30.4 10.6 29.2 13.4 Z';
+
+    // Embossed in three shades: a dark drop copy (down-right), the mid body,
+    // then a light highlight copy (up-left) so the head looks struck in relief.
+    const limbs = [headD, earL, earR, hornL, hornR];
+    const stamp = (cls, dx, dy) => {
+      for (const d of limbs) {
+        const a = { d, class: cls };
+        if (dx || dy) a.transform = `translate(${dx} ${dy})`;
+        mk('path', a);
+      }
+    };
+    stamp('mf-coin-cow-dark', 0.7, 0.8);    // pressed shadow
+    stamp('mf-coin-cow-mid', 0, 0);         // main relief
+    stamp('mf-coin-cow-light', -0.55, -0.6);// sunlit highlight
+
+    // FACE DETAILS struck darker so they read against the bright muzzle: two
+    // eyes high on the cheeks and two nostril slots in the muzzle.
+    mk('ellipse', { cx: 19.0, cy: 21.0, rx: 1.5, ry: 1.9, class: 'mf-coin-cow-eye' }); // L eye
+    mk('ellipse', { cx: 29.0, cy: 21.0, rx: 1.5, ry: 1.9, class: 'mf-coin-cow-eye' }); // R eye
+    mk('ellipse', { cx: 21.6, cy: 28.6, rx: 1.3, ry: 1.7, class: 'mf-coin-cow-eye' }); // L nostril
+    mk('ellipse', { cx: 26.4, cy: 28.6, rx: 1.3, ry: 1.7, class: 'mf-coin-cow-eye' }); // R nostril
     return svg;
   }
 
@@ -481,9 +545,19 @@ export class UI {
 
     this._bestEl = el('div', 'mf-best mf-hidden', titleView);
 
+    // Primary action row: PLAY in the centre, flanked by smaller secondary
+    // SHOP and UPGRADES buttons that open those screens.
+    const actions = el('div', 'mf-title-actions', titleView);
+    this._titleShopBtn = button('mf-btn-secondary mf-btn-side', actions, 'SHOP',
+      () => this.showShop());
     // PLAY no longer starts the game directly — it opens the mode selector.
-    this._startBtn = button('mf-btn-primary mf-btn-start', titleView, 'PLAY',
+    this._startBtn = button('mf-btn-primary mf-btn-start', actions, 'PLAY',
       () => this._pressPlay());
+    this._titleUpgBtn = button('mf-btn-secondary mf-btn-side', actions, 'UPGRADES',
+      () => this.showUpgrades());
+
+    // A cow-coin balance widget on the title screen too.
+    this._titleCoin = this._buildCoinWidget(titleView, 'mf-coin-title');
 
     // Mode-select sub-view (built once, hidden until PLAY is pressed).
     this._buildModeSelect(panel);
@@ -552,6 +626,14 @@ export class UI {
       }
       this._modeCards[m.key] = card;
     }
+
+    // SHOP + UPGRADES buttons below the mode cards (consistent secondary
+    // styling), so both menus reach the cosmetics/upgrade screens.
+    const extra = el('div', 'mf-modes-actions', view);
+    this._modesShopBtn = button('mf-btn-secondary', extra, 'SHOP',
+      () => this.showShop());
+    this._modesUpgBtn = button('mf-btn-secondary', extra, 'UPGRADES',
+      () => this.showUpgrades());
   }
 
   /** Swap between the title and mode-select sub-views (slide/flip). */
@@ -3019,6 +3101,699 @@ export class UI {
   }
 
   // ======================================================================
+  // UFO + BEAM 2D PREVIEW — a stylised <canvas> drawing of the equipped (or
+  // focused) UFO with its tractor beam, used by BOTH the upgrades screen and
+  // the shop. Parameterised by a skin {shape,hull,dome,light} and a beam
+  // {color,rainbow?}. A gentle idle bob + glow loops on rAF; the drawing
+  // re-renders whenever the focused selection changes.
+  // ======================================================================
+
+  /**
+   * Create a preview <canvas> wrapped in a positioned frame. Returns the frame
+   * element; the canvas + its render state are stashed on it. Call
+   * _setPreview(frame, skin, beam) to point it at a look, and _startPreview /
+   * _stopPreview to run / pause the idle animation.
+   */
+  _buildPreviewCanvas(parent, extraCls = '') {
+    const frame = el('div', `mf-preview ${extraCls}`, parent);
+    const canvas = el('canvas', 'mf-preview-canvas', frame);
+    frame._canvas = canvas;
+    frame._ctx = canvas.getContext('2d');
+    frame._skin = SKINS[0];
+    frame._beam = BEAMS[0];
+    frame._raf = 0;
+    frame._t0 = 0;
+    return frame;
+  }
+
+  /** Point a preview frame at a {skin, beam} look (re-renders next frame). */
+  _setPreview(frame, skin, beam) {
+    if (!frame) return;
+    if (skin) frame._skin = skin;
+    if (beam) frame._beam = beam;
+    // immediate static repaint so the change shows even when paused.
+    this._renderPreview(frame, performance.now());
+  }
+
+  /** Begin the idle bob/glow loop for a preview frame. */
+  _startPreview(frame) {
+    if (!frame) return;
+    this._stopPreview(frame);
+    frame._t0 = performance.now();
+    const loop = (now) => {
+      if (!frame.isConnected) { frame._raf = 0; return; }
+      this._renderPreview(frame, now);
+      frame._raf = requestAnimationFrame(loop);
+    };
+    frame._raf = requestAnimationFrame(loop);
+  }
+
+  _stopPreview(frame) {
+    if (frame && frame._raf) { cancelAnimationFrame(frame._raf); frame._raf = 0; }
+  }
+
+  /** Paint one frame of the UFO + beam preview into `frame`'s canvas. */
+  _renderPreview(frame, now) {
+    const canvas = frame._canvas, g = frame._ctx;
+    if (!canvas || !g) return;
+    // size the backing store to the element box (DPR-scaled) — cheap to check.
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const rect = canvas.getBoundingClientRect();
+    const cw = Math.max(40, Math.round(rect.width || canvas.clientWidth || 240));
+    const ch = Math.max(40, Math.round(rect.height || canvas.clientHeight || 200));
+    if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
+      canvas.width = Math.round(cw * dpr);
+      canvas.height = Math.round(ch * dpr);
+    }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, cw, ch);
+
+    const skin = frame._skin || SKINS[0];
+    const beam = frame._beam || BEAMS[0];
+    const t = (now - (frame._t0 || now)) / 1000;     // seconds since start
+    const bob = Math.sin(t * 1.7) * 4;               // gentle vertical bob
+    const glow = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.2)); // running-light pulse
+
+    const cx = cw / 2;
+    const ufoY = ch * 0.34 + bob;                    // saucer centre height
+    const scale = Math.min(cw / 240, ch / 220);      // fit the art to the box
+    const R = 86 * scale;                            // base half-width of the body
+
+    const hull = skin.hull ?? 0x9aa7b8;
+    const dome = skin.dome ?? 0x7ce8ff;
+    const light = skin.light ?? 0x7cfc9a;
+
+    // --- 1) THE BEAM CONE first (behind/under the craft) ---
+    this._drawPreviewBeam(g, cx, ufoY, ch, R, beam, t);
+
+    // --- 2) THE UFO BODY per shape ---
+    g.save();
+    g.translate(cx, ufoY);
+    switch (skin.shape) {
+      case 'orb':    this._drawUfoOrb(g, R, hull, dome, light, glow); break;
+      case 'delta':  this._drawUfoDelta(g, R, hull, dome, light, glow); break;
+      case 'ringed': this._drawUfoRinged(g, R, hull, dome, light, glow); break;
+      case 'saucer':
+      default:       this._drawUfoSaucer(g, R, hull, dome, light, glow); break;
+    }
+    g.restore();
+  }
+
+  /** Translucent beam cone falling from the craft underside (rainbow optional). */
+  _drawPreviewBeam(g, cx, ufoY, ch, R, beam, t) {
+    const topY = ufoY + R * 0.16;        // emerges from the underside
+    const botY = ch - 6;
+    const topW = R * 0.34, botW = R * 1.05;
+    g.save();
+    g.beginPath();
+    g.moveTo(cx - topW, topY);
+    g.lineTo(cx + topW, topY);
+    g.lineTo(cx + botW, botY);
+    g.lineTo(cx - botW, botY);
+    g.closePath();
+    g.clip();
+    if (beam && beam.rainbow) {
+      // multi-hue gradient cone (rainbow beam).
+      const grad = g.createLinearGradient(cx - botW, topY, cx + botW, botY);
+      const hues = ['#ff5a5a', '#ffd24a', '#9dff3a', '#5ad0ff', '#b388ff', '#ff7ad0'];
+      hues.forEach((c, i) => grad.addColorStop(i / (hues.length - 1), this._withAlpha(c, 0.42)));
+      g.fillStyle = grad;
+      g.fillRect(cx - botW, topY, botW * 2, botY - topY);
+    } else {
+      const col = hex(beam ? (beam.color ?? 0x9af7b0) : 0x9af7b0);
+      const grad = g.createLinearGradient(0, topY, 0, botY);
+      grad.addColorStop(0, this._withAlpha(col, 0.62));
+      grad.addColorStop(0.6, this._withAlpha(col, 0.22));
+      grad.addColorStop(1, this._withAlpha(col, 0.02));
+      g.fillStyle = grad;
+      g.fillRect(cx - botW, topY, botW * 2, botY - topY);
+    }
+    // a few drifting energy bands sliding down the cone for life.
+    g.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 3; i++) {
+      const p = ((t * 0.5 + i / 3) % 1);
+      const y = topY + (botY - topY) * p;
+      g.globalAlpha = 0.18 * (1 - p);
+      g.fillStyle = '#ffffff';
+      g.fillRect(cx - botW, y, botW * 2, 4 * (0.5 + p));
+    }
+    g.restore();
+  }
+
+  // -- per-shape body drawers (origin at the body centre) -----------------
+  _drawUfoLights(g, R, light, glow, y, spread, count) {
+    const col = hex(light);
+    for (let i = 0; i < count; i++) {
+      const f = count === 1 ? 0.5 : i / (count - 1);
+      const x = -spread + f * spread * 2;
+      const r = R * 0.06;
+      g.save();
+      g.globalAlpha = glow;
+      g.fillStyle = col;
+      g.shadowColor = col;
+      g.shadowBlur = R * 0.18;
+      g.beginPath(); g.ellipse(x, y, r, r, 0, 0, 6.283); g.fill();
+      g.restore();
+    }
+  }
+
+  _drawDome(g, R, dome, w, h, cy) {
+    const grad = g.createLinearGradient(0, cy - h, 0, cy);
+    grad.addColorStop(0, mix(0xffffff, dome, 0.4));
+    grad.addColorStop(0.7, hex(dome));
+    grad.addColorStop(1, shade(dome, 0.7));
+    g.fillStyle = grad;
+    g.beginPath();
+    g.ellipse(0, cy, w, h, 0, Math.PI, 0, false);   // upper-half dome
+    g.closePath(); g.fill();
+    // glass highlight blob.
+    g.fillStyle = 'rgba(255,255,255,0.55)';
+    g.beginPath(); g.ellipse(-w * 0.3, cy - h * 0.5, w * 0.22, h * 0.28, -0.5, 0, 6.283); g.fill();
+  }
+
+  _drawUfoSaucer(g, R, hull, dome, light, glow) {
+    // classic disc: flat saucer body + glass dome + a rim of running lights.
+    const bodyH = R * 0.42;
+    const grad = g.createLinearGradient(0, -bodyH, 0, bodyH);
+    grad.addColorStop(0, mix(0xffffff, hull, 0.5));
+    grad.addColorStop(0.5, hex(hull));
+    grad.addColorStop(1, shade(hull, 0.6));
+    g.fillStyle = grad;
+    g.beginPath(); g.ellipse(0, 0, R, bodyH, 0, 0, 6.283); g.fill();
+    // dark under-rim for depth.
+    g.fillStyle = shade(hull, 0.45);
+    g.beginPath(); g.ellipse(0, bodyH * 0.42, R * 0.96, bodyH * 0.5, 0, 0, Math.PI); g.fill();
+    this._drawDome(g, R, dome, R * 0.5, bodyH * 1.5, -bodyH * 0.1);
+    this._drawUfoLights(g, R, light, glow, bodyH * 0.18, R * 0.7, 5);
+  }
+
+  _drawUfoOrb(g, R, hull, dome, light, glow) {
+    // round / egg body: a tall ovoid with a domed top + a belt of lights.
+    const rx = R * 0.74, ry = R * 0.9;
+    const grad = g.createRadialGradient(-rx * 0.3, -ry * 0.4, rx * 0.1, 0, 0, ry * 1.2);
+    grad.addColorStop(0, mix(0xffffff, hull, 0.55));
+    grad.addColorStop(0.55, hex(hull));
+    grad.addColorStop(1, shade(hull, 0.5));
+    g.fillStyle = grad;
+    g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, 6.283); g.fill();
+    this._drawDome(g, R, dome, rx * 0.62, ry * 0.7, -ry * 0.35);
+    this._drawUfoLights(g, R, light, glow, ry * 0.45, rx * 0.62, 4);
+  }
+
+  _drawUfoDelta(g, R, hull, dome, light, glow) {
+    // arrowhead / triangular craft pointing forward (down-screen nose).
+    const grad = g.createLinearGradient(0, -R * 0.5, 0, R * 0.55);
+    grad.addColorStop(0, mix(0xffffff, hull, 0.5));
+    grad.addColorStop(0.5, hex(hull));
+    grad.addColorStop(1, shade(hull, 0.55));
+    g.fillStyle = grad;
+    g.beginPath();
+    g.moveTo(0, R * 0.55);            // nose (front)
+    g.lineTo(-R, -R * 0.34);          // left wingtip
+    g.quadraticCurveTo(-R * 0.3, -R * 0.5, 0, -R * 0.46); // back edge
+    g.quadraticCurveTo(R * 0.3, -R * 0.5, R, -R * 0.34);  // right wingtip
+    g.closePath(); g.fill();
+    // centre spine highlight.
+    g.strokeStyle = mix(0xffffff, hull, 0.6); g.lineWidth = R * 0.05;
+    g.beginPath(); g.moveTo(0, R * 0.5); g.lineTo(0, -R * 0.4); g.stroke();
+    this._drawDome(g, R, dome, R * 0.34, R * 0.42, -R * 0.06);
+    // wingtip + nose lights.
+    const col = hex(light);
+    for (const [x, y] of [[-R * 0.86, -R * 0.28], [R * 0.86, -R * 0.28], [0, R * 0.5]]) {
+      g.save(); g.globalAlpha = glow; g.fillStyle = col;
+      g.shadowColor = col; g.shadowBlur = R * 0.2;
+      g.beginPath(); g.ellipse(x, y, R * 0.07, R * 0.07, 0, 0, 6.283); g.fill(); g.restore();
+    }
+  }
+
+  _drawUfoRinged(g, R, hull, dome, light, glow) {
+    // core pod + a big glowing halo ring around it.
+    // halo ring (drawn first, behind the core).
+    g.save();
+    g.strokeStyle = this._withAlpha(hex(light), 0.85);
+    g.lineWidth = R * 0.16;
+    g.shadowColor = hex(light);
+    g.shadowBlur = R * 0.3 * glow;
+    g.beginPath(); g.ellipse(0, R * 0.05, R * 1.02, R * 0.42, 0, 0, 6.283); g.stroke();
+    g.restore();
+    // a few running lights embedded in the ring.
+    const col = hex(light);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const x = Math.cos(a) * R * 1.02, y = R * 0.05 + Math.sin(a) * R * 0.42;
+      g.save(); g.globalAlpha = glow; g.fillStyle = col;
+      g.shadowColor = col; g.shadowBlur = R * 0.16;
+      g.beginPath(); g.ellipse(x, y, R * 0.05, R * 0.05, 0, 0, 6.283); g.fill(); g.restore();
+    }
+    // central core pod (a small saucer body).
+    const bodyH = R * 0.34;
+    const grad = g.createLinearGradient(0, -bodyH, 0, bodyH);
+    grad.addColorStop(0, mix(0xffffff, hull, 0.5));
+    grad.addColorStop(0.5, hex(hull));
+    grad.addColorStop(1, shade(hull, 0.55));
+    g.fillStyle = grad;
+    g.beginPath(); g.ellipse(0, 0, R * 0.5, bodyH, 0, 0, 6.283); g.fill();
+    this._drawDome(g, R, dome, R * 0.3, bodyH * 1.4, -bodyH * 0.1);
+  }
+
+  // ======================================================================
+  // UPGRADES SCREEN — four tracks on the LEFT (name, blurb, segmented progress
+  // bar, level "Lv n / MAX", BUY button with the next cost + coin icon), a
+  // live UFO preview on the RIGHT. BUY fires _buyUpgrade(track); on success the
+  // bar fills one notch, coins fly to the balance, and the rows + balance
+  // refresh. Full screen, BACK button, coin balance.
+  // ======================================================================
+
+  _buildUpgrades() {
+    const s = el('div', 'mf-screen mf-upg mf-hidden');
+    s.id = 'mf-upg';
+    el('div', 'mf-shop-bg', s);          // starfield-ish dim backdrop scrim
+
+    const panel = el('div', 'mf-shop-panel mf-upg-panel', s);
+
+    // header: BACK · title · coin balance.
+    const head = el('div', 'mf-shop-head', panel);
+    this._upgBackBtn = backButton('mf-shop-back', head, 'BACK',
+      () => this._closeUpgrades());
+    el('h2', 'mf-panel-title mf-shop-title', head, 'UPGRADES');
+    this._upgCoin = this._buildCoinWidget(head, 'mf-coin-shop');
+
+    // body: tracks (left) + preview (right).
+    const body = el('div', 'mf-upg-body', panel);
+    const list = el('div', 'mf-upg-list', body);
+    this._upgList = list;
+
+    // one row per track (built once; refreshed by _refreshUpgrades).
+    this._upgRows = {};
+    for (const track of TRACKS) {
+      const info = TRACK_INFO[track] || { name: track, blurb: '' };
+      const row = el('div', 'mf-upg-row', list);
+      const main = el('div', 'mf-upg-main', row);
+      el('div', 'mf-upg-name', main, info.name);
+      el('div', 'mf-upg-blurb', main, info.blurb);
+      // segmented progress bar (MAX_LEVEL segments).
+      const bar = el('div', 'mf-upg-bar', main);
+      const segs = [];
+      for (let i = 0; i < MAX_LEVEL; i++) segs.push(el('div', 'mf-upg-seg', bar));
+      // level read-out "Lv n / MAX".
+      const lvl = el('div', 'mf-upg-lvl', main);
+      // buy column: a button with a coin icon + the next cost (or "MAX").
+      const buyWrap = el('div', 'mf-upg-buywrap', row);
+      const buy = el('button', 'mf-btn mf-btn-buy', buyWrap);
+      buy.type = 'button';
+      const cost = el('span', 'mf-buy-cost', buy);
+      cost.appendChild(this._svgCoin());
+      const costNum = el('span', 'mf-buy-costnum', cost, '');
+      buy.addEventListener('click', (e) => { e.preventDefault(); this._onBuyUpgrade(track); });
+      this._upgRows[track] = { row, segs, lvl, buy, cost, costNum, bar };
+    }
+
+    // right: the UFO preview (currently-equipped look).
+    const side = el('div', 'mf-upg-side', body);
+    this._upgPreview = this._buildPreviewCanvas(side, 'mf-upg-preview');
+    el('div', 'mf-preview-caption', side, 'YOUR UFO');
+
+    document.body.appendChild(s);
+    this._upgEl = s;
+  }
+
+  /** Refresh every upgrade row + the coin balance to the current model state. */
+  _refreshUpgrades() {
+    const bal = this._coinBalance();
+    for (const track of TRACKS) {
+      const r = this._upgRows[track];
+      if (!r) continue;
+      const level = this._upLevel(track);
+      const maxed = this._upMaxed(track);
+      const cost = this._upCost(track);
+      // fill the segmented bar up to `level`.
+      r.segs.forEach((seg, i) => seg.classList.toggle('mf-upg-seg-on', i < level));
+      r.lvl.textContent = `Lv ${level} / ${MAX_LEVEL}`;
+      // buy button state.
+      r.buy.classList.toggle('mf-btn-maxed', maxed);
+      if (maxed) {
+        r.buy.disabled = true;
+        r.cost.classList.add('mf-hidden');
+        r.buy.classList.remove('mf-btn-cant');
+        if (!r._maxLabel) { r._maxLabel = el('span', 'mf-buy-max', r.buy, 'MAX'); }
+        r._maxLabel.classList.remove('mf-hidden');
+      } else {
+        if (r._maxLabel) r._maxLabel.classList.add('mf-hidden');
+        r.cost.classList.remove('mf-hidden');
+        r.costNum.textContent = fmt(cost);
+        const afford = bal >= cost;
+        r.buy.disabled = !afford;
+        r.buy.classList.toggle('mf-btn-cant', !afford);
+      }
+    }
+    this._refreshCoinWidgets();
+  }
+
+  /** BUY pressed on an upgrade track. On success animate the bar + fly coins. */
+  _onBuyUpgrade(track) {
+    if (this._upMaxed(track)) return;
+    const cost = this._upCost(track);
+    const before = this._coinBalance();
+    if (cost == null || before < cost) { this._shopShake(this._upgRows[track]?.buy); return; }
+    const prevLevel = this._upLevel(track);
+    const ok = this._buyUpgrade(track);
+    if (!ok) { this._shopShake(this._upgRows[track]?.buy); return; }
+    const after = this._coinBalance();
+    const r = this._upgRows[track];
+    // pop the newly-filled segment, then fly coins from balance & count down.
+    if (r && r.segs[prevLevel]) {
+      r.segs[prevLevel].classList.add('mf-upg-seg-on');
+      r.segs[prevLevel].classList.remove('mf-upg-seg-pop');
+      void r.segs[prevLevel].offsetWidth;
+      r.segs[prevLevel].classList.add('mf-upg-seg-pop');
+    }
+    // refresh static state immediately (level read-out, next cost, disabled).
+    this._refreshUpgrades();
+    // fly a coin from the BUY button to the balance widget, then count down.
+    this._shopFlyCoin(this._upgEl, r ? r.buy : null, this._upgCoin,
+      () => this.animateCoinBalance(before, after, { duration: 500 }));
+  }
+
+  /** Public: open the UPGRADES screen. */
+  showUpgrades() {
+    if (this._startVisible) this._startEl.classList.add('mf-hidden');
+    this._upgEl.classList.remove('mf-hidden');
+    this._upgVisible = true;
+    this._refreshUpgrades();
+    this._setPreview(this._upgPreview, this._cosSelectedSkin(), this._cosSelectedBeam());
+    this._startPreview(this._upgPreview);
+    this._upgEl.classList.remove('mf-anim');
+    void this._upgEl.offsetWidth;
+    this._upgEl.classList.add('mf-anim');
+    if (this._upgBackBtn) this._upgBackBtn.focus({ preventScroll: true });
+  }
+
+  /** BACK from UPGRADES → return to whichever menu we came from. */
+  _closeUpgrades() {
+    this._upgEl.classList.add('mf-hidden');
+    this._upgVisible = false;
+    this._stopPreview(this._upgPreview);
+    this._returnToMenu();
+  }
+
+  // ======================================================================
+  // SHOP SCREEN — a TAB selector (UFO | BEAM) up top, a big UFO+beam preview
+  // below it, and under that a scrollable GRID of the active tab's options
+  // (SKINS for UFO, BEAMS for beam), cheapest first. Each cell shows the name,
+  // price (+ coin icon) and a state: LOCKED (BUY), OWNED (EQUIP) or EQUIPPED.
+  // Tapping a cell PREVIEWS it; BUY → _buyCosmetic (+ auto-equip); EQUIP →
+  // _selectCosmetic. The preview always reflects the focused item.
+  // ======================================================================
+
+  _buildShop() {
+    const s = el('div', 'mf-screen mf-shop mf-hidden');
+    s.id = 'mf-shop';
+    el('div', 'mf-shop-bg', s);
+
+    const panel = el('div', 'mf-shop-panel', s);
+
+    const head = el('div', 'mf-shop-head', panel);
+    this._shopBackBtn = backButton('mf-shop-back', head, 'BACK',
+      () => this._closeShop());
+    el('h2', 'mf-panel-title mf-shop-title', head, 'SHOP');
+    this._shopCoin = this._buildCoinWidget(head, 'mf-coin-shop');
+
+    // TAB selector (UFO | BEAM).
+    const tabs = el('div', 'mf-shop-tabs', panel);
+    this._shopTabUfo = el('button', 'mf-shop-tab mf-shop-tab-on', tabs);
+    this._shopTabUfo.type = 'button';
+    el('span', 'mf-shop-tab-txt', this._shopTabUfo, 'UFO');
+    this._shopTabBeam = el('button', 'mf-shop-tab', tabs);
+    this._shopTabBeam.type = 'button';
+    el('span', 'mf-shop-tab-txt', this._shopTabBeam, 'BEAM');
+    // sliding underline indicator.
+    this._shopTabInd = el('div', 'mf-shop-tab-ind', tabs);
+    this._shopTabUfo.addEventListener('click', (e) => { e.preventDefault(); this._setShopTab('ufo'); });
+    this._shopTabBeam.addEventListener('click', (e) => { e.preventDefault(); this._setShopTab('beam'); });
+
+    // big PREVIEW (top) + the focused item's name/price below it.
+    const previewWrap = el('div', 'mf-shop-previewwrap', panel);
+    this._shopPreview = this._buildPreviewCanvas(previewWrap, 'mf-shop-preview');
+    const cap = el('div', 'mf-shop-focusinfo', previewWrap);
+    this._shopFocusName = el('div', 'mf-shop-focusname', cap, '');
+    this._shopFocusPrice = el('div', 'mf-shop-focusprice', cap, '');
+
+    // scrollable GRID of options (filled per tab in _renderShopGrid).
+    this._shopGrid = el('div', 'mf-shop-grid', panel);
+
+    this._shopTab = 'ufo';
+    this._shopFocusId = null;     // currently-previewed item id
+
+    document.body.appendChild(s);
+    this._shopEl = s;
+  }
+
+  /** Items for the active tab, sorted cheapest-first (owned/free naturally lead). */
+  _shopItems() {
+    const arr = this._shopTab === 'beam' ? BEAMS.slice() : SKINS.slice();
+    return arr.sort((a, b) => (a.price | 0) - (b.price | 0));
+  }
+
+  /** Switch the active tab (animated underline + grid swap + preview reset). */
+  _setShopTab(tab) {
+    if (tab === this._shopTab) return;
+    this._shopTab = tab;
+    const isUfo = tab === 'ufo';
+    this._shopTabUfo.classList.toggle('mf-shop-tab-on', isUfo);
+    this._shopTabBeam.classList.toggle('mf-shop-tab-on', !isUfo);
+    if (this._shopTabInd) this._shopTabInd.style.transform = isUfo ? 'translateX(0%)' : 'translateX(100%)';
+    // focus the currently-equipped item of the new tab.
+    this._shopFocusId = isUfo ? this._cosSelectedSkin().id : this._cosSelectedBeam().id;
+    this._renderShopGrid();
+    this._updateShopPreview();
+    // replay the grid fade-in.
+    this._shopGrid.classList.remove('mf-shop-grid-anim');
+    void this._shopGrid.offsetWidth;
+    this._shopGrid.classList.add('mf-shop-grid-anim');
+  }
+
+  /** Rebuild the option grid for the active tab. */
+  _renderShopGrid() {
+    const grid = this._shopGrid;
+    grid.textContent = '';
+    this._shopCells = {};
+    const bal = this._coinBalance();
+    for (const item of this._shopItems()) {
+      const owned = this._cosOwns(item.id);
+      const equipped = this._shopTab === 'beam'
+        ? this._cosSelBeam(item.id) : this._cosSelSkin(item.id);
+      const focused = item.id === this._shopFocusId;
+
+      let cls = 'mf-shop-cell';
+      if (equipped) cls += ' mf-shop-cell-equipped';
+      else if (owned) cls += ' mf-shop-cell-owned';
+      else cls += ' mf-shop-cell-locked';
+      if (focused) cls += ' mf-shop-cell-focus';
+      const cell = el('button', cls, grid);
+      cell.type = 'button';
+
+      // a tiny swatch previewing the item's colour identity.
+      const sw = el('div', 'mf-shop-swatch', cell);
+      if (this._shopTab === 'beam') {
+        if (item.rainbow) sw.classList.add('mf-shop-swatch-rainbow');
+        else sw.style.background = hex(item.color);
+      } else {
+        sw.style.background = `linear-gradient(150deg, ${mix(0xffffff, item.hull, 0.45)}, ${hex(item.hull)} 60%, ${shade(item.hull, 0.6)})`;
+        const dot = el('div', 'mf-shop-swatch-dome', sw);
+        dot.style.background = hex(item.dome);
+      }
+
+      el('div', 'mf-shop-cell-name', cell, item.name);
+
+      // state row: price+BUY (locked), EQUIP (owned), or EQUIPPED.
+      const state = el('div', 'mf-shop-cell-state', cell);
+      if (equipped) {
+        state.classList.add('mf-shop-state-equipped');
+        state.textContent = 'EQUIPPED';
+      } else if (owned) {
+        state.classList.add('mf-shop-state-owned');
+        el('span', 'mf-shop-state-tag', state, 'OWNED');
+        el('span', 'mf-shop-state-act', state, 'EQUIP');
+      } else {
+        state.classList.add('mf-shop-state-price');
+        const price = el('span', 'mf-shop-price', state);
+        price.appendChild(this._svgCoin());
+        el('span', 'mf-shop-pricenum', price, fmt(item.price));
+        const buy = el('span', 'mf-shop-buy', state, 'BUY');
+        if (bal < (item.price | 0)) buy.classList.add('mf-shop-buy-cant');
+      }
+
+      // click: preview always; then equip (owned) / buy (locked).
+      cell.addEventListener('click', (e) => {
+        e.preventDefault();
+        this._onShopCell(item);
+      });
+      this._shopCells[item.id] = cell;
+    }
+  }
+
+  /** A shop cell tapped → preview it, then buy/equip per its state. */
+  _onShopCell(item) {
+    // always focus + preview the tapped item first.
+    this._shopFocusId = item.id;
+    this._updateShopPreview();
+    this._highlightShopFocus();
+
+    const owned = this._cosOwns(item.id);
+    const equipped = this._shopTab === 'beam'
+      ? this._cosSelBeam(item.id) : this._cosSelSkin(item.id);
+    if (equipped) return;                       // already on — just previewed.
+
+    if (owned) {
+      // EQUIP an owned item.
+      if (this._selectCosmetic(item.id)) {
+        this._renderShopGrid();
+        this._updateShopPreview();
+      }
+      return;
+    }
+
+    // LOCKED → attempt to buy.
+    const before = this._coinBalance();
+    if (before < (item.price | 0)) { this._shopShake(this._shopCells[item.id]); return; }
+    const ok = this._buyCosmetic(item.id);
+    if (!ok) { this._shopShake(this._shopCells[item.id]); return; }
+    // on success: auto-equip the freshly-bought item.
+    this._selectCosmetic(item.id);
+    const after = this._coinBalance();
+    this._renderShopGrid();
+    this._updateShopPreview();
+    // fly a coin from the cell to the balance, then count down.
+    this._shopFlyCoin(this._shopEl, this._shopCells[item.id], this._shopCoin,
+      () => this.animateCoinBalance(before, after, { duration: 500 }));
+  }
+
+  /** Mark the focused cell (visual ring) without rebuilding the whole grid. */
+  _highlightShopFocus() {
+    if (!this._shopCells) return;
+    for (const id in this._shopCells) {
+      this._shopCells[id].classList.toggle('mf-shop-cell-focus', id === this._shopFocusId);
+    }
+  }
+
+  /** Point the shop preview at the focused item (combined with the OTHER tab's
+   *  equipped look so the player always sees a complete UFO + beam). */
+  _updateShopPreview() {
+    const focusSkin = this._shopTab === 'ufo'
+      ? (SKINS.find((x) => x.id === this._shopFocusId) || this._cosSelectedSkin())
+      : this._cosSelectedSkin();
+    const focusBeam = this._shopTab === 'beam'
+      ? (BEAMS.find((x) => x.id === this._shopFocusId) || this._cosSelectedBeam())
+      : this._cosSelectedBeam();
+    this._setPreview(this._shopPreview, focusSkin, focusBeam);
+    // focus info caption (name + price/owned).
+    const item = (this._shopTab === 'beam' ? BEAMS : SKINS).find((x) => x.id === this._shopFocusId);
+    if (item) {
+      this._shopFocusName.textContent = item.name;
+      const owned = this._cosOwns(item.id);
+      this._shopFocusPrice.textContent = '';
+      if (owned) {
+        this._shopFocusPrice.textContent = 'OWNED';
+        this._shopFocusPrice.classList.add('mf-shop-focusprice-owned');
+      } else {
+        this._shopFocusPrice.classList.remove('mf-shop-focusprice-owned');
+        const p = el('span', 'mf-shop-price', this._shopFocusPrice);
+        p.appendChild(this._svgCoin());
+        el('span', 'mf-shop-pricenum', p, fmt(item.price));
+      }
+    }
+  }
+
+  /** Public: open the SHOP screen (defaults to the UFO tab). */
+  showShop() {
+    if (this._startVisible) this._startEl.classList.add('mf-hidden');
+    this._shopEl.classList.remove('mf-hidden');
+    this._shopVisible = true;
+    this._refreshCoinWidgets();
+    // start on the currently-equipped look for the active tab.
+    this._shopFocusId = this._shopTab === 'beam'
+      ? this._cosSelectedBeam().id : this._cosSelectedSkin().id;
+    this._renderShopGrid();
+    this._updateShopPreview();
+    this._startPreview(this._shopPreview);
+    this._shopEl.classList.remove('mf-anim');
+    void this._shopEl.offsetWidth;
+    this._shopEl.classList.add('mf-anim');
+    this._shopGrid.classList.remove('mf-shop-grid-anim');
+    void this._shopGrid.offsetWidth;
+    this._shopGrid.classList.add('mf-shop-grid-anim');
+    if (this._shopBackBtn) this._shopBackBtn.focus({ preventScroll: true });
+  }
+
+  /** BACK from SHOP → return to whichever menu we came from. */
+  _closeShop() {
+    this._shopEl.classList.add('mf-hidden');
+    this._shopVisible = false;
+    this._stopPreview(this._shopPreview);
+    this._returnToMenu();
+  }
+
+  /** Return to the start overlay after a SHOP/UPGRADES screen closes. */
+  _returnToMenu() {
+    if (this._startVisible) {
+      this._startEl.classList.remove('mf-hidden');
+    } else {
+      this.showStart(this._lastHighscore || 0);
+    }
+  }
+
+  /** Brief "can't afford / failed" shake on a button or cell. */
+  _shopShake(node) {
+    if (!node) return;
+    node.classList.remove('mf-shake');
+    void node.offsetWidth;
+    node.classList.add('mf-shake');
+  }
+
+  /**
+   * Fly a coin sprite from `fromEl` to `toEl` (a coin widget) across `host`,
+   * then invoke onArrive. Mirrors _lrFlyCoin but scoped to the shop/upgrade
+   * screens (so it works regardless of which screen is visible).
+   */
+  _shopFlyCoin(host, fromEl, toEl, onArrive) {
+    if (!fromEl || !toEl || !host) { if (onArrive) onArrive(); return; }
+    const hb = host.getBoundingClientRect();
+    const a = fromEl.getBoundingClientRect();
+    const b = toEl.getBoundingClientRect();
+    const x0 = a.left + a.width / 2 - hb.left;
+    const y0 = a.top + a.height / 2 - hb.top;
+    const x1 = b.left + b.width / 2 - hb.left;
+    const y1 = b.top + b.height / 2 - hb.top;
+    const sprite = el('div', 'mf-fly-coin', host);
+    sprite.appendChild(this._svgCoin());
+    sprite.style.left = `${x0}px`;
+    sprite.style.top = `${y0}px`;
+    const dur = 520;
+    const t0 = performance.now();
+    const lift = Math.min(120, Math.abs(y1 - y0) * 0.5 + 50);
+    let arrived = false;
+    const visible = () => this._shopVisible || this._upgVisible;
+    const tick = (now) => {
+      const t = Math.max(0, Math.min(1, (now - t0) / dur));
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const x = x0 + (x1 - x0) * e;
+      const y = y0 + (y1 - y0) * e - Math.sin(e * Math.PI) * lift;
+      const sc = 1 - 0.45 * e;
+      sprite.style.transform = `translate(-50%,-50%) scale(${sc})`;
+      sprite.style.left = `${x}px`;
+      sprite.style.top = `${y}px`;
+      sprite.style.opacity = t > 0.85 ? String((1 - t) / 0.15) : '1';
+      if (t < 1 && visible()) {
+        this._shopFlyRaf = requestAnimationFrame(tick);
+      } else {
+        sprite.remove();
+        if (!arrived) { arrived = true; this._pulseCoins(); if (onArrive) onArrive(); }
+      }
+    };
+    this._shopFlyRaf = requestAnimationFrame(tick);
+  }
+
+  // ======================================================================
   // COUNTDOWN
   // ======================================================================
 
@@ -3626,6 +4401,9 @@ export class UI {
       // Escape / Backspace → "back" on views that have a back affordance.
       if (e.code === 'Escape' || e.code === 'Backspace') {
         if (this._capturing) return; // a rebind capture owns Esc
+        // SHOP / UPGRADES sit above everything else — close them first.
+        if (this._shopVisible) { e.preventDefault(); this._closeShop(); return; }
+        if (this._upgVisible) { e.preventDefault(); this._closeUpgrades(); return; }
         // The level popup (modal) is topmost — close it first if it's open.
         if (this._lpVisible) {
           e.preventDefault();
@@ -3647,6 +4425,10 @@ export class UI {
 
       const confirm = e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space';
       if (!confirm) return;
+
+      // SHOP / UPGRADES are topmost when open → their focused buttons handle
+      // their own Enter/Space natively; don't let the title/pause logic fire.
+      if (this._shopVisible || this._upgVisible) return;
 
       // The level popup (modal) is topmost → let its focused button (PLAY /
       // BACK / close) receive the Enter/Space natively; default to PLAY.

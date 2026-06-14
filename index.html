@@ -17,6 +17,14 @@
 </head>
 <body>
   <canvas id="game-canvas"></canvas>
+  <!-- Instant loading screen (inline-styled so it paints before any CSS/JS or
+       the heavy world build; main.js fades it out once the first frame is ready). -->
+  <div id="mf-loading" style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 38%,#1a2350,#0b1026 70%);color:#7cfc9a;font-family:system-ui,-apple-system,sans-serif;transition:opacity .5s ease">
+    <div style="font-size:46px;font-weight:900;letter-spacing:3px;color:#ffd24a;text-shadow:0 3px 0 #7a5a18,0 0 22px rgba(255,210,74,.4)">MOO&middot;FO</div>
+    <div style="margin-top:20px;width:46px;height:46px;border:5px solid rgba(124,252,154,.22);border-top-color:#7cfc9a;border-radius:50%;animation:mfspin .9s linear infinite"></div>
+    <div style="margin-top:14px;font-size:12px;letter-spacing:2px;opacity:.65">LOADING&hellip;</div>
+  </div>
+  <style>@keyframes mfspin{to{transform:rotate(360deg)}}</style>
   <noscript>MOO-FO needs JavaScript to fly.</noscript>
   <script type="module" src="js/main.js"></script>
 </body>

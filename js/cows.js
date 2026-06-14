@@ -142,7 +142,9 @@ export class CowManager {
 
     const fleeR2 = CFG.FLEE_RADIUS * CFG.FLEE_RADIUS;
     const beamFearR2 = (CFG.FLEE_RADIUS * 1.1) * (CFG.FLEE_RADIUS * 1.1);
-    const beamR2 = CFG.BEAM_RADIUS * CFG.BEAM_RADIUS;
+    // Effective beam radius reflects the player's beam upgrade (ufo.beamRadius).
+    const beamR = ufo.beamRadius || CFG.BEAM_RADIUS;
+    const beamR2 = beamR * beamR;
 
     for (let i = this.cows.length - 1; i >= 0; i--) {
       const c = this.cows[i];
@@ -155,7 +157,7 @@ export class CowManager {
         continue;
       }
       if (c.state === 'fall') {
-        this._fall(c, dt, beamOn, bp);
+        this._fall(c, dt, beamOn, bp, beamR2);
         this._groundShadow(c);
         continue;
       }
@@ -381,9 +383,11 @@ export class CowManager {
 
     // The beam is a cone: the higher the critter, the narrower the hold.
     // Outrun it (or let it pass the ship) and the critter drops — no free rides.
+    // The hold radius scales with the beam upgrade (ufo.beamRadius).
     const dbx = g.position.x - bp.x;
     const dbz = g.position.z - bp.z;
-    const allowed = THREE.MathUtils.lerp(CFG.BEAM_DROP_RADIUS, CFG.CONSUME_DIST + 0.6, hFrac);
+    const dropR = CFG.BEAM_DROP_RADIUS * ((ufo.beamRadius || CFG.BEAM_RADIUS) / CFG.BEAM_RADIUS);
+    const allowed = THREE.MathUtils.lerp(dropR, CFG.CONSUME_DIST + 0.6, hFrac);
     if (dbx * dbx + dbz * dbz > allowed * allowed || g.position.y > ship.y + 0.5) {
       c.state = 'fall';
       c.vy = 0;
@@ -394,7 +398,7 @@ export class CowManager {
     const pull = Math.min(1, dt * 4);
     g.position.x += (bp.x - g.position.x) * pull;
     g.position.z += (bp.z - g.position.z) * pull;
-    g.position.y += CFG.BEAM_LIFT_SPEED * dt;
+    g.position.y += (ufo.beamLiftSpeed || CFG.BEAM_LIFT_SPEED) * dt;
     c.spin = 2 + hFrac * 9; // spin faster as they rise
     g.rotation.y += c.spin * dt;
     g.rotation.z = Math.sin(this._t * 5 + c.phase) * 0.12;
@@ -431,13 +435,13 @@ export class CowManager {
     if (this.onAbduct) this.onAbduct({ kind, variant: c.variant, points, pos });
   }
 
-  _fall(c, dt, beamOn, bp) {
+  _fall(c, dt, beamOn, bp, beamR2 = CFG.BEAM_RADIUS * CFG.BEAM_RADIUS) {
     const g = c.group;
     // the beam can re-catch a falling critter
     if (beamOn) {
       const dbx = g.position.x - bp.x;
       const dbz = g.position.z - bp.z;
-      if (dbx * dbx + dbz * dbz < CFG.BEAM_RADIUS * CFG.BEAM_RADIUS) {
+      if (dbx * dbx + dbz * dbz < beamR2) {
         c.state = 'lift';
         return;
       }
