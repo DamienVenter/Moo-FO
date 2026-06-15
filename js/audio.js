@@ -15,6 +15,7 @@ const SOUND_NAMES = [
   'abduct', 'golden', 'chicken',
   'gunshot', 'hit', 'explosion',
   'tick', 'combo', 'click',
+  'ufo_buy', 'ufo_equip', 'beam_buy', 'beam_equip',
   'start', 'win', 'lose',
   'jingle', 'waterfall',
   'bark', 'baa', 'quack',

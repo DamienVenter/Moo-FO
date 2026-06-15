@@ -119,6 +119,13 @@ function onAbduct({ kind, variant, points, pos }) {
   tracker.onAbduct(kind, variant);
   tracker.onCombo(mult);
 
+  // Cow Coins per abduction (stacks with end-of-level star rewards): 10 for a
+  // cow (incl. golden), 5 for any other critter. Banked live so the wallet
+  // grows every run.
+  const coinGain = (kind === 'chicken' || kind === 'sheep' || kind === 'pig' || kind === 'horse') ? 5 : 10;
+  const newBal = wallet.add(coinGain);
+  if (ui.setCoinBalance) ui.setCoinBalance(newBal);
+
   const color = kind === 'golden' ? COLORS.gold : kind === 'chicken' ? 0xffffff :
                 kind === 'sheep' ? 0xeae6da : COLORS.uiGreen;
   effects.scorePopup(pos, `+${gained}`, color);

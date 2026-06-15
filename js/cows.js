@@ -8,7 +8,7 @@ import { createCow, createChicken, createSheep, createDuck, blobShadow } from '.
 import { terrainHeight, WATER_LEVEL } from './terrain.js';
 
 const MOOS = ['moo1', 'moo2', 'moo3'];
-const MOO_RANGE = 60;          // only moo when the UFO is this close
+const MOO_RANGE = 28;          // only moo when the UFO is fairly close (less ambient noise)
 const FALL_GRAVITY = 28;
 const STUN_TIME = 1.0;
 const JUMP_TIME = 0.7;         // fence-hop duration
@@ -226,7 +226,8 @@ export class CowManager {
       // ---------- occasional moos / clucks (volume by distance to UFO) ----------
       c.mooT -= dt;
       if (c.mooT <= 0) {
-        c.mooT = (c.kind === 'chicken' ? 4 : 6) + Math.random() * 13;
+        // Much longer gaps so the herd isn't mooing/clucking constantly.
+        c.mooT = (c.kind === 'chicken' ? 9 : 16) + Math.random() * 26;
         const d = Math.sqrt(dU2);
         if (d < MOO_RANGE) {
           if (c.kind === 'chicken') {

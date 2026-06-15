@@ -22,10 +22,12 @@ export const UPGRADE_COSTS = Array.from({ length: 14 }, (_, i) => 200 + i * 100)
 export const MAX_LEVEL = UPGRADE_COSTS.length;   // 14
 
 // Per-track effectiveness range: level 0 → level MAX. 1.0 is the tuned baseline.
+// Starting power was doubled (beam width+strength, warp speed and fly speed) so
+// the early game is less punishing.
 const RANGE = {
-  speed:        { min: 0.60, max: 3.00 },   // starts double the old 0.30 floor
-  beam:         { min: 0.30, max: 3.00 },
-  warpSpeed:    { min: 0.30, max: 3.00 },
+  speed:        { min: 1.20, max: 3.00 },   // starts above baseline — nimble from the off
+  beam:         { min: 0.60, max: 3.00 },   // double the old 0.30 floor (width + strength)
+  warpSpeed:    { min: 0.60, max: 3.00 },   // double the old 0.30 floor
   warpStrength: { min: 0.30, max: 3.00 },
   hull:         { min: 0.30, max: 3.00 },   // super weak start (~9 HP) → tanky at max
 };

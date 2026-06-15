@@ -522,6 +522,299 @@ export function createUFO(opts = {}) {
     _ufoConsole(g, greeble, 1.7, 0.42);
     _ufoAntenna(g, greeble, 0.62, 2.0, -0.42);
 
+  } else if (shape === 'mushroom') {
+    // ---- MUSHROOM: tall slender stalk topped by a wide flattened domed cap.
+    //      Glass dome (cockpit) is a small nub on top of the cap; rim lights
+    //      tucked under the cap edge.
+    add(g, cylGeo(0.42, 0.62, 0.3, 10), hullLow, 0, 0.15, 0);    // foot flare
+    add(g, cylGeo(0.34, 0.4, 1.5, 10), hullTop, 0, 1.0, 0);      // slender stalk
+    add(g, cylGeo(0.5, 0.36, 0.18, 10), greeble, 0, 1.7, 0);     // collar under cap
+    // Wide domed cap (a flattened hemisphere) — the main body.
+    const cap = add(g, domeGeo(1.9, 12, 6), hullTop, 0, 1.78, 0);
+    cap.scale.set(1, 0.62, 1);
+    // Cap underside ring (darker) so the silhouette reads from below.
+    const under = add(g, cylGeo(1.86, 1.5, 0.16, 16), hullLow, 0, 1.74, 0);
+    under.castShadow = false;
+    // Spots dotted over the cap top.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * PI2 + 0.3;
+      const r = 0.7 + (i % 2) * 0.5;
+      const sp = add(g, sphGeo(0.16, 6, 4), greeble,
+        Math.cos(a) * r, 2.0 + (i % 2 ? 0.12 : 0.2), Math.sin(a) * r);
+      sp.scale.set(1, 0.5, 1);
+    }
+    // Rim ring: lights under the cap edge.
+    ring.position.y = 1.72;
+    ringTorus = add(ring, torusGeo(1.84, 0.1, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(1.86, 0.02);
+    // Small glass dome nub on the very top of the cap.
+    add(g, cylGeo(0.4, 0.5, 0.1, 10), greeble, 0, 2.36, 0);      // dome collar
+    dome = add(g, domeGeo(0.4, 10, 5), domeMat, 0, 2.42, 0);
+    dome.scale.set(1, 0.9, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 2.28, 0.3);
+    _ufoAntenna(g, greeble, 0.42, 2.6, -0.3);
+
+  } else if (shape === 'crystal') {
+    // ---- CRYSTAL: angular faceted gem — two stacked cones base-to-base make
+    //      an octahedron-ish body; box facets add edges; glass dome at the top
+    //      tip; rim lights around the widest equator.
+    add(g, cylGeo(0.6, 0.78, 0.22, 8), hullLow, 0, 0.11, 0);     // base nub
+    // Lower cone (point down), upper cone (point up) meeting at the equator.
+    const lower = add(g, cylGeo(1.7, 0.05, 1.05, 8), hullLow, 0, 0.72, 0);
+    lower.rotation.y = Math.PI / 8;
+    const upper = add(g, cylGeo(0.05, 1.7, 1.2, 8), hullTop, 0, 1.85, 0);
+    upper.rotation.y = Math.PI / 8;
+    // Equator collar band.
+    add(g, cylGeo(1.74, 1.74, 0.14, 8), greeble, 0, 1.24, 0).rotation.y = Math.PI / 8;
+    // A few box facets riding the upper faces to catch the light.
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * PI2 + Math.PI / 4;
+      const fac = box(g, 0.5, 0.7, 0.12, greeble,
+        Math.cos(a) * 1.0, 1.7, Math.sin(a) * 1.0);
+      fac.rotation.y = -a;
+      fac.rotation.x = 0.5;
+    }
+    // Rim ring at the widest equator.
+    ring.position.y = 1.24;
+    ringTorus = add(ring, torusGeo(1.82, 0.12, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(1.86, 0);
+    // Glass dome capping the very top tip.
+    dome = add(g, domeGeo(0.46, 10, 5), domeMat, 0, 2.45, 0);
+    dome.scale.set(1, 1.1, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 1.5, 0.34);
+    _ufoAntenna(g, greeble, 0.55, 2.0, -0.34);
+
+  } else if (shape === 'star') {
+    // ---- STAR: flattened multi-point star — thin elongated boxes radiate
+    //      from a low central hub at one height; dome on the hub; one light
+    //      near each point (8 points → 8 lights).
+    add(g, cylGeo(0.95, 1.1, 0.34, 10), hullLow, 0, 0.17, 0);    // hub underside
+    const hub = add(g, cylGeo(1.0, 0.95, 0.4, 10), hullTop, 0, 0.5, 0);
+    hub.castShadow = false;
+    const points = 8;
+    for (let i = 0; i < points; i++) {
+      const a = (i / points) * PI2;
+      // Elongated tapered arm pointing outward at hull height.
+      const arm = box(g, 0.42, 0.34, 2.0, i % 2 ? hullTop : hullLow,
+        Math.cos(a) * 1.15, 0.5, Math.sin(a) * 1.15);
+      arm.rotation.y = -a + Math.PI / 2;
+    }
+    // Rim ring: one light out near each point tip.
+    ring.position.y = 0.5;
+    ringTorus = add(ring, torusGeo(2.1, 0.1, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * PI2;
+      const bm = new THREE.MeshLambertMaterial({
+        color: lightHex, emissive: lightHex, emissiveIntensity: 1.0, flatShading: true,
+      });
+      const b = add(ring, sphGeo(0.16, 6, 4), bm,
+        Math.cos(a) * 2.2, 0, Math.sin(a) * 2.2);
+      b.castShadow = false;
+      lights.push(b);
+    }
+    // Dome on the hub center.
+    add(g, cylGeo(0.78, 0.9, 0.14, 10), greeble, 0, 0.74, 0);    // dome collar
+    dome = add(g, domeGeo(0.74, 10, 5), domeMat, 0, 0.8, 0);
+    dome.scale.set(1, 0.85, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 0.72, 0.34);
+    _ufoAntenna(g, greeble, 0.5, 1.1, -0.34);
+
+  } else if (shape === 'tripod') {
+    // ---- TRIPOD: domed central pod (sphere) standing on three angled leg
+    //      struts splayed to the ground; dome on the pod top; rim lights
+    //      around the pod equator.
+    // Three splayed legs reaching from the pod down to the ground.
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * PI2 + Math.PI / 6;
+      const leg = box(g, 0.16, 1.7, 0.22, greeble,
+        Math.cos(a) * 0.85, 0.82, Math.sin(a) * 0.85);
+      leg.rotation.y = -a;
+      leg.rotation.x = Math.cos(a) * 0.42;
+      leg.rotation.z = -Math.sin(a) * 0.42;
+      // Foot pad on the ground.
+      box(g, 0.34, 0.12, 0.34, hullLow, Math.cos(a) * 1.55, 0.06, Math.sin(a) * 1.55);
+    }
+    // Central pod sphere lifted on the legs.
+    const pod = add(g, sphGeo(1.2, 12, 9), hullLow, 0, 1.7, 0);
+    pod.scale.set(1, 0.92, 1);
+    const podCap = add(g, sphGeo(1.1, 12, 8), hullTop, 0, 1.86, 0);
+    podCap.scale.set(1, 0.6, 1);
+    // Greeble band around the pod waist.
+    add(g, cylGeo(1.16, 1.16, 0.18, 12), greeble, 0, 1.6, 0);
+    // Rim ring around the pod equator.
+    ring.position.y = 1.6;
+    ringTorus = add(ring, torusGeo(1.36, 0.12, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(1.42, 0);
+    // Dome on top of the pod.
+    add(g, cylGeo(0.82, 0.94, 0.14, 10), greeble, 0, 2.2, 0);    // dome collar
+    dome = add(g, domeGeo(0.78, 10, 5), domeMat, 0, 2.26, 0);
+    dome.scale.set(1, 0.85, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 2.12, 0.34);
+    _ufoAntenna(g, greeble, 0.5, 2.45, -0.34);
+
+  } else if (shape === 'cube') {
+    // ---- CUBE: boxy/blocky craft — a main cuboid body with chamfer detail
+    //      boxes and corner greebles; small dome on top; rim lights along the
+    //      bottom edges (2 per side ≈ 8).
+    box(g, 2.6, 1.7, 2.6, hullTop, 0, 1.05, 0);                  // main body cube
+    box(g, 2.8, 0.4, 2.8, hullLow, 0, 0.32, 0);                 // wider base slab
+    box(g, 2.3, 0.3, 2.3, greeble, 0, 1.95, 0);                // top trim slab
+    // Chamfer / panel detail boxes on the four vertical faces.
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * PI2;
+      const panel = box(g, 1.4, 1.0, 0.14, i % 2 ? greeble : hullLow,
+        Math.cos(a) * 1.34, 1.05, Math.sin(a) * 1.34);
+      panel.rotation.y = -a;
+    }
+    // Corner greeble nubs at the eight cube corners.
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      box(g, 0.34, 1.8, 0.34, greeble, sx * 1.28, 1.05, sz * 1.28);
+    }
+    // Rim ring: lights along the bottom edges, 2 per side.
+    ring.position.y = 0.34;
+    ringTorus = add(ring, torusGeo(1.9, 0.1, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    const cubeEdge = [
+      [-0.8, 1.3], [0.8, 1.3], [1.3, 0.8], [1.3, -0.8],
+      [0.8, -1.3], [-0.8, -1.3], [-1.3, -0.8], [-1.3, 0.8],
+    ];
+    for (let i = 0; i < 8; i++) {
+      const [lx, lz] = cubeEdge[i];
+      const bm = new THREE.MeshLambertMaterial({
+        color: lightHex, emissive: lightHex, emissiveIntensity: 1.0, flatShading: true,
+      });
+      const b = add(ring, sphGeo(0.15, 6, 4), bm, lx, 0, lz);
+      b.castShadow = false;
+      lights.push(b);
+    }
+    // Small dome on top.
+    add(g, cylGeo(0.7, 0.82, 0.14, 10), greeble, 0, 2.16, 0);    // dome collar
+    dome = add(g, domeGeo(0.66, 10, 5), domeMat, 0, 2.22, 0);
+    dome.scale.set(1, 0.85, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 2.08, 0.4);
+    _ufoAntenna(g, greeble, 0.6, 2.4, -0.4);
+
+  } else if (shape === 'bell') {
+    // ---- BELL: smooth bell/teardrop hull — a flared cone body capped by a
+    //      rounded sphere; small dome on top; rim lights around the flared
+    //      base.
+    add(g, cylGeo(2.1, 2.2, 0.18, 16), hullLow, 0, 0.09, 0);    // base lip
+    // Flared bell body (wide at the bottom, narrow at the top).
+    add(g, cylGeo(0.8, 2.1, 1.8, 16), hullTop, 0, 1.05, 0);
+    // Rounded sphere cap blending the bell's shoulder.
+    const bellCap = add(g, sphGeo(0.95, 12, 8), hullTop, 0, 2.0, 0);
+    bellCap.scale.set(1, 0.78, 1);
+    // Vertical flute ribs around the bell flare.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * PI2;
+      const rib = box(g, 0.1, 1.7, 0.12, greeble,
+        Math.cos(a) * 1.5, 1.05, Math.sin(a) * 1.5);
+      rib.rotation.y = -a;
+    }
+    // Rim ring around the flared base.
+    ring.position.y = 0.3;
+    ringTorus = add(ring, torusGeo(2.16, 0.12, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(2.2, 0);
+    // Small dome on top.
+    add(g, cylGeo(0.6, 0.72, 0.12, 10), greeble, 0, 2.42, 0);    // dome collar
+    dome = add(g, domeGeo(0.56, 10, 5), domeMat, 0, 2.48, 0);
+    dome.scale.set(1, 0.9, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 2.0, 0.5);
+    _ufoAntenna(g, greeble, 0.55, 2.65, -0.4);
+
+  } else if (shape === 'manta') {
+    // ---- MANTA: wide flat stingray wing — a broad shallow ellipsoid body,
+    //      swept wing tips, a short tail box; low cockpit dome near the front;
+    //      8 lights spread along the wing leading edges (manual placement).
+    add(g, cylGeo(1.1, 0.8, 0.34, 10), hullLow, 0, 0.17, 0);    // belly pedestal
+    // Broad shallow body: a flattened, wide ellipsoid.
+    const body = add(g, sphGeo(1.6, 14, 9), hullTop, 0, 0.74, 0.1);
+    body.scale.set(1.7, 0.34, 1.25);
+    const bodyLow = add(g, sphGeo(1.55, 14, 8), hullLow, 0, 0.62, 0.1);
+    bodyLow.scale.set(1.65, 0.3, 1.2);
+    // Swept wing tips angled up off each side.
+    for (const s of [-1, 1]) {
+      const wing = box(g, 1.5, 0.18, 1.6, hullTop, s * 2.0, 0.86, -0.1);
+      wing.rotation.z = -s * 0.32;
+      wing.rotation.y = s * 0.3;
+    }
+    // Short tail box trailing at the back.
+    const mantaTail = box(g, 0.22, 0.18, 1.4, greeble, 0, 0.78, -1.7);
+    mantaTail.rotation.x = -0.12;
+    // Cephalic head fins at the front.
+    for (const s of [-1, 1]) {
+      box(g, 0.3, 0.16, 0.6, greeble, s * 0.5, 0.78, 1.5).rotation.x = 0.2;
+    }
+    // Rim ring; lights run along the swept leading edges, not a circle.
+    ring.position.y = 0.8;
+    ringTorus = add(ring, torusGeo(2.2, 0.12, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    ringTorus.scale.set(1.25, 0.95, 1);                          // stretch out the wings
+    const mantaEdge = [
+      [0, 1.5], [1.2, 0.9], [2.2, 0.1], [1.6, -1.0],
+      [-1.6, -1.0], [-2.2, 0.1], [-1.2, 0.9], [0, 1.5],
+    ];
+    for (let i = 0; i < 8; i++) {
+      const [lx, lz] = mantaEdge[i];
+      const bm = new THREE.MeshLambertMaterial({
+        color: lightHex, emissive: lightHex, emissiveIntensity: 1.0, flatShading: true,
+      });
+      const b = add(ring, sphGeo(0.15, 6, 4), bm, lx, 0, lz);
+      b.castShadow = false;
+      lights.push(b);
+    }
+    // Low cockpit dome near the front of the body.
+    add(g, cylGeo(0.62, 0.74, 0.12, 10), greeble, 0, 0.92, 0.7);
+    dome = add(g, domeGeo(0.58, 10, 5), domeMat, 0, 0.98, 0.7);
+    dome.scale.set(1, 0.7, 1.2);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 0.9, 1.0);
+    _ufoAntenna(g, greeble, 0.0, 1.15, -1.4);
+
+  } else if (shape === 'spinner') {
+    // ---- SPINNER: twin-disc gyro — two stacked thin discs separated by a
+    //      slim core, with a ring of vertical greeble fins between them; dome
+    //      on top; rim lights around the upper disc edge.
+    add(g, cylGeo(0.7, 0.9, 0.3, 12), hullLow, 0, 0.15, 0);     // foot
+    // Lower disc.
+    add(g, cylGeo(2.3, 2.3, 0.26, 16), hullLow, 0, 0.55, 0);
+    add(g, cylGeo(2.34, 2.1, 0.12, 16), greeble, 0, 0.4, 0);    // lower rim trim
+    // Slim core between the discs.
+    add(g, cylGeo(0.9, 0.9, 0.7, 12), greeble, 0, 1.05, 0);
+    // Ring of vertical fins between the discs.
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * PI2;
+      const fin = box(g, 0.1, 0.6, 0.4, i % 2 ? hullTop : greeble,
+        Math.cos(a) * 1.4, 1.05, Math.sin(a) * 1.4);
+      fin.rotation.y = -a;
+    }
+    // Upper disc.
+    add(g, cylGeo(2.0, 2.0, 0.26, 16), hullTop, 0, 1.55, 0);
+    add(g, cylGeo(1.84, 2.04, 0.12, 16), greeble, 0, 1.7, 0);   // upper rim trim
+    // Rim ring around the upper disc edge.
+    ring.position.y = 1.55;
+    ringTorus = add(ring, torusGeo(2.08, 0.12, 6, 16), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(2.08, 0);
+    // Dome on top.
+    add(g, cylGeo(0.78, 0.9, 0.14, 10), greeble, 0, 1.78, 0);   // dome collar
+    dome = add(g, domeGeo(0.74, 10, 5), domeMat, 0, 1.84, 0);
+    dome.scale.set(1, 0.82, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 1.74, 0.4);
+    _ufoAntenna(g, greeble, 0.6, 2.05, -0.4);
+
   } else {
     // ---- SAUCER (classic, default): flattened two-tone lens. EXACT.
     add(g, cylGeo(1.42, 0.66, 0.55, 10), hullLow, 0, 0.5, 0);    // hub cone

@@ -572,6 +572,104 @@ def make_jingle():
     return normalize(fade(out, 0.003, 0.10))
 
 
+def make_ufo_buy():
+    """~0.55 s UFO PURCHASE confirm: deep/chunky/mechanical 'ka-CHUNK' + coins.
+    A heavy two-stage clunk (drawer slam) with a couple of low coin-ish dings and
+    a rising confirmation interval, so it reads as 'you just bought a whole ship'.
+    Lower & beefier than beam_buy."""
+    dur = 0.55
+    out = zeros(dur)
+    # Mechanical 'ka-CHUNK': two filtered-noise clunks (register/drawer) with a
+    # low body thump under each — chunky, deep, satisfying.
+    for off, c0, c1, glen, gt in [(0.00, 2600.0, 500.0, 0.05, 0.018),
+                                   (0.10, 1900.0, 350.0, 0.07, 0.026)]:
+        clunk = lowpass(noise(glen), xsweep(c0, c1, glen * 0.6))
+        clunk = apply_env(clunk, exp_env(gt, attack=0.0008))
+        mix_at(out, clunk, offset=off, g=0.7)
+        body = osc('sine', xsweep(150.0, 70.0, 0.10), 0.16, amp=exp_env(0.05, attack=0.002))
+        mix_at(out, body, offset=off, g=0.85)
+    # Coin-ish confirmation dings: low, metallic, two notes resolving upward
+    # (a satisfying "bought it" cadence). Slightly inharmonic for a coin clink.
+    for off, f, g in [(0.20, 392.00, 0.55), (0.34, 587.33, 0.60)]:  # G4 -> D5
+        ding = osc('sine', f, 0.26, amp=exp_env(0.10, attack=0.001))
+        ding2 = osc('sine', f * 2.02, 0.26, amp=exp_env(0.05, attack=0.001))   # coin shimmer
+        seg = [a + 0.4 * b for a, b in zip(ding, ding2)]
+        mix_at(out, seg, offset=off, g=g)
+    out = soft_clip(out, 1.3)               # chunky mechanical compression
+    return normalize(fade(out, 0.001, 0.05))
+
+
+def make_ufo_equip():
+    """~0.4 s UFO EQUIP: quick mechanical power-up / 'system online' whir.
+    A short rising motor whir (filtered saw sweeping up) that thunks into a solid
+    low 'engaged' tone — feels like a ship system powering on. Lower/chunkier than
+    beam_equip."""
+    dur = 0.4
+    out = zeros(dur)
+    # Rising motor whir: a saw swept up through an opening lowpass (the spin-up).
+    whir = osc('saw', xsweep(110.0, 360.0, 0.26), 0.30)
+    whir = lowpass(whir, xsweep(700.0, 2600.0, 0.26))
+    whir = apply_env(whir, curve([(0, 0.0), (0.02, 0.7), (0.22, 1.0), (0.30, 0.5)]))
+    mix_at(out, whir, g=0.55)
+    # A little servo flutter on top (fast tremolo) for the mechanical character.
+    n = nsamp(0.30)
+    for i in range(n):
+        t = i / SR
+        out[i] *= 1.0 - 0.25 * (0.5 + 0.5 * math.sin(TWO_PI * 30.0 * t))
+    # 'Engaged' thunk: a solid low square tone that snaps on at the end = online.
+    engage = tone(174.61, 0.18, kind='square', cutoff=1800.0, a=0.003, r=0.07, g=0.8)  # F3
+    mix_at(out, engage, offset=0.26, g=0.85)
+    sub = osc('sine', xsweep(120.0, 90.0, 0.1), 0.16, amp=exp_env(0.06, attack=0.003))
+    mix_at(out, sub, offset=0.26, g=0.7)
+    out = soft_clip(out, 1.3)
+    return normalize(fade(out, 0.002, 0.04))
+
+
+def make_beam_buy():
+    """~0.5 s BEAM PURCHASE confirm: brighter/airier/higher 'cha-ching' than the
+    UFO buy. A crisp register tick then two sparkly coin pings resolving upward,
+    with an airy shimmer — a beam, so it's shiny and light, not chunky."""
+    dur = 0.5
+    out = zeros(dur)
+    # Crisp bright register tick (high, short, airy).
+    tick = lowpass(noise(0.03), xsweep(7000.0, 2500.0, 0.02))
+    tick = apply_env(tick, exp_env(0.012, attack=0.0005))
+    mix_at(out, tick, g=0.45)
+    # Sparkly coin pings: high sine pings with a 2nd-harmonic sparkle, resolving up.
+    for off, f, g in [(0.04, 1046.5, 0.7), (0.18, 1396.9, 0.75)]:  # C6 -> F6
+        mix_at(out, ping(f, dur=0.30, tau=0.07, harm=0.5, g=g), offset=off)
+    # Airy shimmer swell tying it together (high filtered noise, bell-windowed).
+    shimmer = lowpass(noise(dur), 6000.0)
+    shimmer = apply_env(shimmer, curve([(0, 0.0), (0.18, 0.5), (0.30, 1.0),
+                                        (0.45, 0.4), (dur, 0.0)]))
+    mix_at(out, shimmer, g=0.08)
+    return normalize(fade(out, 0.001, 0.05), peak=PEAK * 0.9)
+
+
+def make_beam_equip():
+    """~0.45 s BEAM EQUIP: shimmery energize / charge-up sweep — airy and RISING.
+    A high sine that sweeps upward, a bright filtered-noise 'energize' whoosh that
+    rises with it, and a sparkle ping at the top as the beam comes online. High &
+    shiny (vs the chunky UFO equip)."""
+    dur = 0.45
+    out = zeros(dur)
+    # Rising energize tone: high sine sweeping up with a faint detuned shadow.
+    riser = osc('sine', xsweep(440.0, 1760.0, 0.38), dur,
+                amp=curve([(0, 0.0), (0.05, 0.5), (0.34, 0.9), (0.40, 0.6), (dur, 0.0)]))
+    riser2 = osc('sine', xsweep(660.0, 2640.0, 0.38), dur,   # shimmering 5th above
+                 amp=curve([(0, 0.0), (0.08, 0.25), (0.36, 0.45), (dur, 0.0)]))
+    mix_at(out, riser, g=0.55)
+    mix_at(out, riser2, g=0.4)
+    # Airy 'charge-up' whoosh: noise through a lowpass sweeping wide open (rising).
+    whoosh = lowpass(noise(dur), xsweep(800.0, 7000.0, 0.40))
+    whoosh = apply_env(whoosh, curve([(0, 0.0), (0.06, 0.3), (0.34, 0.9),
+                                      (0.40, 0.6), (dur, 0.0)]))
+    mix_at(out, whoosh, g=0.16)
+    # Sparkle 'online' ping right at the top of the sweep.
+    mix_at(out, ping(2349.3, dur=0.18, tau=0.05, harm=0.5, g=0.5), offset=0.34)  # D7
+    return normalize(fade(out, 0.002, 0.05), peak=PEAK * 0.9)
+
+
 def make_waterfall():
     """~2.8 s SEAMLESS LOOP of falling-water rush: a filtered white-noise bed
     plus a little bubbling. Positional proximity loop near a waterfall. Built
@@ -921,6 +1019,10 @@ SOUNDS = [
     ('tick',      make_tick),
     ('combo',     make_combo),
     ('click',     make_click),
+    ('ufo_buy',   make_ufo_buy),
+    ('ufo_equip', make_ufo_equip),
+    ('beam_buy',  make_beam_buy),
+    ('beam_equip', make_beam_equip),
     ('start',     make_start),
     ('win',       make_win),
     ('lose',      make_lose),

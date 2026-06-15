@@ -1173,6 +1173,23 @@ export class World {
     this._place(M.createSilo(), 90, 4, 0, {
       collider: { r: 3.2, h: 13 }, map: { w: 6, d: 6, color: '#9aa3ad' },
     });
+    // A second silo making a grain-store pair beside the barn.
+    this._place(M.createSilo(), 98, 7, 0, {
+      collider: { r: 3.2, h: 13 }, map: { w: 6, d: 6, color: '#9aa3ad' },
+    });
+    // A cornfield right beside the farmyard (between the barn and the big field).
+    {
+      const farmCorn = [];
+      for (let x = 92; x <= 120; x += 3.4) {
+        for (let z = 22; z <= 50; z += 2.9) {
+          if (this.isWater(x, z) || this._distToRoad(x, z) < 3) continue;
+          farmCorn.push({ x: x + (Math.random() - 0.5) * 1.1, z: z + (Math.random() - 0.5) * 1.1, rotY: Math.random() * Math.PI, s: 0.85 + Math.random() * 0.3 });
+        }
+      }
+      this._instance(M.createCornStalk(), farmCorn);
+      this._clearRects.push({ x: 106, z: 36, w: 32, d: 32 });
+      this._map.fields.push({ x: 106, z: 36, w: 32, d: 32, color: '#7a6434' });
+    }
     const wm = this._place(M.createWindmill(), 102, -38, 0.6, {
       collider: { r: 2.2, h: 12 }, map: { w: 4, d: 4, color: '#b0926a' },
     });
@@ -1206,6 +1223,12 @@ export class World {
       collider: { r: 7.5, h: 10.5 }, map: { w: 13, d: 11, color: '#a33327' },
     });
     this._barnSpots.push({ x: 224, z: -212 });
+    // A pair of grain silos beside the outpost barn.
+    for (const [sx, sz] of [[238, -204], [245, -208]]) {
+      this._place(M.createSilo(), sx, sz, Math.random() * Math.PI, {
+        collider: { r: 3.2, h: 13 }, map: { w: 6, d: 6, color: '#9aa3ad' },
+      });
+    }
     const bales = [];
     for (let i = 0; i < 16; i++) {
       const x = 190 + Math.random() * 90;
@@ -1814,8 +1837,8 @@ export class World {
     // water tips over the edge. A dense row of overlapping foam puffs sitting on
     // the lip, bobbing + pulsing each frame.
     this._spillCrestFoam = [];
-    for (let i = 0; i < 12; i++) {
-      const x = dam.x + ((i / 11) - 0.5) * (spillW + 2);
+    for (let i = 0; i < 18; i++) {
+      const x = dam.x + ((i / 17) - 0.5) * (spillW + 2);
       const spr = new THREE.Sprite(new THREE.SpriteMaterial({
         map: foamTex, transparent: true, opacity: 0.95, depthWrite: false,
       }));
@@ -1831,7 +1854,7 @@ export class World {
     // that ride the nappe profile from lip to plunge and recycle, so the spill
     // visibly pours and moves even up close.
     {
-      const ND = 80;
+      const ND = 150;
       const dp = new Float32Array(ND * 3);
       this._spillDropT = new Float32Array(ND);     // progress 0→1 down the face
       this._spillDropU = new Float32Array(ND);     // lateral position across width
@@ -1865,9 +1888,9 @@ export class World {
     // churning whitewater puffs where the curved nappe hits the river (heavy at
     // the plunge line). These pulse + bob each frame for a roiling whitewater read.
     this._spillChurn = [];
-    for (let i = 0; i < 16; i++) {
-      const x = dam.x + (Math.random() - 0.5) * spillW * 1.15;
-      const z = plungeZ - 1.5 + Math.random() * 3.5;
+    for (let i = 0; i < 28; i++) {
+      const x = dam.x + (Math.random() - 0.5) * spillW * 1.25;
+      const z = plungeZ - 1.8 + Math.random() * 4.2;
       const spr = new THREE.Sprite(new THREE.SpriteMaterial({
         map: foamTex, transparent: true, opacity: 0.75, depthWrite: false,
       }));
@@ -1880,7 +1903,7 @@ export class World {
 
     // mist/spray cloud billowing above the plunge line where the water lands.
     this._spillMist = [];
-    for (let layer = 0; layer < 2; layer++) {
+    for (let layer = 0; layer < 3; layer++) {
       const mist = new THREE.Mesh(
         new THREE.CylinderGeometry(spillW * 0.5 - layer, spillW * 0.32, 6 + layer * 2, 14, 1, true),
         new THREE.MeshBasicMaterial({

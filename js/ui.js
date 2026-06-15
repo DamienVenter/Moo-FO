@@ -8,7 +8,7 @@ import { CFG, IS_MOBILE, COLORS } from './config.js';
 import { labelFor } from './missions.js';
 import { Upgrades, TRACK_INFO, TRACKS, MAX_LEVEL } from './upgrades.js';
 import { Cosmetics, SKINS, BEAMS } from './cosmetics.js';
-import { PreviewStage } from './preview3d.js';
+import { PreviewStage, ThumbStage, GalaxyBackdrop } from './preview3d.js';
 
 // 0xRRGGBB → '#rrggbb' (the shared palette stores ints).
 function hex(n) {
