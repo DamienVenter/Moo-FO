@@ -4086,3 +4086,57 @@ button {
   .mf-shop-cell.mf-rarity-legendary::after,
   .mf-btn-buy.mf-btn-maxed { animation: none; }
 }
+
+/* ====================================================================== */
+/* DAILY MISSIONS screen + mode-selector top action row (Phase 3a)        */
+/* ====================================================================== */
+.mf-modes-actions-top {
+  display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+  margin: 4px auto 14px; width: 100%;
+}
+.mf-modes-action { min-width: 120px; }
+
+.mf-missions-panel { max-width: 720px; }
+.mf-miss-timer {
+  text-align: center; font-weight: 800; letter-spacing: .5px;
+  color: #ffd24a; background: rgba(255, 210, 74, .08);
+  border: 1px solid rgba(255, 210, 74, .35); border-radius: 12px;
+  padding: 8px 14px; margin: 6px auto 16px; width: max-content;
+  text-shadow: 0 0 12px rgba(255, 210, 74, .4);
+}
+.mf-miss-list { display: flex; flex-direction: column; gap: 12px; }
+.mf-miss-row {
+  position: relative; padding: 14px 16px; border-radius: 14px;
+  background: linear-gradient(160deg, rgba(40, 48, 84, .9), rgba(20, 26, 52, .92));
+  border: 1px solid rgba(150, 170, 255, .22);
+  border-left-width: 5px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 6px 16px rgba(0, 0, 0, .35);
+}
+.mf-miss-easy   { border-left-color: #7cfc9a; }
+.mf-miss-medium { border-left-color: #5ad0ff; }
+.mf-miss-hard   { border-left-color: #c08bff; }
+.mf-miss-rowtop { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.mf-miss-tier {
+  font-size: 11px; font-weight: 900; letter-spacing: 1.5px;
+  padding: 3px 10px; border-radius: 999px; color: #0b1026;
+}
+.mf-miss-tier-easy   { background: #7cfc9a; }
+.mf-miss-tier-medium { background: #5ad0ff; }
+.mf-miss-tier-hard   { background: #c08bff; }
+.mf-miss-reward { display: inline-flex; align-items: center; gap: 5px; font-weight: 800; color: #ffd24a; }
+.mf-miss-reward .mf-coin-ico { width: 18px; height: 18px; }
+.mf-miss-label { font-weight: 700; color: #e8ecff; margin-bottom: 10px; font-size: 15px; }
+.mf-miss-bar {
+  height: 12px; border-radius: 8px; overflow: hidden;
+  background: rgba(0, 0, 0, .35); border: 1px solid rgba(255, 255, 255, .08);
+}
+.mf-miss-fill {
+  height: 100%; border-radius: 8px; transition: width .5s cubic-bezier(.2, .8, .2, 1);
+  background: linear-gradient(90deg, #4a8cff, #7cfc9a);
+  box-shadow: 0 0 10px rgba(124, 252, 154, .5);
+}
+.mf-miss-prog { text-align: right; font-size: 12px; font-weight: 700; color: #aeb8e0; margin-top: 6px; }
+.mf-miss-done { opacity: .96; }
+.mf-miss-done .mf-miss-fill { background: linear-gradient(90deg, #7cfc9a, #b6ffcf); }
+.mf-miss-done .mf-miss-prog { color: #7cfc9a; }
+.mf-miss-empty { text-align: center; color: #aeb8e0; padding: 30px; }

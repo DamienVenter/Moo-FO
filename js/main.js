@@ -17,6 +17,7 @@ import { AudioManager } from './audio.js';
 import { Campaign, STAR_COINS } from './campaign.js';
 import { MissionTracker, evaluateLevel } from './missions.js';
 import { Wallet } from './wallet.js';
+import { DailyMissions } from './daily.js';
 import { Upgrades } from './upgrades.js';
 import { Cosmetics } from './cosmetics.js';
 import { DogManager } from './dogs.js';
@@ -65,6 +66,7 @@ const wallet = new Wallet();
 const tracker = new MissionTracker();
 const upgrades = new Upgrades();
 const cosmetics = new Cosmetics();
+const dailyMissions = new DailyMissions(wallet);
 
 // Apply the equipped skin + beam to the live ship (rebuilds the model).
 function applyCosmetics() {
@@ -123,8 +125,17 @@ function onAbduct({ kind, variant, points, pos }) {
   // cow (incl. golden), 5 for any other critter. Banked live so the wallet
   // grows every run.
   const coinGain = (kind === 'chicken' || kind === 'sheep' || kind === 'pig' || kind === 'horse') ? 5 : 10;
-  const newBal = wallet.add(coinGain);
-  if (ui.setCoinBalance) ui.setCoinBalance(newBal);
+  wallet.add(coinGain);
+
+  // Daily-mission progress (abductions, points earned, combo reached). Each may
+  // complete a challenge and pay out its reward; announce any that finish.
+  const done = [
+    ...dailyMissions.onAbduct(kind),
+    ...dailyMissions.onScore(gained),
+    ...dailyMissions.onCombo(mult),
+  ];
+  for (const m of done) hud.announce(`DAILY DONE: +${m.reward} COINS`, { color: '#ffd24a' });
+  if (ui.setCoinBalance) ui.setCoinBalance(wallet.getBalance());
 
   const color = kind === 'golden' ? COLORS.gold : kind === 'chicken' ? 0xffffff :
                 kind === 'sheep' ? 0xeae6da : COLORS.uiGreen;
@@ -229,6 +240,7 @@ const ui = new UI({
   campaign,
   upgrades,
   cosmetics,
+  dailyMissions,
   onBuyUpgrade: (track) => {
     const ok = upgrades.buy(track, wallet);
     if (ok) ufo.applyUpgrades(upgrades);   // reflect immediately

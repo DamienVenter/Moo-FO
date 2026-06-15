@@ -124,7 +124,7 @@ export class UI {
     campaign, wallet,
     onStartLevel, onRetryLevel, onNextLevel, onLevelSelect,
     // --- shop / upgrades additions (all optional / duck-typed) ---
-    upgrades, cosmetics,
+    upgrades, cosmetics, dailyMissions,
     onBuyUpgrade, onBuyCosmetic, onSelectCosmetic,
   } = {}) {
     this.cb = {
@@ -152,6 +152,7 @@ export class UI {
     // missing, build our own so SHOP / UPGRADES still work (and stay persisted).
     this.upgrades = upgrades || new Upgrades();
     this.cosmetics = cosmetics || new Cosmetics();
+    this.dailyMissions = dailyMissions || null;   // daily challenges (optional)
     // Controls instance (binds / bindLabels / rebind / resetBinds /
     // gamepadConnected). Optional & duck-typed so the UI degrades gracefully
     // if it isn't wired up yet.
@@ -184,6 +185,7 @@ export class UI {
     this._buildLevelSelect();
     this._buildUpgrades();
     this._buildShop();
+    this._buildMissions();
     this._bindKeys();
   }
 
@@ -552,6 +554,15 @@ export class UI {
     // Persistent cow-coin balance widget (top-right of the mode selector).
     this._modesCoin = this._buildCoinWidget(head, 'mf-coin-modes');
 
+    // SHOP · UPGRADES · MISSIONS row at the TOP of the mode selector.
+    const topActions = el('div', 'mf-modes-actions mf-modes-actions-top', view);
+    this._modesShopBtn = button('mf-btn-secondary mf-modes-action', topActions, 'SHOP',
+      () => this.showShop());
+    this._modesUpgBtn = button('mf-btn-secondary mf-modes-action', topActions, 'UPGRADES',
+      () => this.showUpgrades());
+    this._modesMissionsBtn = button('mf-btn-secondary mf-modes-action', topActions, 'MISSIONS',
+      () => this.showMissions());
+
     const grid = el('div', 'mf-mode-grid', view);
 
     // CAMPAIGN is now playable (opens LEVEL SELECT). MULTIPLAYER stays locked
@@ -593,13 +604,6 @@ export class UI {
       this._modeCards[m.key] = card;
     }
 
-    // SHOP + UPGRADES buttons below the mode cards (consistent secondary
-    // styling), so both menus reach the cosmetics/upgrade screens.
-    const extra = el('div', 'mf-modes-actions', view);
-    this._modesShopBtn = button('mf-btn-secondary', extra, 'SHOP',
-      () => this.showShop());
-    this._modesUpgBtn = button('mf-btn-secondary', extra, 'UPGRADES',
-      () => this.showUpgrades());
   }
 
   /** Swap between the title and mode-select sub-views (slide/flip). */
@@ -3791,6 +3795,81 @@ export class UI {
       }
     };
     this._shopFlyRaf = requestAnimationFrame(tick);
+  }
+
+  // ======================================================================
+  // DAILY MISSIONS — three challenges (easy/medium/hard) on a 12h cycle, with
+  // a live "new missions in …" countdown. Progress + payouts are driven by the
+  // DailyMissions model; this screen just renders them.
+  // ======================================================================
+
+  _buildMissions() {
+    const s = el('div', 'mf-screen mf-shop mf-missions mf-hidden');
+    s.id = 'mf-missions';
+    el('div', 'mf-shop-bg', s);
+    const panel = el('div', 'mf-shop-panel mf-missions-panel', s);
+
+    const head = el('div', 'mf-shop-head', panel);
+    this._missBackBtn = backButton('mf-shop-back', head, 'BACK', () => this._closeMissions());
+    el('h2', 'mf-panel-title mf-shop-title', head, 'DAILY MISSIONS');
+    this._missCoin = this._buildCoinWidget(head, 'mf-coin-shop');
+
+    this._missTimer = el('div', 'mf-miss-timer', panel, '');
+    this._missList = el('div', 'mf-miss-list', panel);
+
+    document.body.appendChild(s);
+    this._missEl = s;
+  }
+
+  _renderMissions() {
+    const dm = this.dailyMissions;
+    this._missList.textContent = '';
+    if (!dm) { el('div', 'mf-miss-empty', this._missList, 'No daily missions available.'); return; }
+    dm.refreshIfNeeded();
+    for (const m of dm.missions) {
+      const row = el('div', `mf-miss-row mf-miss-${m.tier}${m.done ? ' mf-miss-done' : ''}`, this._missList);
+      const top = el('div', 'mf-miss-rowtop', row);
+      el('span', `mf-miss-tier mf-miss-tier-${m.tier}`, top, m.tierLabel);
+      const rew = el('span', 'mf-miss-reward', top);
+      rew.appendChild(this._svgCoin());
+      el('span', 'mf-miss-rewardnum', rew, '+' + fmt(m.reward));
+      el('div', 'mf-miss-label', row, m.label);
+      const bar = el('div', 'mf-miss-bar', row);
+      const fill = el('div', 'mf-miss-fill', bar);
+      const frac = Math.max(0, Math.min(1, m.n ? m.prog / m.n : 0));
+      fill.style.width = (frac * 100).toFixed(1) + '%';
+      el('div', 'mf-miss-prog', row, m.done ? 'COMPLETE ✓' : `${fmt(Math.floor(m.prog))} / ${fmt(m.n)}`);
+    }
+  }
+
+  _updateMissTimer() {
+    if (!this._missEl || this._missEl.classList.contains('mf-hidden')) return;
+    if (!this.dailyMissions) return;
+    if (this.dailyMissions.refreshIfNeeded()) this._renderMissions();   // window rolled over
+    this._missTimer.textContent = `New missions in ${this.dailyMissions.timeLeftLabel()}`;
+  }
+
+  /** Public: open the DAILY MISSIONS screen. */
+  showMissions() {
+    if (this._startVisible) this._startEl.classList.add('mf-hidden');
+    this._missEl.classList.remove('mf-hidden');
+    this._missVisible = true;
+    this._refreshCoinWidgets();
+    this._renderMissions();
+    this._updateMissTimer();
+    if (this._missTick) clearInterval(this._missTick);
+    this._missTick = setInterval(() => this._updateMissTimer(), 1000);
+    this._missEl.classList.remove('mf-anim');
+    void this._missEl.offsetWidth;
+    this._missEl.classList.add('mf-anim');
+    if (this._missBackBtn) this._missBackBtn.focus({ preventScroll: true });
+  }
+
+  _closeMissions() {
+    this._missEl.classList.add('mf-hidden');
+    this._missVisible = false;
+    if (this._missTick) { clearInterval(this._missTick); this._missTick = 0; }
+    this._returnToMenu();
   }
 
   // ======================================================================
