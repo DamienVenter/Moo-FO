@@ -6,8 +6,8 @@
 
 import { CFG, IS_MOBILE, COLORS } from './config.js';
 import { labelFor } from './missions.js';
-import { Upgrades, TRACK_INFO, TRACKS, MAX_LEVEL } from './upgrades.js';
-import { Cosmetics, SKINS, BEAMS } from './cosmetics.js';
+import { Upgrades, TRACK_INFO, TRACKS, MAX_CAP } from './upgrades.js';
+import { Cosmetics, SKINS, BEAMS, MODELS, modelOfSkin } from './cosmetics.js';
 import { PreviewStage, ThumbStage, GalaxyBackdrop } from './preview3d.js';
 
 // 0xRRGGBB → '#rrggbb' (the shared palette stores ints).
@@ -3347,42 +3347,104 @@ export class UI {
   // refresh. Full screen, BACK button, coin balance.
   // ======================================================================
 
+  // ---- shared 3D services: galaxy backdrop + lazy per-cell thumbnails ----
+  _ensureGalaxy() {
+    if (!this._galaxy && !this._galaxyFailed) { try { this._galaxy = new GalaxyBackdrop(); } catch (e) { this._galaxyFailed = true; } }
+    return this._galaxy;
+  }
+  _startGalaxy(canvas) {
+    const g = this._ensureGalaxy();
+    if (!g || !canvas) return;
+    this._stopGalaxy();
+    this._galaxyT0 = this._galaxyT0 || performance.now();
+    const loop = (now) => {
+      if (!canvas.isConnected) { this._galaxyRaf = 0; return; }
+      try { g.render(canvas, (now - this._galaxyT0) / 1000); } catch (e) { /* ignore */ }
+      this._galaxyRaf = requestAnimationFrame(loop);
+    };
+    this._galaxyRaf = requestAnimationFrame(loop);
+  }
+  _stopGalaxy() { if (this._galaxyRaf) { cancelAnimationFrame(this._galaxyRaf); this._galaxyRaf = 0; } }
+
+  _ensureThumbs() {
+    if (!this._thumbs && !this._thumbsFailed) { try { this._thumbs = new ThumbStage(220); } catch (e) { this._thumbsFailed = true; } }
+    return this._thumbs;
+  }
+  _renderThumb(canvas) {
+    const t = this._ensureThumbs();
+    if (!t || !canvas || !canvas._skin) return;
+    try { t.renderInto(canvas, canvas._skin, canvas._beam); } catch (e) { /* ignore */ }
+  }
+  _observeThumbs(root) {
+    if (this._thumbObs) this._thumbObs.disconnect();
+    const cells = root.querySelectorAll('.mf-shop-thumb');
+    if (typeof IntersectionObserver === 'undefined') { cells.forEach((c) => this._renderThumb(c)); return; }
+    this._thumbObs = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (en.isIntersecting) {
+          const c = en.target;
+          if (!c._done) { c._done = true; this._renderThumb(c); }
+          this._thumbObs.unobserve(c);
+        }
+      }
+    }, { root, rootMargin: '200px' });
+    cells.forEach((c) => this._thumbObs.observe(c));
+  }
+
+  // ---- coloured per-track upgrade icon (SVG glyph in the track's colour) ----
+  _trackIconSvg(track) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const info = TRACK_INFO[track] || {};
+    const col = info.color || '#9aa7b8';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', 'mf-upg-iconsvg');
+    const P = (d) => { const n = document.createElementNS(ns, 'path'); n.setAttribute('d', d); n.setAttribute('fill', col); svg.appendChild(n); };
+    const R = (x, y, w, h, r) => { const n = document.createElementNS(ns, 'rect'); n.setAttribute('x', x); n.setAttribute('y', y); n.setAttribute('width', w); n.setAttribute('height', h); n.setAttribute('rx', r); n.setAttribute('fill', col); svg.appendChild(n); };
+    switch (info.icon) {
+      case 'speed':   P('M13 2L4 14h6l-1 8 9-12h-6z'); break;                          // lightning
+      case 'beam':    P('M4 5h16l-8 14z'); break;                                       // beam cone
+      case 'warp':    P('M4 5l8 7-8 7z'); P('M12 5l8 7-8 7z'); break;                   // fast-forward
+      case 'battery': R(4, 8, 13, 8, 2); R(17, 10, 2.6, 4, 1); break;                   // capacity
+      case 'shield':  P('M12 2l8 3v6c0 5-3.4 8.3-8 11-4.6-2.7-8-6-8-11V5z'); break;     // hull
+      default:        { const n = document.createElementNS(ns, 'circle'); n.setAttribute('cx', 12); n.setAttribute('cy', 12); n.setAttribute('r', 7); n.setAttribute('fill', col); svg.appendChild(n); }
+    }
+    return svg;
+  }
+
+  // ======================================================================
+  // UPGRADES SCREEN — per-model. The equipped UFO's MODEL has its own five
+  // upgrade tracks and its own CAP (shown). Coloured icons, segmented bars
+  // sized to the model cap, a live preview, BUY with a zap animation.
+  // ======================================================================
   _buildUpgrades() {
-    const s = el('div', 'mf-screen mf-upg mf-hidden');
+    const s = el('div', 'mf-screen mf-shop mf-upg mf-fullscreen mf-hidden');
     s.id = 'mf-upg';
-    el('div', 'mf-shop-bg', s);          // starfield-ish dim backdrop scrim
+    this._upgGalaxy = el('canvas', 'mf-galaxy', s);
+    el('div', 'mf-shop-scrim', s);
+    const panel = el('div', 'mf-shop-panel mf-shop-panel-full mf-upg-panel', s);
 
-    const panel = el('div', 'mf-shop-panel mf-upg-panel', s);
-
-    // header: BACK · title · coin balance.
     const head = el('div', 'mf-shop-head', panel);
-    this._upgBackBtn = backButton('mf-shop-back', head, 'BACK',
-      () => this._closeUpgrades());
+    this._upgBackBtn = backButton('mf-shop-back', head, 'BACK', () => this._closeUpgrades());
     el('h2', 'mf-panel-title mf-shop-title', head, 'UPGRADES');
     this._upgCoin = this._buildCoinWidget(head, 'mf-coin-shop');
 
-    // body: tracks (left) + preview (right).
     const body = el('div', 'mf-upg-body', panel);
-    const list = el('div', 'mf-upg-list', body);
-    this._upgList = list;
-
-    // one row per track (built once; refreshed by _refreshUpgrades).
+    const left = el('div', 'mf-upg-left', body);
+    this._upgBanner = el('div', 'mf-upg-banner', left, '');
+    this._upgList = el('div', 'mf-upg-list', left);
     this._upgRows = {};
     for (const track of TRACKS) {
       const info = TRACK_INFO[track] || { name: track, blurb: '' };
-      const row = el('div', 'mf-upg-row', list);
+      const row = el('div', 'mf-upg-row', this._upgList);
       row.dataset.track = track;
-      el('div', 'mf-upg-icon', row, info.icon || '★');
+      const ic = el('div', 'mf-upg-icon', row);
+      ic.appendChild(this._trackIconSvg(track));
       const main = el('div', 'mf-upg-main', row);
       el('div', 'mf-upg-name', main, info.name);
       el('div', 'mf-upg-blurb', main, info.blurb);
-      // segmented progress bar (MAX_LEVEL segments).
       const bar = el('div', 'mf-upg-bar', main);
-      const segs = [];
-      for (let i = 0; i < MAX_LEVEL; i++) segs.push(el('div', 'mf-upg-seg', bar));
-      // level read-out "Lv n / MAX".
       const lvl = el('div', 'mf-upg-lvl', main);
-      // buy column: a button with a coin icon + the next cost (or "MAX").
       const buyWrap = el('div', 'mf-upg-buywrap', row);
       const buy = el('button', 'mf-btn mf-btn-buy', buyWrap);
       buy.type = 'button';
@@ -3390,10 +3452,8 @@ export class UI {
       cost.appendChild(this._svgCoin());
       const costNum = el('span', 'mf-buy-costnum', cost, '');
       buy.addEventListener('click', (e) => { e.preventDefault(); this._onBuyUpgrade(track); });
-      this._upgRows[track] = { row, segs, lvl, buy, cost, costNum, bar };
+      this._upgRows[track] = { row, bar, lvl, buy, cost, costNum, segs: [], _maxLabel: null };
     }
-
-    // right: the UFO preview (currently-equipped look).
     const side = el('div', 'mf-upg-side', body);
     this._upgPreview = this._buildPreviewCanvas(side, 'mf-upg-preview');
     el('div', 'mf-preview-caption', side, 'YOUR UFO');
@@ -3402,25 +3462,27 @@ export class UI {
     this._upgEl = s;
   }
 
-  /** Refresh every upgrade row + the coin balance to the current model state. */
   _refreshUpgrades() {
+    const up = this.upgrades;
+    const cap = up.cap();
+    if (this._upgBanner) this._upgBanner.textContent = `${up.modelName()}  ·  upgrades to Lv ${cap}`;
     const bal = this._coinBalance();
     for (const track of TRACKS) {
       const r = this._upgRows[track];
       if (!r) continue;
-      const level = this._upLevel(track);
-      const maxed = this._upMaxed(track);
-      const cost = this._upCost(track);
-      // fill the segmented bar up to `level`.
+      const level = up.level(track);
+      const maxed = up.maxed(track);
+      const cost = up.cost(track);
+      if (r.segs.length !== cap) {
+        r.bar.textContent = ''; r.segs = [];
+        for (let i = 0; i < cap; i++) r.segs.push(el('div', 'mf-upg-seg', r.bar));
+      }
       r.segs.forEach((seg, i) => seg.classList.toggle('mf-upg-seg-on', i < level));
-      r.lvl.textContent = `Lv ${level} / ${MAX_LEVEL}`;
-      // buy button state.
+      r.lvl.textContent = `Lv ${level} / ${cap}`;
       r.buy.classList.toggle('mf-btn-maxed', maxed);
       if (maxed) {
-        r.buy.disabled = true;
-        r.cost.classList.add('mf-hidden');
-        r.buy.classList.remove('mf-btn-cant');
-        if (!r._maxLabel) { r._maxLabel = el('span', 'mf-buy-max', r.buy, 'MAX'); }
+        r.buy.disabled = true; r.cost.classList.add('mf-hidden'); r.buy.classList.remove('mf-btn-cant');
+        if (!r._maxLabel) r._maxLabel = el('span', 'mf-buy-max', r.buy, 'MAX');
         r._maxLabel.classList.remove('mf-hidden');
       } else {
         if (r._maxLabel) r._maxLabel.classList.add('mf-hidden');
@@ -3434,32 +3496,27 @@ export class UI {
     this._refreshCoinWidgets();
   }
 
-  /** BUY pressed on an upgrade track. On success animate the bar + fly coins. */
   _onBuyUpgrade(track) {
-    if (this._upMaxed(track)) return;
-    const cost = this._upCost(track);
+    const up = this.upgrades;
+    if (up.maxed(track)) return;
+    const cost = up.cost(track);
     const before = this._coinBalance();
-    if (cost == null || before < cost) { this._shopShake(this._upgRows[track]?.buy); return; }
-    const prevLevel = this._upLevel(track);
-    const ok = this._buyUpgrade(track);
-    if (!ok) { this._shopShake(this._upgRows[track]?.buy); return; }
+    if (cost == null || before < cost) { this._shopShake(this._upgRows[track] && this._upgRows[track].buy); return; }
+    const prevLevel = up.level(track);
+    const ok = this.cb.onBuyUpgrade ? this.cb.onBuyUpgrade(track) : up.buy(track, this.wallet);
+    if (!ok) { this._shopShake(this._upgRows[track] && this._upgRows[track].buy); return; }
     const after = this._coinBalance();
     const r = this._upgRows[track];
-    // pop the newly-filled segment, then fly coins from balance & count down.
     if (r && r.segs[prevLevel]) {
-      r.segs[prevLevel].classList.add('mf-upg-seg-on');
-      r.segs[prevLevel].classList.remove('mf-upg-seg-pop');
-      void r.segs[prevLevel].offsetWidth;
-      r.segs[prevLevel].classList.add('mf-upg-seg-pop');
+      const seg = r.segs[prevLevel];
+      seg.classList.add('mf-upg-seg-on');
+      seg.classList.remove('mf-upg-seg-pop'); void seg.offsetWidth; seg.classList.add('mf-upg-seg-pop');
     }
-    // refresh static state immediately (level read-out, next cost, disabled).
+    if (this._upgPreview) { this._upgPreview.classList.remove('mf-upg-zap'); void this._upgPreview.offsetWidth; this._upgPreview.classList.add('mf-upg-zap'); }
     this._refreshUpgrades();
-    // fly a coin from the BUY button to the balance widget, then count down.
-    this._shopFlyCoin(this._upgEl, r ? r.buy : null, this._upgCoin,
-      () => this.animateCoinBalance(before, after, { duration: 500 }));
+    this._shopFlyCoin(this._upgEl, r ? r.buy : null, this._upgCoin, () => this.animateCoinBalance(before, after, { duration: 500 }));
   }
 
-  /** Public: open the UPGRADES screen. */
   showUpgrades() {
     if (this._startVisible) this._startEl.classList.add('mf-hidden');
     this._upgEl.classList.remove('mf-hidden');
@@ -3467,79 +3524,65 @@ export class UI {
     this._refreshUpgrades();
     this._setPreview(this._upgPreview, this._cosSelectedSkin(), this._cosSelectedBeam());
     this._startPreview(this._upgPreview);
-    this._upgEl.classList.remove('mf-anim');
-    void this._upgEl.offsetWidth;
-    this._upgEl.classList.add('mf-anim');
+    this._startGalaxy(this._upgGalaxy);
+    this._upgEl.classList.remove('mf-anim'); void this._upgEl.offsetWidth; this._upgEl.classList.add('mf-anim');
     if (this._upgBackBtn) this._upgBackBtn.focus({ preventScroll: true });
   }
 
-  /** BACK from UPGRADES → return to whichever menu we came from. */
   _closeUpgrades() {
     this._upgEl.classList.add('mf-hidden');
     this._upgVisible = false;
     this._stopPreview(this._upgPreview);
+    this._stopGalaxy();
     this._returnToMenu();
   }
 
   // ======================================================================
-  // SHOP SCREEN — a TAB selector (UFO | BEAM) up top, a big UFO+beam preview
-  // below it, and under that a scrollable GRID of the active tab's options
-  // (SKINS for UFO, BEAMS for beam), cheapest first. Each cell shows the name,
-  // price (+ coin icon) and a state: LOCKED (BUY), OWNED (EQUIP) or EQUIPPED.
-  // Tapping a cell PREVIEWS it; BUY → _buyCosmetic (+ auto-equip); EQUIP →
-  // _selectCosmetic. The preview always reflects the focused item.
+  // SHOP SCREEN — UFO models (15 groups × 5 skins) + 50 beams. Full screen,
+  // galaxy backdrop, a live 3D preview, an unlock counter, a shared BUY/EQUIP
+  // action bar between the preview and a 5-wide grid of square 3D-thumbnail
+  // tiles. Clicking a tile only PREVIEWS; the action bar buys/equips it.
   // ======================================================================
-
   _buildShop() {
-    const s = el('div', 'mf-screen mf-shop mf-hidden');
+    const s = el('div', 'mf-screen mf-shop mf-fullscreen mf-hidden');
     s.id = 'mf-shop';
-    el('div', 'mf-shop-bg', s);
-
-    const panel = el('div', 'mf-shop-panel', s);
+    this._shopGalaxy = el('canvas', 'mf-galaxy', s);
+    el('div', 'mf-shop-scrim', s);
+    const panel = el('div', 'mf-shop-panel mf-shop-panel-full', s);
 
     const head = el('div', 'mf-shop-head', panel);
-    this._shopBackBtn = backButton('mf-shop-back', head, 'BACK',
-      () => this._closeShop());
+    this._shopBackBtn = backButton('mf-shop-back', head, 'BACK', () => this._closeShop());
     el('h2', 'mf-panel-title mf-shop-title', head, 'SHOP');
     this._shopCoin = this._buildCoinWidget(head, 'mf-coin-shop');
 
-    // TAB selector (UFO | BEAM).
-    const tabs = el('div', 'mf-shop-tabs', panel);
-    this._shopTabUfo = el('button', 'mf-shop-tab mf-shop-tab-on', tabs);
-    this._shopTabUfo.type = 'button';
+    const tabbar = el('div', 'mf-shop-tabbar', panel);
+    const tabs = el('div', 'mf-shop-tabs', tabbar);
+    this._shopTabUfo = el('button', 'mf-shop-tab mf-shop-tab-on', tabs); this._shopTabUfo.type = 'button';
     el('span', 'mf-shop-tab-txt', this._shopTabUfo, 'UFO');
-    this._shopTabBeam = el('button', 'mf-shop-tab', tabs);
-    this._shopTabBeam.type = 'button';
+    this._shopTabBeam = el('button', 'mf-shop-tab', tabs); this._shopTabBeam.type = 'button';
     el('span', 'mf-shop-tab-txt', this._shopTabBeam, 'BEAM');
-    // sliding underline indicator.
     this._shopTabInd = el('div', 'mf-shop-tab-ind', tabs);
     this._shopTabUfo.addEventListener('click', (e) => { e.preventDefault(); this._setShopTab('ufo'); });
     this._shopTabBeam.addEventListener('click', (e) => { e.preventDefault(); this._setShopTab('beam'); });
+    this._shopCount = el('div', 'mf-shop-count', tabbar, '');
 
-    // big PREVIEW (top) + the focused item's name/price below it.
-    const previewWrap = el('div', 'mf-shop-previewwrap', panel);
-    this._shopPreview = this._buildPreviewCanvas(previewWrap, 'mf-shop-preview');
-    const cap = el('div', 'mf-shop-focusinfo', previewWrap);
-    this._shopFocusName = el('div', 'mf-shop-focusname', cap, '');
-    this._shopFocusPrice = el('div', 'mf-shop-focusprice', cap, '');
+    const stage = el('div', 'mf-shop-stage', panel);
+    this._shopPreview = this._buildPreviewCanvas(stage, 'mf-shop-preview');
+    this._shopFocusName = el('div', 'mf-shop-focusname', stage, '');
 
-    // scrollable GRID of options (filled per tab in _renderShopGrid).
+    const action = el('div', 'mf-shop-actionbar', panel);
+    this._shopActPrice = el('div', 'mf-shop-actprice', action);
+    this._shopActBtn = el('button', 'mf-shop-actionbtn', action, 'BUY'); this._shopActBtn.type = 'button';
+    this._shopActBtn.addEventListener('click', (e) => { e.preventDefault(); this._onShopAction(); });
+
     this._shopGrid = el('div', 'mf-shop-grid', panel);
 
     this._shopTab = 'ufo';
-    this._shopFocusId = null;     // currently-previewed item id
-
+    this._shopFocusId = null;
     document.body.appendChild(s);
     this._shopEl = s;
   }
 
-  /** Items for the active tab, sorted cheapest-first (owned/free naturally lead). */
-  _shopItems() {
-    const arr = this._shopTab === 'beam' ? BEAMS.slice() : SKINS.slice();
-    return arr.sort((a, b) => (a.price | 0) - (b.price | 0));
-  }
-
-  /** Switch the active tab (animated underline + grid swap + preview reset). */
   _setShopTab(tab) {
     if (tab === this._shopTab) return;
     this._shopTab = tab;
@@ -3547,193 +3590,169 @@ export class UI {
     this._shopTabUfo.classList.toggle('mf-shop-tab-on', isUfo);
     this._shopTabBeam.classList.toggle('mf-shop-tab-on', !isUfo);
     if (this._shopTabInd) this._shopTabInd.style.transform = isUfo ? 'translateX(0%)' : 'translateX(100%)';
-    // focus the currently-equipped item of the new tab.
     this._shopFocusId = isUfo ? this._cosSelectedSkin().id : this._cosSelectedBeam().id;
     this._renderShopGrid();
-    this._updateShopPreview();
-    // replay the grid fade-in.
-    this._shopGrid.classList.remove('mf-shop-grid-anim');
-    void this._shopGrid.offsetWidth;
-    this._shopGrid.classList.add('mf-shop-grid-anim');
+    this._updateShopFocus();
+    this._updateUnlockCounter();
+    this._shopGrid.classList.remove('mf-shop-grid-anim'); void this._shopGrid.offsetWidth; this._shopGrid.classList.add('mf-shop-grid-anim');
   }
 
-  /** Rebuild the option grid for the active tab. */
+  _rarityOf(price) {
+    const p = price | 0;
+    if (p < 600) return 'common';
+    if (p < 2000) return 'rare';
+    if (p < 5000) return 'epic';
+    return 'legendary';
+  }
+
+  // One square tile: a live 3D thumbnail of the REAL model + name + price/state.
+  _makeCell(item, isBeam, parent, opts) {
+    opts = opts || {};
+    const owned = this._cosOwns(item.id);
+    const equipped = isBeam ? this._cosSelBeam(item.id) : this._cosSelSkin(item.id);
+    const groupLocked = !!opts.groupLocked;
+    let cls = 'mf-shop-cell mf-rarity-' + this._rarityOf(item.price);
+    if (equipped) cls += ' mf-shop-cell-equipped';
+    else if (owned) cls += ' mf-shop-cell-owned';
+    else if (groupLocked) cls += ' mf-shop-cell-glocked';
+    else cls += ' mf-shop-cell-locked';
+    if (item.id === this._shopFocusId) cls += ' mf-shop-cell-focus';
+    const cell = el('div', cls, parent);
+    cell.setAttribute('role', 'button');
+    cell.tabIndex = 0;
+    const thumb = el('canvas', 'mf-shop-thumb', cell);
+    thumb._skin = isBeam ? this._cosSelectedSkin() : item;
+    thumb._beam = isBeam ? item : this._cosSelectedBeam();
+    el('div', 'mf-shop-cell-name', cell, item.name);
+    const foot = el('div', 'mf-shop-cell-foot', cell);
+    if (equipped) { foot.classList.add('mf-foot-equipped'); foot.textContent = 'EQUIPPED'; }
+    else if (owned) { foot.classList.add('mf-foot-owned'); foot.textContent = 'OWNED'; }
+    else if (groupLocked) { foot.classList.add('mf-foot-locked'); foot.textContent = 'LOCKED'; }
+    else { foot.classList.add('mf-foot-price'); const p = el('span', 'mf-shop-price', foot); p.appendChild(this._svgCoin()); el('span', 'mf-shop-pricenum', p, fmt(item.price)); }
+    cell.addEventListener('click', () => this._focusShopItem(item));
+    cell.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._focusShopItem(item); } });
+    this._shopCells[item.id] = cell;
+    return cell;
+  }
+
   _renderShopGrid() {
     const grid = this._shopGrid;
     grid.textContent = '';
     this._shopCells = {};
-    const bal = this._coinBalance();
-    for (const item of this._shopItems()) {
-      const owned = this._cosOwns(item.id);
-      const equipped = this._shopTab === 'beam'
-        ? this._cosSelBeam(item.id) : this._cosSelSkin(item.id);
-      const focused = item.id === this._shopFocusId;
-
-      let cls = 'mf-shop-cell mf-rarity-' + this._rarityOf(item.price, owned);
-      if (equipped) cls += ' mf-shop-cell-equipped';
-      else if (owned) cls += ' mf-shop-cell-owned';
-      else cls += ' mf-shop-cell-locked';
-      if (focused) cls += ' mf-shop-cell-focus';
-      // The cell itself is a click-to-PREVIEW surface (not a button, so it can
-      // hold real BUY/EQUIP buttons); keyboard-operable via role+tabindex.
-      const cell = el('div', cls, grid);
-      cell.setAttribute('role', 'button');
-      cell.tabIndex = 0;
-
-      // a tiny swatch previewing the item's colour identity.
-      const sw = el('div', 'mf-shop-swatch', cell);
-      if (this._shopTab === 'beam') {
-        if (item.rainbow) sw.classList.add('mf-shop-swatch-rainbow');
-        else sw.style.background = hex(item.color);
-      } else {
-        sw.style.background = `linear-gradient(150deg, ${mix(0xffffff, item.hull, 0.45)}, ${hex(item.hull)} 60%, ${shade(item.hull, 0.6)})`;
-        const dot = el('div', 'mf-shop-swatch-dome', sw);
-        dot.style.background = hex(item.dome);
-      }
-
-      el('div', 'mf-shop-cell-name', cell, item.name);
-
-      // state row: price + BUY button (locked), EQUIP button (owned), EQUIPPED.
-      const state = el('div', 'mf-shop-cell-state', cell);
-      if (equipped) {
-        state.classList.add('mf-shop-state-equipped');
-        state.textContent = 'EQUIPPED';
-      } else if (owned) {
-        state.classList.add('mf-shop-state-owned');
-        el('span', 'mf-shop-state-tag', state, 'OWNED');
-        const eq = el('button', 'mf-shop-act mf-shop-act-equip', state, 'EQUIP');
-        eq.type = 'button';
-        eq.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this._equipShopItem(item); });
-      } else {
-        state.classList.add('mf-shop-state-price');
-        const price = el('span', 'mf-shop-price', state);
-        price.appendChild(this._svgCoin());
-        el('span', 'mf-shop-pricenum', price, fmt(item.price));
-        const buy = el('button', 'mf-shop-act mf-shop-act-buy', state, 'BUY');
-        buy.type = 'button';
-        if (bal < (item.price | 0)) buy.classList.add('mf-shop-act-cant');
-        buy.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this._buyShopItem(item); });
-      }
-
-      // clicking the cell body only PREVIEWS (never buys).
-      cell.addEventListener('click', () => this._previewShopItem(item));
-      cell.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._previewShopItem(item); }
-      });
-      this._shopCells[item.id] = cell;
-    }
-  }
-
-  /** Rarity bucket for a price → drives the cell's accent colour. */
-  _rarityOf(price, owned) {
-    const p = price | 0;
-    if (p <= 0) return owned ? 'common' : 'common';
-    if (p < 450) return 'common';
-    if (p < 1000) return 'rare';
-    if (p < 1800) return 'epic';
-    return 'legendary';
-  }
-
-  /** Tapping a cell body PREVIEWS the item only — never buys or equips. */
-  _previewShopItem(item) {
-    this._shopFocusId = item.id;
-    this._updateShopPreview();
-    this._highlightShopFocus();
-  }
-
-  /** EQUIP button on an owned cell. */
-  _equipShopItem(item) {
-    this._shopFocusId = item.id;
-    if (this._selectCosmetic(item.id)) {
-      this._renderShopGrid();
-      this._updateShopPreview();
+    const isBeam = this._shopTab === 'beam';
+    grid.classList.toggle('mf-shop-grid-beam', isBeam);
+    if (isBeam) {
+      const row = el('div', 'mf-shop-row5', grid);
+      for (const b of BEAMS) this._makeCell(b, true, row);
     } else {
-      this._updateShopPreview();
-      this._highlightShopFocus();
+      for (const m of MODELS) {
+        const unlocked = this.cosmetics && this.cosmetics.modelUnlocked ? this.cosmetics.modelUnlocked(m.id) : true;
+        const sec = el('div', 'mf-shop-model', grid);
+        const hd = el('div', 'mf-shop-modelhd', sec);
+        el('span', 'mf-shop-modelname', hd, m.name);
+        el('span', 'mf-shop-modelcap', hd, `Lv ${m.cap} cap`);
+        el('span', `mf-shop-modeltag ${unlocked ? 'mf-modeltag-on' : ''}`, hd, unlocked ? 'UNLOCKED' : 'LOCKED');
+        const row = el('div', 'mf-shop-row5', sec);
+        m.skins.forEach((sk, i) => this._makeCell(sk, false, row, { groupLocked: !unlocked && i !== 0 }));
+      }
     }
+    this._observeThumbs(grid);
   }
 
-  /** BUY button on a locked cell → purchase, then auto-equip + preview. */
-  _buyShopItem(item) {
-    this._shopFocusId = item.id;
-    this._updateShopPreview();
+  _focusShopItem(item) { this._shopFocusId = item.id; this._updateShopFocus(); }
+
+  _updateShopFocus() {
+    const isBeam = this._shopTab === 'beam';
+    const focusSkin = isBeam ? this._cosSelectedSkin() : (SKINS.find((x) => x.id === this._shopFocusId) || this._cosSelectedSkin());
+    const focusBeam = isBeam ? (BEAMS.find((x) => x.id === this._shopFocusId) || this._cosSelectedBeam()) : this._cosSelectedBeam();
+    this._setPreview(this._shopPreview, focusSkin, focusBeam);
+    const item = (isBeam ? BEAMS : SKINS).find((x) => x.id === this._shopFocusId);
+    if (item && this._shopFocusName) this._shopFocusName.textContent = isBeam ? item.name : `${item.modelName} · ${item.name}`;
     this._highlightShopFocus();
-    const before = this._coinBalance();
-    if (before < (item.price | 0)) { this._shopShake(this._shopCells[item.id]); return; }
-    const ok = this._buyCosmetic(item.id);
-    if (!ok) { this._shopShake(this._shopCells[item.id]); return; }
-    // on success: auto-equip the freshly-bought item.
-    this._selectCosmetic(item.id);
-    const after = this._coinBalance();
-    this._renderShopGrid();
-    this._updateShopPreview();
-    // fly a coin from the cell to the balance, then count down.
-    this._shopFlyCoin(this._shopEl, this._shopCells[item.id], this._shopCoin,
-      () => this.animateCoinBalance(before, after, { duration: 500 }));
+    this._updateActionBar();
   }
 
-  /** Mark the focused cell (visual ring) without rebuilding the whole grid. */
   _highlightShopFocus() {
     if (!this._shopCells) return;
-    for (const id in this._shopCells) {
-      this._shopCells[id].classList.toggle('mf-shop-cell-focus', id === this._shopFocusId);
+    for (const id in this._shopCells) this._shopCells[id].classList.toggle('mf-shop-cell-focus', id === this._shopFocusId);
+  }
+
+  _updateActionBar() {
+    const isBeam = this._shopTab === 'beam';
+    const item = (isBeam ? BEAMS : SKINS).find((x) => x.id === this._shopFocusId);
+    const btn = this._shopActBtn, price = this._shopActPrice;
+    price.textContent = ''; btn.className = 'mf-shop-actionbtn'; btn.disabled = false;
+    if (!item) { btn.classList.add('mf-hidden'); return; }
+    btn.classList.remove('mf-hidden');
+    const owned = this._cosOwns(item.id);
+    const equipped = isBeam ? this._cosSelBeam(item.id) : this._cosSelSkin(item.id);
+    if (equipped) { btn.textContent = 'EQUIPPED'; btn.classList.add('mf-shop-actionbtn-equipped'); btn.disabled = true; }
+    else if (owned) { btn.textContent = 'EQUIP'; btn.classList.add('mf-shop-actionbtn-equip'); }
+    else {
+      const locked = !isBeam && this.cosmetics && this.cosmetics.groupLocked && this.cosmetics.groupLocked(item.id);
+      const p = el('span', 'mf-shop-price', price); p.appendChild(this._svgCoin()); el('span', 'mf-shop-pricenum', p, fmt(item.price));
+      btn.textContent = locked ? 'UNLOCK MODEL FIRST' : 'BUY';
+      btn.classList.add('mf-shop-actionbtn-buy');
+      const afford = this._coinBalance() >= (item.price | 0);
+      if (locked || !afford) { btn.disabled = true; btn.classList.add('mf-shop-actionbtn-cant'); }
     }
   }
 
-  /** Point the shop preview at the focused item (combined with the OTHER tab's
-   *  equipped look so the player always sees a complete UFO + beam). */
-  _updateShopPreview() {
-    const focusSkin = this._shopTab === 'ufo'
-      ? (SKINS.find((x) => x.id === this._shopFocusId) || this._cosSelectedSkin())
-      : this._cosSelectedSkin();
-    const focusBeam = this._shopTab === 'beam'
-      ? (BEAMS.find((x) => x.id === this._shopFocusId) || this._cosSelectedBeam())
-      : this._cosSelectedBeam();
-    this._setPreview(this._shopPreview, focusSkin, focusBeam);
-    // focus info caption (name + price/owned).
-    const item = (this._shopTab === 'beam' ? BEAMS : SKINS).find((x) => x.id === this._shopFocusId);
-    if (item) {
-      this._shopFocusName.textContent = item.name;
-      const owned = this._cosOwns(item.id);
-      this._shopFocusPrice.textContent = '';
-      if (owned) {
-        this._shopFocusPrice.textContent = 'OWNED';
-        this._shopFocusPrice.classList.add('mf-shop-focusprice-owned');
-      } else {
-        this._shopFocusPrice.classList.remove('mf-shop-focusprice-owned');
-        const p = el('span', 'mf-shop-price', this._shopFocusPrice);
-        p.appendChild(this._svgCoin());
-        el('span', 'mf-shop-pricenum', p, fmt(item.price));
-      }
+  _onShopAction() {
+    const isBeam = this._shopTab === 'beam';
+    const item = (isBeam ? BEAMS : SKINS).find((x) => x.id === this._shopFocusId);
+    if (!item) return;
+    const owned = this._cosOwns(item.id);
+    const equipped = isBeam ? this._cosSelBeam(item.id) : this._cosSelSkin(item.id);
+    if (equipped) return;
+    if (owned) {
+      if (this._selectCosmetic(item.id)) { this._renderShopGrid(); this._updateShopFocus(); }
+      return;
     }
+    if (!isBeam && this.cosmetics && this.cosmetics.groupLocked && this.cosmetics.groupLocked(item.id)) { this._shopShake(this._shopActBtn); return; }
+    const before = this._coinBalance();
+    if (before < (item.price | 0)) { this._shopShake(this._shopActBtn); return; }
+    const ok = this._buyCosmetic(item.id);
+    if (!ok) { this._shopShake(this._shopActBtn); return; }
+    this._selectCosmetic(item.id);
+    const after = this._coinBalance();
+    if (this._shopPreview) { this._shopPreview.classList.remove('mf-upg-zap'); void this._shopPreview.offsetWidth; this._shopPreview.classList.add('mf-upg-zap'); }
+    this._renderShopGrid();
+    this._updateShopFocus();
+    this._updateUnlockCounter();
+    const cell = this._shopCells[item.id];
+    if (cell) { cell.classList.remove('mf-shop-cell-unlock'); void cell.offsetWidth; cell.classList.add('mf-shop-cell-unlock'); }
+    this._shopFlyCoin(this._shopEl, this._shopActBtn, this._shopCoin, () => this.animateCoinBalance(before, after, { duration: 500 }));
   }
 
-  /** Public: open the SHOP screen (defaults to the UFO tab). */
+  _updateUnlockCounter() {
+    if (!this._shopCount || !this.cosmetics) return;
+    const c = this.cosmetics;
+    if (this._shopTab === 'beam') this._shopCount.textContent = `Beams ${c.unlockedBeamCount()} / ${c.totalBeams()}`;
+    else this._shopCount.textContent = `UFOs ${c.unlockedSkinCount()} / ${c.totalSkins()}`;
+  }
+
   showShop() {
     if (this._startVisible) this._startEl.classList.add('mf-hidden');
     this._shopEl.classList.remove('mf-hidden');
     this._shopVisible = true;
     this._refreshCoinWidgets();
-    // start on the currently-equipped look for the active tab.
-    this._shopFocusId = this._shopTab === 'beam'
-      ? this._cosSelectedBeam().id : this._cosSelectedSkin().id;
+    this._shopFocusId = this._shopTab === 'beam' ? this._cosSelectedBeam().id : this._cosSelectedSkin().id;
     this._renderShopGrid();
-    this._updateShopPreview();
+    this._updateShopFocus();
+    this._updateUnlockCounter();
     this._startPreview(this._shopPreview);
-    this._shopEl.classList.remove('mf-anim');
-    void this._shopEl.offsetWidth;
-    this._shopEl.classList.add('mf-anim');
-    this._shopGrid.classList.remove('mf-shop-grid-anim');
-    void this._shopGrid.offsetWidth;
-    this._shopGrid.classList.add('mf-shop-grid-anim');
+    this._startGalaxy(this._shopGalaxy);
+    this._shopEl.classList.remove('mf-anim'); void this._shopEl.offsetWidth; this._shopEl.classList.add('mf-anim');
+    this._shopGrid.classList.remove('mf-shop-grid-anim'); void this._shopGrid.offsetWidth; this._shopGrid.classList.add('mf-shop-grid-anim');
     if (this._shopBackBtn) this._shopBackBtn.focus({ preventScroll: true });
   }
 
-  /** BACK from SHOP → return to whichever menu we came from. */
   _closeShop() {
     this._shopEl.classList.add('mf-hidden');
     this._shopVisible = false;
     this._stopPreview(this._shopPreview);
+    this._stopGalaxy();
     this._returnToMenu();
   }
 

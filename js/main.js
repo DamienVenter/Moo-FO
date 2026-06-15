@@ -68,11 +68,15 @@ const upgrades = new Upgrades();
 const cosmetics = new Cosmetics();
 const dailyMissions = new DailyMissions(wallet);
 
-// Apply the equipped skin + beam to the live ship (rebuilds the model).
+// Apply the equipped skin + beam to the live ship (rebuilds the model). The
+// equipped skin's MODEL drives the per-model upgrade set, so re-point upgrades
+// and re-apply the stats whenever cosmetics change.
 function applyCosmetics() {
   const s = cosmetics.selectedSkin();
   const b = cosmetics.selectedBeam();
   ufo.setStyle({ shape: s.shape, hull: s.hull, dome: s.dome, light: s.light, beamColor: b.color, rainbow: b.rainbow });
+  upgrades.setActiveModel(cosmetics.activeModelId());
+  ufo.applyUpgrades(upgrades);
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +202,8 @@ function resetRound() {
   shake = 0;
   tracker.reset();
   canComplete = false;
-  ufo.applyUpgrades(upgrades);   // weak at first, scales with purchased levels
+  upgrades.setActiveModel(cosmetics.activeModelId());
+  ufo.applyUpgrades(upgrades);   // weak at first, scales with the model's purchased levels
   // Fresh random spawn over open ground every round.
   const sp = world.randomSpawn();
   ufo.reset(sp.x, sp.z);
@@ -246,10 +251,14 @@ const ui = new UI({
     if (ok) ufo.applyUpgrades(upgrades);   // reflect immediately
     return ok;
   },
-  onBuyCosmetic: (id) => cosmetics.buy(id, wallet),
+  onBuyCosmetic: (id) => {
+    const ok = cosmetics.buy(id, wallet);
+    if (ok) audio.play(cosmetics.isBeam(id) ? 'beam_buy' : 'ufo_buy', { volume: 0.85 });
+    return ok;
+  },
   onSelectCosmetic: (id) => {
     const ok = cosmetics.select(id);
-    if (ok) applyCosmetics();
+    if (ok) { applyCosmetics(); audio.play(cosmetics.isBeam(id) ? 'beam_equip' : 'ufo_equip', { volume: 0.7 }); }
     return ok;
   },
   onStartLevel: startLevel,

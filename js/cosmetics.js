@@ -1,117 +1,85 @@
-// MOO-FO — shop cosmetics: UFO skins (shape + colour bundles) and beam styles.
-// Each is unlocked with Cow Coins; simpler looks are cheap, flashy ones cost
-// more. Ownership + current selection persisted to localStorage.
-//
-// `shape` ids must match the geometries js/models.js createUFO(opts) supports:
-//   'saucer' | 'orb' | 'delta' | 'ringed'.
+// MOO-FO — UFO cosmetics. 15 distinct UFO MODELS (each a unique shape) with 5
+// recolour SKINS apiece (75 UFOs), plus 50 tractor-beam styles. Buying a model's
+// cheapest "boring" skin UNLOCKS that model's group; the other four then become
+// purchasable. Ownership + current selection persisted to localStorage.
 
-export const SKINS = [
-  // shape + colour bundles — the "UFO" tab
-  { id: 'classic',     name: 'Classic',     price: 0,    shape: 'saucer', hull: 0x9aa7b8, dome: 0x7ce8ff, light: 0x7cfc9a },
+// HSL → 0xRRGGBB (compact, no deps) for generating cohesive per-model palettes.
+function hsl(h, s, l) {
+  h = (((h % 360) + 360) % 360) / 360;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => {
+    const k = (n + h * 12) % 12;
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(255 * Math.max(0, Math.min(1, c)));
+  };
+  return (f(0) << 16) | (f(8) << 8) | f(4);
+}
 
-  // — saucers —
-  { id: 'slate',       name: 'Slate',       price: 150,  shape: 'saucer', hull: 0x6b7686, dome: 0xafe9ff, light: 0x9ad8ff },
-  { id: 'cherry',      name: 'Cherry',      price: 200,  shape: 'saucer', hull: 0xc0392b, dome: 0xffd1c7, light: 0xff7a5c },
-  { id: 'bubblegum',   name: 'Bubblegum',   price: 380,  shape: 'saucer', hull: 0xff8fc8, dome: 0xffe3f3, light: 0xff5fb0 },
-  { id: 'toxic_disc',  name: 'Toxic Saucer',price: 520,  shape: 'saucer', hull: 0x3a4a12, dome: 0xeaffb0, light: 0x9dff3a },
-  { id: 'gold',        name: 'Golden Disc', price: 2500, shape: 'saucer', hull: 0xe8b53a, dome: 0xfff4cf, light: 0xffe14a },
-  { id: 'chrome_dream',name: 'Chrome Dream',price: 2800, shape: 'saucer', hull: 0xdfe6ef, dome: 0xffffff, light: 0xbfeaff },
-
-  // — orbs —
-  { id: 'mint',        name: 'Mint Orb',    price: 250,  shape: 'orb',    hull: 0x3fae84, dome: 0xd6fff0, light: 0x8effc8 },
-  { id: 'orb_blue',    name: 'Blue Orb',    price: 450,  shape: 'orb',    hull: 0x3a6ea5, dome: 0xbfe6ff, light: 0x66c8ff },
-  { id: 'cosmic_egg',  name: 'Cosmic Egg',  price: 820,  shape: 'orb',    hull: 0x1a1240, dome: 0xc7a6ff, light: 0x8e7bff },
-  { id: 'lava_lamp',   name: 'Lava Lamp',   price: 980,  shape: 'orb',    hull: 0x5a124a, dome: 0xffc56b, light: 0xff5fa0 },
-  { id: 'galaxy',      name: 'Galaxy',      price: 1700, shape: 'orb',    hull: 0x120a2e, dome: 0x8fb4ff, light: 0xd07aff },
-  { id: 'sunspot',     name: 'Sunspot',     price: 2200, shape: 'orb',    hull: 0xffb000, dome: 0xfff6d0, light: 0xffdf4a },
-
-  // — deltas —
-  { id: 'delta_g',     name: 'Green Delta', price: 700,  shape: 'delta',  hull: 0x4c8c3a, dome: 0xd9ffce, light: 0x9cff7a },
-  { id: 'delta_st',    name: 'Stealth',     price: 900,  shape: 'delta',  hull: 0x23262b, dome: 0x8fd0ff, light: 0x6ad0ff },
-  { id: 'phantom_wing',name: 'Phantom Wing',price: 1050, shape: 'delta',  hull: 0x1a1d24, dome: 0xc0c8d4, light: 0x7c9eff },
-  { id: 'neon_cyan',   name: 'Neon Cyan',   price: 1500, shape: 'delta',  hull: 0x081a22, dome: 0x39fff0, light: 0x00f0ff },
-  { id: 'thunderbird', name: 'Thunderbird', price: 1850, shape: 'delta',  hull: 0x3a2a08, dome: 0xfff0a0, light: 0xffe14a },
-  { id: 'nightraven',  name: 'Nightraven',  price: 2100, shape: 'delta',  hull: 0x141622, dome: 0x6a5fff, light: 0x9a7bff },
-
-  // — ringed —
-  { id: 'ring_aqua',   name: 'Aqua Ring',   price: 800,  shape: 'ringed', hull: 0x2f8f9e, dome: 0xc4fff7, light: 0x7cf2e6 },
-  { id: 'saturn_v',    name: 'Saturn V',    price: 1300, shape: 'ringed', hull: 0xc8a25a, dome: 0xfff0cf, light: 0xffd88f },
-  { id: 'royal',       name: 'Royal',       price: 1800, shape: 'ringed', hull: 0x3b2a8c, dome: 0xe6d8ff, light: 0xc9a6ff },
-  { id: 'mothership',  name: 'Mothership',  price: 2600, shape: 'ringed', hull: 0x2a2f3a, dome: 0x7ce8ff, light: 0x39ff14 },
-  { id: 'eclipse',     name: 'Eclipse',     price: 3200, shape: 'ringed', hull: 0x0c0c14, dome: 0xffce6b, light: 0xffa600 },
-  { id: 'ring_jade',   name: 'Jade Ring',   price: 1000, shape: 'ringed', hull: 0x1f6b52, dome: 0xc4ffe0, light: 0x5fe6a0 },
-  { id: 'halo_king',   name: 'Halo King',   price: 3600, shape: 'ringed', hull: 0xd4af37, dome: 0xfff7d0, light: 0xfff04a },
-
-  // — mushroom —
-  { id: 'fungal',      name: 'Fungal',      price: 320,  shape: 'mushroom', hull: 0x8a5a3a, dome: 0xffe0c4, light: 0xffb07a },
-  { id: 'amanita',     name: 'Amanita',     price: 680,  shape: 'mushroom', hull: 0xc0392b, dome: 0xfff0f0, light: 0xffffff },
-  { id: 'morel',       name: 'Morel',       price: 540,  shape: 'mushroom', hull: 0x5a4630, dome: 0xd8c0a0, light: 0xe8d0a8 },
-  { id: 'glowcap',     name: 'Glowcap',     price: 1250, shape: 'mushroom', hull: 0x2a1a4a, dome: 0xa0ffe6, light: 0x5fffd0 },
-  { id: 'truffle',     name: 'Truffle',     price: 2300, shape: 'mushroom', hull: 0x1a1410, dome: 0x6a5a40, light: 0x8a7a50 },
-  { id: 'fairy_ring',  name: 'Fairy Ring',  price: 1600, shape: 'mushroom', hull: 0x6a3a8a, dome: 0xffd6f5, light: 0xff8fe0 },
-
-  // — crystal —
-  { id: 'quartz',      name: 'Quartz',      price: 340,  shape: 'crystal', hull: 0xc8d0e0, dome: 0xffffff, light: 0xd0e8ff },
-  { id: 'amethyst',    name: 'Amethyst',    price: 760,  shape: 'crystal', hull: 0x6a3aa0, dome: 0xe0c0ff, light: 0xb070ff },
-  { id: 'emerald_cut', name: 'Emerald Cut', price: 1300, shape: 'crystal', hull: 0x0f6b4a, dome: 0xb0ffd8, light: 0x3fffa0 },
-  { id: 'ruby_shard',  name: 'Ruby Shard',  price: 1450, shape: 'crystal', hull: 0x8a0e2a, dome: 0xffb0c0, light: 0xff3a6a },
-  { id: 'sapphire',    name: 'Sapphire',    price: 2400, shape: 'crystal', hull: 0x163a8a, dome: 0xb0d0ff, light: 0x4a8aff },
-  { id: 'diamond',     name: 'Diamond',     price: 3800, shape: 'crystal', hull: 0xeaf2ff, dome: 0xffffff, light: 0xc0f0ff },
-
-  // — star —
-  { id: 'starlight',   name: 'Starlight',   price: 300,  shape: 'star',   hull: 0x2a3a6a, dome: 0xfff8d0, light: 0xfff04a },
-  { id: 'nova_star',   name: 'Nova',        price: 880,  shape: 'star',   hull: 0x3a0a1a, dome: 0xffd0a0, light: 0xff6a3a },
-  { id: 'sheriff',     name: 'Sheriff',     price: 620,  shape: 'star',   hull: 0x8a6a2a, dome: 0xfff0c0, light: 0xffd24a },
-  { id: 'pulsar',      name: 'Pulsar',      price: 1500, shape: 'star',   hull: 0x0a1a3a, dome: 0xc0e0ff, light: 0x6ad0ff },
-  { id: 'shooting',    name: 'Shooting Star',price: 2050,shape: 'star',   hull: 0x141022, dome: 0xfff0ff, light: 0xffffff },
-  { id: 'celeste',     name: 'Celeste',     price: 3100, shape: 'star',   hull: 0x1a2a5a, dome: 0xd0e8ff, light: 0x8fb4ff },
-  { id: 'gold_star',   name: 'Gold Star',   price: 3700, shape: 'star',   hull: 0xb8860b, dome: 0xfff7c0, light: 0xffe14a },
-
-  // — tripod —
-  { id: 'tripod_war',  name: 'War Tripod',  price: 360,  shape: 'tripod', hull: 0x4a3a2a, dome: 0xc0a080, light: 0xff8a4a },
-  { id: 'martian',     name: 'Martian',     price: 740,  shape: 'tripod', hull: 0x7a2a18, dome: 0xffb89a, light: 0xff5a3a },
-  { id: 'scarab',      name: 'Scarab',      price: 1100, shape: 'tripod', hull: 0x0a3a3a, dome: 0x8affe0, light: 0x3fe0c8 },
-  { id: 'walker',      name: 'Walker',      price: 1350, shape: 'tripod', hull: 0x2a2a30, dome: 0xa0c0ff, light: 0x6a8aff },
-  { id: 'arachnid',    name: 'Arachnid',    price: 1950, shape: 'tripod', hull: 0x14101a, dome: 0xc06aff, light: 0xff3a8a },
-  { id: 'titan_pod',   name: 'Titan',       price: 2800, shape: 'tripod', hull: 0x3a2a08, dome: 0xfff0a0, light: 0xffc24a },
-  { id: 'striderx',    name: 'Strider X',   price: 3400, shape: 'tripod', hull: 0x101820, dome: 0x5fffd0, light: 0x00ffc8 },
-
-  // — cube —
-  { id: 'borg',        name: 'Borg',        price: 280,  shape: 'cube',   hull: 0x2a2e2a, dome: 0x9aff9a, light: 0x39ff14 },
-  { id: 'pixel',       name: 'Pixel',       price: 520,  shape: 'cube',   hull: 0x2a4a8a, dome: 0xa0ffff, light: 0x4afff0 },
-  { id: 'rubik',       name: 'Rubik',       price: 900,  shape: 'cube',   hull: 0x1a1a1a, dome: 0xffd24a, light: 0xff3a3a },
-  { id: 'sandstone',   name: 'Sandstone',   price: 640,  shape: 'cube',   hull: 0xc2a878, dome: 0xfff0d0, light: 0xffd89a },
-  { id: 'tesseract',   name: 'Tesseract',   price: 2350, shape: 'cube',   hull: 0x10142a, dome: 0xb0c0ff, light: 0x6a7bff },
-  { id: 'ice_cube',    name: 'Ice Cube',    price: 1200, shape: 'cube',   hull: 0xaecbe0, dome: 0xeafbff, light: 0xcfeeff },
-  { id: 'monolith',    name: 'Monolith',    price: 3300, shape: 'cube',   hull: 0x08080a, dome: 0x4a5060, light: 0x6a7280 },
-
-  // — bell —
-  { id: 'bell_brass',  name: 'Brass Bell',  price: 330,  shape: 'bell',   hull: 0xb08d3a, dome: 0xffe8a0, light: 0xffd24a },
-  { id: 'jellybell',   name: 'Jellybell',   price: 580,  shape: 'bell',   hull: 0x6a3a8a, dome: 0xffc0f5, light: 0xff8fe0 },
-  { id: 'liberty',     name: 'Liberty',     price: 1050, shape: 'bell',   hull: 0x3a5a4a, dome: 0xc0e0d0, light: 0x8fd0b0 },
-  { id: 'tulip_bell',  name: 'Tulip',       price: 870,  shape: 'bell',   hull: 0xc0395f, dome: 0xffd6e0, light: 0xff7aa0 },
-  { id: 'nautilus',    name: 'Nautilus',    price: 1700, shape: 'bell',   hull: 0x143a5a, dome: 0xa0e0ff, light: 0x4ac0ff },
-  { id: 'chime',       name: 'Chime',       price: 2500, shape: 'bell',   hull: 0xd0d8e8, dome: 0xffffff, light: 0xc0e8ff },
-  { id: 'midnight_bell',name: 'Midnight Bell',price: 3000,shape: 'bell',  hull: 0x0c0c20, dome: 0x6a5fff, light: 0x9a7bff },
-
-  // — manta —
-  { id: 'manta_reef',  name: 'Reef Manta',  price: 360,  shape: 'manta',  hull: 0x1f6b7a, dome: 0xb0fff0, light: 0x5fe6d0 },
-  { id: 'stingray',    name: 'Stingray',    price: 690,  shape: 'manta',  hull: 0x3a3a4a, dome: 0xc0c8d4, light: 0x8fa0c0 },
-  { id: 'devilray',    name: 'Devil Ray',   price: 1250, shape: 'manta',  hull: 0x2a0a14, dome: 0xff8a8a, light: 0xff3a3a },
-  { id: 'glider',      name: 'Glider',      price: 980,  shape: 'manta',  hull: 0x6a5a2a, dome: 0xfff0c0, light: 0xffd24a },
-  { id: 'abyssal',     name: 'Abyssal',     price: 1900, shape: 'manta',  hull: 0x081420, dome: 0x4a8aff, light: 0x2affe0 },
-  { id: 'aurora_ray',  name: 'Aurora Ray',  price: 2600, shape: 'manta',  hull: 0x101a30, dome: 0x8fffd0, light: 0xff8fe0 },
-  { id: 'phantom_ray', name: 'Phantom Ray', price: 3500, shape: 'manta',  hull: 0x14141c, dome: 0xc0c0ff, light: 0x9a7bff },
-
-  // — spinner —
-  { id: 'top_red',     name: 'Spinner',     price: 290,  shape: 'spinner',hull: 0xc0392b, dome: 0xffd1c7, light: 0xff7a5c },
-  { id: 'gyro',        name: 'Gyro',        price: 560,  shape: 'spinner',hull: 0x2a4a6a, dome: 0xa0d8ff, light: 0x5fb0ff },
-  { id: 'dervish',     name: 'Dervish',     price: 1000, shape: 'spinner',hull: 0x6a2a8a, dome: 0xe0b0ff, light: 0xb070ff },
-  { id: 'cyclone',     name: 'Cyclone',     price: 1400, shape: 'spinner',hull: 0x143a4a, dome: 0xb0f0ff, light: 0x4ad0ff },
-  { id: 'fidget',      name: 'Fidget',      price: 820,  shape: 'spinner',hull: 0x2a2e34, dome: 0xff9ee6, light: 0x6ff5ff },
-  { id: 'tornado',     name: 'Tornado',     price: 2150, shape: 'spinner',hull: 0x3a3a40, dome: 0xd0d8e8, light: 0x9ad8ff },
-  { id: 'maelstrom',   name: 'Maelstrom',   price: 3900, shape: 'spinner',hull: 0x081018, dome: 0x4affd0, light: 0x00e0ff },
+// Five recolour treatments per model (skin 0 = the cheapest, "most boring" one
+// that unlocks the group). Each derives hull/dome/light from the model's hue.
+const TREAT = [
+  { sfx: 'matte',  name: 'Matte',  hs: 0.16, hl: 0.54, dShift: 50,  ls: 0.55, ll: 0.62, lShift: 0 },
+  { sfx: 'gloss',  name: 'Gloss',  hs: 0.58, hl: 0.55, dShift: 35,  ls: 0.85, ll: 0.60, lShift: 0 },
+  { sfx: 'neon',   name: 'Neon',   hs: 0.96, hl: 0.56, dShift: 6,   ls: 0.95, ll: 0.62, lShift: -40 },
+  { sfx: 'noir',   name: 'Noir',   hs: 0.55, hl: 0.30, dShift: 18,  ls: 0.90, ll: 0.60, lShift: 8 },
+  { sfx: 'aurora', name: 'Aurora', hs: 0.82, hl: 0.58, dShift: 120, ls: 0.85, ll: 0.66, lShift: 165 },
 ];
+
+// Per-model config (order = unlock tier 0..14). cap = 4 + tier (later models
+// upgrade higher). hue drives the whole skin family.
+const MODEL_CFG = [
+  { shape: 'saucer',   name: 'Saucer',  hue: 205 },
+  { shape: 'orb',      name: 'Orb',     hue: 135 },
+  { shape: 'ringed',   name: 'Ringer',  hue: 280 },
+  { shape: 'bell',     name: 'Bell',    hue: 35 },
+  { shape: 'delta',    name: 'Delta',   hue: 0 },
+  { shape: 'spinner',  name: 'Spinner', hue: 190 },
+  { shape: 'mushroom', name: 'Shroom',  hue: 95 },
+  { shape: 'cube',     name: 'Cube',    hue: 315 },
+  { shape: 'donut',    name: 'Donut',   hue: 45 },
+  { shape: 'star',     name: 'Star',    hue: 58 },
+  { shape: 'manta',    name: 'Manta',   hue: 170 },
+  { shape: 'tripod',   name: 'Tripod',  hue: 22 },
+  { shape: 'beetle',   name: 'Beetle',  hue: 265 },
+  { shape: 'crystal',  name: 'Crystal', hue: 150 },
+  { shape: 'jelly',    name: 'Jelly',   hue: 330 },
+];
+const UNLOCKS = [0, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500, 6600, 7800, 9100, 10500, 12000, 13600];
+
+function buildSkins(modelId, tier, hue, unlock) {
+  const skins = TREAT.map((t, i) => {
+    const price = i === 0 ? unlock : unlock + i * (Math.round(unlock * 0.18) + 120);
+    return {
+      id: `${modelId}_${t.sfx}`,
+      name: t.name,
+      price,
+      hull: hsl(hue, t.hs, t.hl),
+      dome: hsl(hue + t.dShift, 0.55, 0.72),
+      light: hsl(hue + t.lShift, t.ls, t.ll),
+    };
+  });
+  // The free starter is the classic grey saucer (model 0, skin 0).
+  if (tier === 0) skins[0] = { id: 'classic', name: 'Classic', price: 0, hull: 0x9aa7b8, dome: 0x7ce8ff, light: 0x7cfc9a };
+  return skins;
+}
+
+export const MODELS = MODEL_CFG.map((cfg, tier) => {
+  const id = 'm_' + cfg.shape;
+  return {
+    id, name: cfg.name, shape: cfg.shape, tier, cap: 4 + tier,
+    unlock: UNLOCKS[tier], hue: cfg.hue,
+    skins: buildSkins(id, tier, cfg.hue, UNLOCKS[tier]),
+  };
+});
+
+// Flat skin list (each augmented with its model). Back-compat for callers that
+// iterate every skin (e.g. the preview thumbnailer).
+export const SKINS = MODELS.flatMap((m) =>
+  m.skins.map((s) => ({ ...s, model: m.id, modelName: m.name, shape: m.shape })));
+
+const SKIN_MODEL = {};
+MODELS.forEach((m) => m.skins.forEach((s) => { SKIN_MODEL[s.id] = m; }));
+export function modelOfSkin(id) { return SKIN_MODEL[id] || null; }
 
 export const BEAMS = [
   { id: 'emerald',     name: 'Emerald',     price: 0,    style: 'solid',   color: 0x9af7b0 },
@@ -190,11 +158,11 @@ export const BEAMS = [
   { id: 'supernova',   name: 'Supernova',   price: 3000, style: 'comet',   color: 0xffffff, rainbow: true },
 ];
 
-const KEY = 'moofo-cosmetics-v1';
+const KEY = 'moofo-cosmetics-v2';
 
 export class Cosmetics {
   constructor() {
-    this._owned = new Set(['classic', 'emerald']);   // starters
+    this._owned = new Set(['classic', 'emerald']);
     this._skin = 'classic';
     this._beam = 'emerald';
     this._load();
@@ -204,27 +172,53 @@ export class Cosmetics {
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (d) {
-        if (Array.isArray(d.owned)) { this._owned = new Set(d.owned); this._owned.add('classic'); this._owned.add('emerald'); }
-        if (d.skin && this._owned.has(d.skin)) this._skin = d.skin;
-        if (d.beam && this._owned.has(d.beam)) this._beam = d.beam;
+        if (Array.isArray(d.owned)) for (const id of d.owned) if (this._find(id)) this._owned.add(id);
+        if (this.owns(d.skin)) this._skin = d.skin;
+        if (this.owns(d.beam)) this._beam = d.beam;
       }
     } catch (_) { /* fresh */ }
   }
 
   _save() {
-    try {
-      localStorage.setItem(KEY, JSON.stringify({ owned: [...this._owned], skin: this._skin, beam: this._beam }));
-    } catch (_) { /* blocked */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ owned: [...this._owned], skin: this._skin, beam: this._beam })); } catch (_) { /* blocked */ }
   }
 
   _find(id) { return SKINS.find((s) => s.id === id) || BEAMS.find((b) => b.id === id) || null; }
 
   owns(id) { return this._owned.has(id); }
   priceOf(id) { const it = this._find(id); return it ? it.price : 0; }
+  isSkin(id) { return !!SKIN_MODEL[id]; }
+  isBeam(id) { return BEAMS.some((b) => b.id === id); }
+  isSelectedSkin(id) { return this._skin === id; }
+  isSelectedBeam(id) { return this._beam === id; }
 
-  /** Unlock an item, spending from `wallet`. Returns true on success. */
-  buy(id, wallet) {
+  // ---- model / group helpers ----
+  modelOf(id) { return modelOfSkin(id); }
+  firstSkinId(modelId) { const m = MODELS.find((x) => x.id === modelId); return m ? m.skins[0].id : null; }
+  /** A model's group is UNLOCKED once its cheapest (first) skin is owned. */
+  modelUnlocked(modelId) { const f = this.firstSkinId(modelId); return f ? this.owns(f) : false; }
+  /** The equipped UFO's model id (drives per-model upgrades). */
+  activeModelId() { const m = modelOfSkin(this._skin); return m ? m.id : MODELS[0].id; }
+
+  /** Whether `id` is purchasable right now (group-unlock gating for skins). */
+  canBuy(id) {
     if (this.owns(id)) return false;
+    if (this.isSkin(id)) {
+      const m = modelOfSkin(id);
+      if (!m) return false;
+      if (id !== m.skins[0].id && !this.owns(m.skins[0].id)) return false;   // group locked
+    }
+    return true;
+  }
+  /** True when a skin is locked ONLY because its model group isn't unlocked. */
+  groupLocked(id) {
+    if (!this.isSkin(id) || this.owns(id)) return false;
+    const m = modelOfSkin(id);
+    return m && id !== m.skins[0].id && !this.owns(m.skins[0].id);
+  }
+
+  buy(id, wallet) {
+    if (!this.canBuy(id)) return false;
     const it = this._find(id);
     if (!it) return false;
     if (!wallet.spend(it.price)) return false;
@@ -233,12 +227,6 @@ export class Cosmetics {
     return true;
   }
 
-  isSkin(id) { return SKINS.some((s) => s.id === id); }
-  isBeam(id) { return BEAMS.some((b) => b.id === id); }
-  isSelectedSkin(id) { return this._skin === id; }
-  isSelectedBeam(id) { return this._beam === id; }
-
-  /** Equip an owned item (skin or beam). Returns true if equipped. */
   select(id) {
     if (!this.owns(id)) return false;
     if (this.isSkin(id)) this._skin = id;
@@ -250,4 +238,10 @@ export class Cosmetics {
 
   selectedSkin() { return SKINS.find((s) => s.id === this._skin) || SKINS[0]; }
   selectedBeam() { return BEAMS.find((b) => b.id === this._beam) || BEAMS[0]; }
+
+  // ---- counts for the unlock display ----
+  totalSkins() { return SKINS.length; }
+  totalBeams() { return BEAMS.length; }
+  unlockedSkinCount() { let n = 0; for (const s of SKINS) if (this._owned.has(s.id)) n++; return n; }
+  unlockedBeamCount() { let n = 0; for (const b of BEAMS) if (this._owned.has(b.id)) n++; return n; }
 }

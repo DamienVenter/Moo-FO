@@ -1,78 +1,96 @@
-// MOO-FO — UFO upgrades. Five tracks, each bought up in tiers with Cow Coins.
-//
-// A fresh player starts well below the game's tuned baseline (level 0 multiplier)
-// and can upgrade to ~3× it. Each track has its OWN starting weakness:
-//   - speed starts at 0.60 (the ship is sluggish but not crawling),
-//   - hull starts super weak (0.30 → ~one solid hit and you're down),
-//   - the rest start at 0.30 (70% weaker than baseline).
-// Costs rise 200 → 1500. Persisted to localStorage.
+// MOO-FO — PER-MODEL UFO upgrades. Each of the 15 UFO models has its OWN
+// upgrade levels across five tracks, and its own CAP (later models cap higher).
+// A model's five skins share its upgrades. When you unlock a new model it
+// starts at ~30% of the PREVIOUS model's cap, then climbs to its own (higher)
+// ceiling. Multipliers use a fixed per-track floor + per-level step, so a
+// higher cap reaches a higher effective stat. Persisted to localStorage.
+
+import { MODELS } from './cosmetics.js';
 
 export const TRACKS = ['speed', 'beam', 'warpSpeed', 'warpStrength', 'hull'];
 
+// name + blurb + a colour and icon id (the UI draws a coloured SVG glyph).
 export const TRACK_INFO = {
-  speed:        { name: 'UFO Speed',     blurb: 'Fly faster and turn quicker.',         icon: '🚀' },
-  beam:         { name: 'Tractor Beam',  blurb: 'Wider, stronger abduction beam.',       icon: '🔦' },
-  warpSpeed:    { name: 'Warp Speed',    blurb: 'Go faster when you warp.',               icon: '✨' },
-  warpStrength: { name: 'Warp Capacity', blurb: 'Warp for longer before it drains.',      icon: '🔋' },
-  hull:         { name: 'UFO Hull',      blurb: 'Tougher hull — survive more hits.',      icon: '🛡️' },
+  speed:        { name: 'UFO Speed',     blurb: 'Fly faster and turn quicker.',     color: '#5ad0ff', icon: 'speed' },
+  beam:         { name: 'Tractor Beam',  blurb: 'Wider, stronger abduction beam.',  color: '#7cfc9a', icon: 'beam' },
+  warpSpeed:    { name: 'Warp Speed',    blurb: 'Go faster when you warp.',          color: '#c08bff', icon: 'warp' },
+  warpStrength: { name: 'Warp Capacity', blurb: 'Warp for longer before it drains.', color: '#ffd24a', icon: 'battery' },
+  hull:         { name: 'UFO Hull',      blurb: 'Tougher hull — survive more hits.', color: '#ff8a6e', icon: 'shield' },
 };
 
-// Cost of each successive upgrade: 200, 300, ... 1500 (14 tiers).
-export const UPGRADE_COSTS = Array.from({ length: 14 }, (_, i) => 200 + i * 100);
-export const MAX_LEVEL = UPGRADE_COSTS.length;   // 14
+// level-0 floor and per-level gain per track (1.0 = the tuned baseline).
+const FLOOR = { speed: 1.20, beam: 0.60, warpSpeed: 0.60, warpStrength: 0.30, hull: 0.30 };
+const STEP  = { speed: 0.12, beam: 0.14, warpSpeed: 0.14, warpStrength: 0.16, hull: 0.16 };
 
-// Per-track effectiveness range: level 0 → level MAX. 1.0 is the tuned baseline.
-// Starting power was doubled (beam width+strength, warp speed and fly speed) so
-// the early game is less punishing.
-const RANGE = {
-  speed:        { min: 1.20, max: 3.00 },   // starts above baseline — nimble from the off
-  beam:         { min: 0.60, max: 3.00 },   // double the old 0.30 floor (width + strength)
-  warpSpeed:    { min: 0.60, max: 3.00 },   // double the old 0.30 floor
-  warpStrength: { min: 0.30, max: 3.00 },
-  hull:         { min: 0.30, max: 3.00 },   // super weak start (~9 HP) → tanky at max
-};
-const DEFAULT_RANGE = { min: 0.30, max: 3.00 };
-const KEY = 'moofo-upgrades-v1';
+// Cost of each successive upgrade tier (level n → n+1): 200 … 1900.
+export const MAX_CAP = MODELS.reduce((m, x) => Math.max(m, x.cap), 4);
+export const UPGRADE_COSTS = Array.from({ length: MAX_CAP }, (_, i) => 200 + i * 100);
+
+const CARRYOVER = 0.30;   // a new model starts at 30% of the previous model's cap
+const KEY = 'moofo-upgrades-v2';
+const byId = Object.fromEntries(MODELS.map((m) => [m.id, m]));
 
 export class Upgrades {
   constructor() {
-    this._lvl = { speed: 0, beam: 0, warpSpeed: 0, warpStrength: 0, hull: 0 };
+    this._lvl = {};                  // modelId -> { track: level }
+    this._active = MODELS[0].id;
     this._load();
+    this._ensure(this._active);
   }
 
   _load() {
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (d) for (const t of TRACKS) if (Number.isFinite(d[t])) this._lvl[t] = Math.max(0, Math.min(MAX_LEVEL, d[t]));
+      if (d && d.lvl) this._lvl = d.lvl;
+      if (d && byId[d.active]) this._active = d.active;
     } catch (_) { /* fresh */ }
   }
 
   _save() {
-    try { localStorage.setItem(KEY, JSON.stringify(this._lvl)); } catch (_) { /* blocked */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ lvl: this._lvl, active: this._active })); } catch (_) { /* blocked */ }
   }
 
-  level(track) { return this._lvl[track] || 0; }
-  maxed(track) { return this.level(track) >= MAX_LEVEL; }
-  progress(track) { return this.level(track) / MAX_LEVEL; }   // 0..1
-
-  /** Coin cost of the NEXT tier, or null when maxed. */
-  cost(track) {
-    const lvl = this.level(track);
-    return lvl >= MAX_LEVEL ? null : UPGRADE_COSTS[lvl];
+  // Lazily seed a model's levels to the carryover (30% of the previous model's
+  // cap) the first time it's touched, clamped to this model's cap.
+  _ensure(id) {
+    const m = byId[id];
+    if (!m) return;
+    if (this._lvl[id]) return;
+    const prev = MODELS[m.tier - 1];
+    const carry = prev ? Math.min(m.cap, Math.round(CARRYOVER * prev.cap)) : 0;
+    const lv = {};
+    for (const t of TRACKS) lv[t] = carry;
+    this._lvl[id] = lv;
+    this._save();
   }
 
-  /** Effectiveness multiplier for a track: range.min (level 0) → range.max (max). */
+  setActiveModel(id) { if (byId[id]) { this._active = id; this._ensure(id); this._save(); } }
+  activeModel() { return this._active; }
+  modelName(id = this._active) { return byId[id] ? byId[id].name : ''; }
+
+  cap(id = this._active) { return byId[id] ? byId[id].cap : 0; }
+  level(track, id = this._active) { this._ensure(id); return (this._lvl[id] && this._lvl[id][track]) || 0; }
+  maxed(track, id = this._active) { return this.level(track, id) >= this.cap(id); }
+  progress(track, id = this._active) { const c = this.cap(id); return c ? this.level(track, id) / c : 0; }
+
+  /** Coin cost of the NEXT tier for a track, or null when capped. */
+  cost(track, id = this._active) {
+    const lv = this.level(track, id);
+    return lv >= this.cap(id) ? null : UPGRADE_COSTS[Math.min(lv, UPGRADE_COSTS.length - 1)];
+  }
+
+  /** Effectiveness multiplier for a track on the ACTIVE model. */
   mult(track) {
-    const r = RANGE[track] || DEFAULT_RANGE;
-    return r.min + (r.max - r.min) * this.progress(track);
+    return (FLOOR[track] || 0.3) + (STEP[track] || 0.13) * this.level(track);
   }
 
-  /** Buy the next tier, spending from `wallet`. Returns true on success. */
-  buy(track, wallet) {
-    const c = this.cost(track);
+  /** Buy the next tier for the active (or given) model. Returns true on success. */
+  buy(track, wallet, id = this._active) {
+    const c = this.cost(track, id);
     if (c == null) return false;
     if (!wallet.spend(c)) return false;
-    this._lvl[track] = this.level(track) + 1;
+    this._ensure(id);
+    this._lvl[id][track] += 1;
     this._save();
     return true;
   }

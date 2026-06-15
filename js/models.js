@@ -815,6 +815,137 @@ export function createUFO(opts = {}) {
     _ufoConsole(g, greeble, 1.74, 0.4);
     _ufoAntenna(g, greeble, 0.6, 2.05, -0.4);
 
+  } else if (shape === 'jelly') {
+    // ---- JELLY: jellyfish craft — a smooth translucent-looking domed BELL is
+    //      the main body (a hemisphere hull, wider at the bottom rim) with thin
+    //      tapering tentacle strands dangling below the rim; the glass dome is a
+    //      small bump at the very top; rim lights around the bell's lower rim.
+    // Big domed bell body (a flattened-ish hemisphere) — the hull.
+    const bell = add(g, domeGeo(2.4, 14, 7), hullTop, 0, 0.95, 0);
+    bell.scale.set(1, 0.78, 1);                                 // dome top ≈ y 2.82
+    const bellLow = add(g, domeGeo(2.42, 14, 6), hullLow, 0, 0.9, 0);
+    bellLow.scale.set(1, 0.42, 1);                              // darker lower bell
+    // Flared lower rim lip the tentacles hang from.
+    add(g, cylGeo(2.46, 2.2, 0.22, 18), hullLow, 0, 0.96, 0);
+    // Scalloped greeble nubs around the bell waist.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * PI2 + 0.2;
+      const sc = add(g, sphGeo(0.22, 6, 4), greeble,
+        Math.cos(a) * 2.0, 1.5, Math.sin(a) * 2.0);
+      sc.scale.set(1, 0.6, 1);
+    }
+    // Six tapering tentacle strands dangling BELOW the rim (stacked boxes).
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * PI2 + 0.1;
+      const tx = Math.cos(a) * 1.95, tz = Math.sin(a) * 1.95;
+      const segs = 4, top = 0.86;
+      for (let k = 0; k < segs; k++) {
+        const w = 0.26 - k * 0.05;                              // taper toward the tip
+        const sy = top - k * 0.22;
+        const strand = box(g, w, 0.2, w, k % 2 ? hullLow : greeble, tx, sy, tz);
+        strand.castShadow = false;
+      }
+    }
+    // Rim ring around the bell's lower rim.
+    ring.position.y = 0.96;
+    ringTorus = add(ring, torusGeo(2.4, 0.12, 6, 18), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(2.46, 0.04);
+    // Small glass dome bump at the very top of the bell.
+    add(g, cylGeo(0.5, 0.6, 0.1, 10), greeble, 0, 2.66, 0);     // dome collar
+    dome = add(g, domeGeo(0.48, 10, 5), domeMat, 0, 2.72, 0);
+    dome.scale.set(1, 0.9, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 1.7, 0.4);
+    _ufoAntenna(g, greeble, 0.5, 2.9, -0.4);
+
+  } else if (shape === 'beetle') {
+    // ---- BEETLE: ladybug craft — a rounded domed carapace SPLIT down the
+    //      middle into two shell halves with a seam ridge between them, a head
+    //      bump at the front (+Z), short side leg-nubs; the cockpit dome peeks
+    //      where the shells meet near the front; rim lights around the carapace.
+    add(g, cylGeo(2.1, 2.3, 0.3, 16), hullLow, 0, 0.15, 0);     // belly underside
+    // Two carapace shell halves: flattened half-domes either side of the seam.
+    for (const s of [-1, 1]) {
+      const shell = add(g, domeGeo(2.15, 14, 7), hullTop, s * 0.46, 0.4, -0.1);
+      shell.scale.set(0.92, 0.92, 1.15);                        // long, slightly flat
+      // Darker shell underskirt so the silhouette reads from below.
+      const skirt = add(g, domeGeo(2.1, 12, 5), hullLow, s * 0.46, 0.32, -0.1);
+      skirt.scale.set(0.9, 0.42, 1.1);
+      // A couple of ladybug spots dotted on each shell.
+      for (let k = 0; k < 2; k++) {
+        const sp = add(g, sphGeo(0.26, 6, 4), greeble,
+          s * (0.85 + k * 0.45), 1.55 - k * 0.35, -0.4 + k * 0.9);
+        sp.scale.set(1, 0.5, 1);
+      }
+    }
+    // Central seam ridge running front-to-back over the carapace gap.
+    const seam = box(g, 0.2, 0.4, 3.4, greeble, 0, 1.55, -0.1);
+    seam.rotation.x = -0.04;
+    // Rounded head bump at the front (+Z).
+    const head = add(g, sphGeo(0.95, 12, 8), greeble, 0, 1.0, 2.0);
+    head.scale.set(1.1, 0.78, 0.8);
+    // Short side leg-nubs splayed out low (kept clear of the ground at y0).
+    for (const s of [-1, 1]) for (const lz of [1.1, -0.3, -1.4]) {
+      const leg = box(g, 0.66, 0.16, 0.18, greeble, s * 2.12, 0.62, lz);
+      leg.rotation.z = -s * 0.18;
+    }
+    // Rim ring around the carapace edge.
+    ring.position.y = 0.5;
+    ringTorus = add(ring, torusGeo(2.4, 0.12, 6, 18), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    ringTorus.scale.set(1, 1.12, 1);                            // stretch front-to-back
+    addRimLights(2.42, 0);
+    // Cockpit dome peeking where the shells meet, near the front.
+    add(g, cylGeo(0.66, 0.78, 0.12, 10), greeble, 0, 1.62, 0.95);
+    dome = add(g, domeGeo(0.62, 10, 5), domeMat, 0, 1.68, 0.95);
+    dome.scale.set(1, 0.82, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 1.58, 1.3);
+    _ufoAntenna(g, greeble, 0.0, 1.85, 2.2);
+
+  } else if (shape === 'donut') {
+    // ---- DONUT: torus craft — the dominant body is a big fat horizontal torus
+    //      you can see the hole through, with a small central cockpit pod
+    //      suspended in the middle on thin spokes; rim lights set INTO the torus
+    //      around its top. Distinct from 'ringed': here the torus IS the body.
+    // Dominant fat horizontal torus body (you can see through the hole).
+    const tube = add(g, torusGeo(1.65, 0.95, 12, 20), hullTop, 0, 1.05, 0);
+    tube.rotation.x = Math.PI / 2;
+    // Darker lower half-tube to ground the silhouette.
+    const tubeLow = add(g, torusGeo(1.65, 0.86, 10, 20), hullLow, 0, 0.9, 0);
+    tubeLow.rotation.x = Math.PI / 2;
+    tubeLow.scale.set(1, 1, 0.6);
+    // Greeble panel ribs wrapping over the torus top.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * PI2 + 0.2;
+      const rib = box(g, 0.16, 0.5, 0.9, greeble,
+        Math.cos(a) * 1.65, 1.4, Math.sin(a) * 1.65);
+      rib.rotation.y = -a;
+    }
+    // Small central cockpit pod suspended in the hole on thin spokes.
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * PI2 + Math.PI / 4;
+      const spoke = box(g, 1.4, 0.1, 0.1, greeble,
+        Math.cos(a) * 0.78, 1.05, Math.sin(a) * 0.78);
+      spoke.rotation.y = -a;
+    }
+    const pod = add(g, sphGeo(0.72, 12, 8), hullLow, 0, 1.05, 0);
+    pod.scale.set(1, 0.92, 1);
+    add(g, cylGeo(0.6, 0.7, 0.12, 10), greeble, 0, 0.66, 0);    // pod skirt
+    // Rim ring set INTO the torus around its top.
+    ring.position.y = 1.4;
+    ringTorus = add(ring, torusGeo(1.65, 0.1, 6, 18), mat(ringHex, true), 0, 0, 0);
+    ringTorus.rotation.x = Math.PI / 2;
+    addRimLights(1.65, 0.1);
+    // Glass dome capping the central pod.
+    add(g, cylGeo(0.56, 0.66, 0.12, 10), greeble, 0, 1.46, 0);  // dome collar
+    dome = add(g, domeGeo(0.52, 10, 5), domeMat, 0, 1.52, 0);
+    dome.scale.set(1, 0.9, 1);
+    dome.castShadow = false;
+    _ufoConsole(g, greeble, 1.42, 0.32);
+    _ufoAntenna(g, greeble, 0.4, 1.7, -0.32);
+
   } else {
     // ---- SAUCER (classic, default): flattened two-tone lens. EXACT.
     add(g, cylGeo(1.42, 0.66, 0.55, 10), hullLow, 0, 0.5, 0);    // hub cone
