@@ -118,7 +118,7 @@ function starShadows(count, maxX, maxY) {
 
 export class UI {
   constructor({
-    onStart, onResume, onRestart, onQuitToMenu, onToggleMute, onSelectMode,
+    onStart, onFreePlay, onResume, onRestart, onQuitToMenu, onToggleMute, onSelectMode,
     controls,
     // --- campaign additions (all optional / duck-typed) ---
     campaign, wallet,
@@ -130,6 +130,7 @@ export class UI {
     this._mapName = map === 'beach' ? 'beach' : 'farm';
     this.cb = {
       onStart: onStart || (() => {}),
+      onFreePlay: typeof onFreePlay === 'function' ? onFreePlay : null,
       onResume: onResume || (() => {}),
       onRestart: onRestart || (() => {}),
       onQuitToMenu: onQuitToMenu || (() => {}),
@@ -187,6 +188,7 @@ export class UI {
     this._buildUpgrades();
     this._buildShop();
     this._buildMissions();
+    this._buildFreePlaySetup();
     this._bindKeys();
   }
 
@@ -646,6 +648,9 @@ export class UI {
   /** FREE PLAY chosen → run the normal start flow (same as old PLAY/START). */
   _selectMode(key) {
     this.cb.onSelectMode(key);
+    // Free play opens a loadout/map setup screen first (if the host wired it);
+    // otherwise it just starts.
+    if (this.cb.onFreePlay && this._fpsEl) { this._startArmed = false; this.showFreePlaySetup(); return; }
     this._pressStart();
   }
 
@@ -3902,6 +3907,124 @@ export class UI {
     this._missVisible = false;
     if (this._missTick) { clearInterval(this._missTick); this._missTick = 0; }
     this._returnToMenu();
+  }
+
+  // ======================================================================
+  // FREE-PLAY SETUP — pick the MAP (all unlocked), the UFO + beam from what you
+  // own, and dial each upgrade track 0…(level you've purchased for that model).
+  // ======================================================================
+  _buildFreePlaySetup() {
+    const s = el('div', 'mf-screen mf-shop mf-fps mf-hidden');
+    s.id = 'mf-fps';
+    el('div', 'mf-shop-bg', s);
+    const panel = el('div', 'mf-shop-panel mf-fps-panel', s);
+
+    const head = el('div', 'mf-shop-head', panel);
+    this._fpsBackBtn = backButton('mf-shop-back', head, 'BACK', () => this._closeFreePlaySetup());
+    el('h2', 'mf-panel-title mf-shop-title', head, 'FREE PLAY');
+    this._fpsCoin = this._buildCoinWidget(head, 'mf-coin-shop');
+
+    const body = el('div', 'mf-fps-body', panel);
+
+    el('div', 'mf-fps-label', body, 'MAP');
+    const maps = el('div', 'mf-fps-maps', body);
+    this._fpsMapBtns = {};
+    for (const m of [{ k: 'farm', n: '\u{1F33E} Farm' }, { k: 'beach', n: '\u{1F3D6}\u{FE0F} Beach' }]) {
+      const b = el('button', 'mf-fps-map', maps, m.n); b.type = 'button';
+      b.addEventListener('click', () => { this._fpsMap = m.k; this._fpsSyncMaps(); });
+      this._fpsMapBtns[m.k] = b;
+    }
+
+    el('div', 'mf-fps-label', body, 'UFO');
+    this._fpsUfoRow = el('div', 'mf-fps-pick', body);
+
+    el('div', 'mf-fps-label', body, 'UPGRADES (within what you own)');
+    this._fpsSlidersWrap = el('div', 'mf-fps-sliders', body);
+    this._fpsSliders = {};
+    for (const t of TRACKS) {
+      const row = el('div', 'mf-fps-srow', this._fpsSlidersWrap);
+      row.dataset.track = t;
+      el('span', 'mf-fps-sname', row, (TRACK_INFO[t] || {}).name || t);
+      const input = el('input', 'mf-fps-range', row);
+      input.type = 'range'; input.min = '0'; input.step = '1'; input.value = '0';
+      const val = el('span', 'mf-fps-sval', row, '0');
+      input.addEventListener('input', () => { val.textContent = `${input.value} / ${input.max}`; });
+      this._fpsSliders[t] = { input, val };
+    }
+
+    el('div', 'mf-fps-label', body, 'BEAM');
+    this._fpsBeamRow = el('div', 'mf-fps-pick', body);
+
+    const foot = el('div', 'mf-fps-foot', panel);
+    this._fpsPlayBtn = button('mf-btn-primary mf-fps-play', foot, 'PLAY', () => this._fpsPlay());
+
+    document.body.appendChild(s);
+    this._fpsEl = s;
+  }
+
+  showFreePlaySetup() {
+    this._fpsMap = this._mapName || 'farm';
+    this._fpsSkin = this._cosSelectedSkin().id;
+    this._fpsBeam = this._cosSelectedBeam().id;
+    if (this._startVisible) this._startEl.classList.add('mf-hidden');
+    this._fpsEl.classList.remove('mf-hidden');
+    this._fpsVisible = true;
+    this._refreshCoinWidgets();
+    this._fpsSyncMaps();
+    this._fpsRenderPick(this._fpsUfoRow, SKINS, 'skin');
+    this._fpsRenderPick(this._fpsBeamRow, BEAMS, 'beam');
+    this._fpsSyncSliders();
+    this._fpsEl.classList.remove('mf-anim'); void this._fpsEl.offsetWidth; this._fpsEl.classList.add('mf-anim');
+    if (this._fpsBackBtn) this._fpsBackBtn.focus({ preventScroll: true });
+  }
+
+  _fpsSyncMaps() {
+    for (const k in this._fpsMapBtns) this._fpsMapBtns[k].classList.toggle('mf-fps-map-on', k === this._fpsMap);
+  }
+
+  _fpsRenderPick(row, list, kind) {
+    row.textContent = '';
+    const sel = kind === 'skin' ? this._fpsSkin : this._fpsBeam;
+    for (const item of list) {
+      if (!this._cosOwns(item.id)) continue;                 // only what you own
+      const label = kind === 'skin' && item.modelName ? `${item.modelName} · ${item.name}` : item.name;
+      const b = el('button', 'mf-fps-chip', row, label); b.type = 'button';
+      if (item.id === sel) b.classList.add('mf-fps-chip-on');
+      b.addEventListener('click', () => {
+        if (kind === 'skin') { this._fpsSkin = item.id; this._fpsSyncSliders(); }
+        else this._fpsBeam = item.id;
+        this._fpsRenderPick(row, list, kind);
+      });
+    }
+  }
+
+  // Set each slider's max to the level purchased for the chosen UFO's model.
+  _fpsSyncSliders() {
+    const m = modelOfSkin(this._fpsSkin);
+    const id = m ? m.id : null;
+    for (const t of TRACKS) {
+      const sl = this._fpsSliders[t];
+      const max = id ? this.upgrades.level(t, id) : 0;
+      sl.input.max = String(max);
+      sl.input.disabled = max <= 0;
+      sl.input.value = String(max);                          // default to full
+      sl.val.textContent = `${max} / ${max}`;
+    }
+  }
+
+  _fpsPlay() {
+    const levels = {};
+    for (const t of TRACKS) levels[t] = +this._fpsSliders[t].input.value || 0;
+    const cfg = { map: this._fpsMap, skinId: this._fpsSkin, beamId: this._fpsBeam, levels };
+    this._fpsVisible = false;
+    if (this.cb.onFreePlay) this.cb.onFreePlay(cfg);
+    else this.cb.onStart();
+  }
+
+  _closeFreePlaySetup() {
+    this._fpsEl.classList.add('mf-hidden');
+    this._fpsVisible = false;
+    if (this._startEl) this._startEl.classList.remove('mf-hidden');
   }
 
   // ======================================================================

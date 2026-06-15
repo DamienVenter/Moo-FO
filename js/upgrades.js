@@ -34,6 +34,7 @@ export class Upgrades {
   constructor() {
     this._lvl = {};                  // modelId -> { track: level }
     this._active = MODELS[0].id;
+    this._loadout = null;            // free-play per-track override (≤ purchased)
     this._load();
     this._ensure(this._active);
   }
@@ -79,15 +80,26 @@ export class Upgrades {
     return lv >= this.cap(id) ? null : UPGRADE_COSTS[Math.min(lv, UPGRADE_COSTS.length - 1)];
   }
 
-  /** Effectiveness multiplier for a track on the ACTIVE model. */
+  // Free-play LOADOUT override: temporarily run the active model's tracks at
+  // chosen levels (always clamped to what's purchased). null = use purchased.
+  setLoadout(levels) { this._loadout = levels ? { ...levels } : null; }
+  clearLoadout() { this._loadout = null; }
+  /** Effective (in-play) level for a track on the active model. */
+  _eff(track) {
+    const owned = this.level(track);
+    if (!this._loadout || typeof this._loadout[track] !== 'number') return owned;
+    return Math.max(0, Math.min(owned, Math.round(this._loadout[track])));
+  }
+
+  /** Effectiveness multiplier for a track on the ACTIVE model (loadout-aware). */
   mult(track) {
-    return (FLOOR[track] || 0.3) + (STEP[track] || 0.13) * this.level(track);
+    return (FLOOR[track] || 0.3) + (STEP[track] || 0.13) * this._eff(track);
   }
 
   /** Hull is measured in SHOTS the ship can take: 2 at level 0, +~1 per level
    *  (so the cheapest model survives 2 hits, and tougher models far more). */
-  shots(id = this._active) {
-    return 2 + Math.round(this.level('hull', id) * 0.85);
+  shots() {
+    return 2 + Math.round(this._eff('hull') * 0.85);
   }
 
   /** Buy the next tier for the active (or given) model. Returns true on success. */

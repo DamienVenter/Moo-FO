@@ -243,6 +243,7 @@ function requestComplete() {
 
 const ui = new UI({
   onStart: startGame,
+  onFreePlay: (cfg) => freePlayStart(cfg),
   onResume: () => togglePause(),
   onRestart: () => { ui.hidePause(); ui.hideEnd(); beginRound(); },
   onQuitToMenu: quitToMenu,
@@ -293,6 +294,27 @@ async function startGame() {
   beginRound();
 }
 
+// Free-play with a chosen MAP + loadout (UFO, beam, per-track upgrade levels
+// within what's owned). Switching map persists the choice + reloads (the world
+// is built at boot); the boot autostart below picks it back up.
+function freePlayStart(cfg) {
+  cfg = cfg || {};
+  if (cfg.skinId) cosmetics.select(cfg.skinId);
+  if (cfg.beamId) cosmetics.select(cfg.beamId);
+  const targetMap = cfg.map === 'beach' ? 'beach' : 'farm';
+  if (targetMap !== MAP) {
+    try {
+      localStorage.setItem('moofo-fp', JSON.stringify({ ...cfg, map: targetMap }));
+      localStorage.setItem('moofo-map', targetMap);
+    } catch (_) { /* blocked */ }
+    location.reload();
+    return;
+  }
+  applyCosmetics();
+  upgrades.setLoadout(cfg.levels || null);
+  startGame();
+}
+
 // Campaign: launch a specific level from the level-select screen.
 async function startLevel(i) {
   await audio.init();
@@ -300,6 +322,7 @@ async function startLevel(i) {
   const L = campaign.levels[i - 1];
   mode = 'campaign'; level = i; target = L.target; timeLimit = L.time;
   difficulty = 1 + (i - 1) * 0.07;   // levels ramp the farmer pressure
+  upgrades.clearLoadout();           // campaign uses your full purchased upgrades
   await ui.hideStart();
   beginRound();
 }
@@ -309,6 +332,7 @@ function beginLevel(i) {
   const L = campaign.levels[i - 1];
   mode = 'campaign'; level = i; target = L.target; timeLimit = L.time;
   difficulty = 1 + (i - 1) * 0.07;
+  upgrades.clearLoadout();
   beginRound();
 }
 
@@ -723,3 +747,15 @@ camera.lookAt(0, 4, 0);
 const _ld = document.getElementById('mf-loading');
 if (_ld) { _ld.style.opacity = '0'; setTimeout(() => _ld.remove(), 600); }
 frame();
+
+// If a free-play loadout was pending across a map switch (reload), launch it
+// now that we've booted into the right map.
+try {
+  const fp = JSON.parse(localStorage.getItem('moofo-fp') || 'null');
+  if (fp && (fp.map === 'beach' ? 'beach' : 'farm') === MAP) {
+    localStorage.removeItem('moofo-fp');
+    freePlayStart({ ...fp, map: MAP });
+  } else if (fp) {
+    localStorage.removeItem('moofo-fp');
+  }
+} catch (_) { /* ignore */ }
