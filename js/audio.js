@@ -18,6 +18,8 @@ const SOUND_NAMES = [
   'ufo_buy', 'ufo_equip', 'beam_buy', 'beam_equip',
   'start', 'win', 'lose',
   'jingle', 'waterfall',
+  'waves', 'seagull', 'splash',
+  'squirt', 'crab', 'dolphin',
   'bark', 'baa', 'quack',
   'scream', 'tractor', 'hoot',
   'horse', 'farmer', 'oink',

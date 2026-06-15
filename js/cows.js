@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CFG } from './config.js';
-import { createCow, createChicken, createSheep, createDuck, createPig, createHorse, blobShadow } from './models.js';
+import { createCow, createChicken, createSheep, createDuck, createPig, createHorse, createCrab, createBeachgoer, createFish, blobShadow } from './models.js';
 import { terrainHeight, WATER_LEVEL } from './terrain.js';
 
 const MOOS = ['moo1', 'moo2', 'moo3'];
@@ -105,6 +105,31 @@ export class CowManager {
         this._add('horse', ['bay', 'brown', 'white'][(Math.random() * 3) | 0], p.x, p.z);
       }
     }
+    // ---- beach abductables: crabs (the star), beachgoers, fish ----
+    const crAreas = this.world.crabSpawnAreas || [];
+    for (let a = 0; a < crAreas.length; a++) {
+      const area = crAreas[a];
+      for (let i = 0; i < area.count; i++) {
+        const p = this._spawnPointIn(area);
+        this._add('crab', Math.random() < 0.7 ? 'red' : 'blue', p.x, p.z);
+      }
+    }
+    const huAreas = this.world.humanSpawnAreas || [];
+    for (let a = 0; a < huAreas.length; a++) {
+      const area = huAreas[a];
+      for (let i = 0; i < area.count; i++) {
+        const p = this._spawnPointIn(area);
+        this._add('human', ['a', 'b', 'c'][(Math.random() * 3) | 0], p.x, p.z);
+      }
+    }
+    const fiAreas = this.world.fishSpawnAreas || [];
+    for (let a = 0; a < fiAreas.length; a++) {
+      const area = fiAreas[a];
+      for (let i = 0; i < area.count; i++) {
+        const p = this._spawnPointIn(area);
+        this._add('fish', Math.random() < 0.5 ? 'orange' : 'blue', p.x, p.z);
+      }
+    }
     // ducks paddle their ponds — atmosphere only, the beam ignores them
     const dAreas = this.world.duckAreas || [];
     const perPond = Math.max(1, Math.floor(CFG.DUCK_COUNT / Math.max(1, dAreas.length)));
@@ -117,8 +142,11 @@ export class CowManager {
         d.pond = area;
       }
     }
-    const g = this.world.goldenCowSpot();
-    this._add('golden', 'golden', g.x, g.z);
+    // The golden cow only belongs on the farm (it spawns over cow pastures).
+    if ((this.world.cowSpawnAreas || []).length > 0) {
+      const g = this.world.goldenCowSpot();
+      this._add('golden', 'golden', g.x, g.z);
+    }
   }
 
   /** Ground every airborne critter instantly (used when leaving a round). */
@@ -266,6 +294,10 @@ export class CowManager {
               volume: THREE.MathUtils.clamp(0.5 - d / 90, 0.08, 0.4),
               ratejitter: 0.1,
             });
+          } else if (c.kind === 'crab') {
+            this.audio.play('crab', { volume: THREE.MathUtils.clamp(0.5 - d / 70, 0.08, 0.4), ratejitter: 0.2 });
+          } else if (c.kind === 'human' || c.kind === 'fish') {
+            /* beachgoers + fish are quiet ambiently */
           } else {
             this.audio.play(MOOS[(Math.random() * 3) | 0], {
               volume: THREE.MathUtils.clamp(1 - d / 70, 0.15, 0.9),
@@ -345,15 +377,19 @@ export class CowManager {
       kind === 'sheep' ? createSheep() :
       kind === 'pig' ? createPig(variant) :
       kind === 'horse' ? createHorse(variant) :
+      kind === 'crab' ? createCrab(variant) :
+      kind === 'human' ? createBeachgoer(variant) :
+      kind === 'fish' ? createFish(variant) :
       kind === 'duck' ? createDuck() : createCow(variant);
-    const gy = kind === 'duck' ? WATER_Y : terrainHeight(x, z);
+    const gy = (kind === 'duck' || kind === 'fish') ? WATER_Y : terrainHeight(x, z);
     group.position.set(x, gy, z);
     group.rotation.y = Math.random() * Math.PI * 2;
     const shadow = blobShadow(
-      kind === 'chicken' || kind === 'duck' ? 0.4 :
+      kind === 'chicken' || kind === 'duck' || kind === 'fish' ? 0.4 :
+      kind === 'crab' ? 0.6 : kind === 'human' ? 0.5 :
       kind === 'pig' ? 0.8 : kind === 'horse' ? 1.2 : 1.0);
     if (shadow.material) shadow.material = shadow.material.clone();
-    if (kind === 'duck') shadow.visible = false;
+    if (kind === 'duck' || kind === 'fish') shadow.visible = false;
     group.add(shadow);
     this.scene.add(group);
     const c = {
@@ -398,6 +434,12 @@ export class CowManager {
       this.audio.play('oink', { volume: 0.7, rate: 1.15, ratejitter: 0.12 });
     } else if (c.kind === 'horse') {
       this.audio.play('horse', { volume: 0.5, rate: 1.1, ratejitter: 0.1 });
+    } else if (c.kind === 'crab') {
+      this.audio.play('crab', { volume: 0.7, ratejitter: 0.15 });
+    } else if (c.kind === 'human') {
+      this.audio.play('splash', { volume: 0.6, rate: 1.1, ratejitter: 0.12 });
+    } else if (c.kind === 'fish') {
+      this.audio.play('splash', { volume: 0.5, rate: 1.3, ratejitter: 0.12 });
     } else if (d < MOO_RANGE) {
       this.audio.play(MOOS[(Math.random() * 3) | 0], { volume: 0.7, rate: 1.18, ratejitter: 0.08 });
     }
@@ -463,7 +505,10 @@ export class CowManager {
       kind === 'chicken' ? CFG.SCORE_CHICKEN :
       kind === 'sheep' ? CFG.SCORE_SHEEP :
       kind === 'pig' ? CFG.SCORE_PIG :
-      kind === 'horse' ? CFG.SCORE_HORSE : CFG.SCORE_COW;
+      kind === 'horse' ? CFG.SCORE_HORSE :
+      kind === 'crab' ? CFG.SCORE_CRAB :
+      kind === 'human' ? CFG.SCORE_HUMAN :
+      kind === 'fish' ? CFG.SCORE_FISH : CFG.SCORE_COW;
     const pos = { x: g.position.x, y: g.position.y, z: g.position.z };
     this.scene.remove(g);
     this.cows[i] = this.cows[this.cows.length - 1];

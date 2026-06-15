@@ -85,6 +85,9 @@ export const CFG = Object.freeze({
   SCORE_SHEEP: 75,
   SCORE_PIG: 60,
   SCORE_HORSE: 150,
+  SCORE_CRAB: 80,
+  SCORE_HUMAN: 160,
+  SCORE_FISH: 40,
   COMBO_WINDOW: 5.0,         // seconds between grabs to keep the chain
   COMBO_MAX: 4,              // multiplier cap (x4)
   MEDALS: { bronze: 1500, silver: 3000, gold: 5000 },

@@ -707,6 +707,193 @@ def make_waterfall():
     return finish_loop(out, dur, 'waterfall')
 
 
+def make_waves():
+    """~3.6 s SEAMLESS LOOP of ocean surf: filtered-noise beds with broad, slow
+    amplitude swells so the wash rolls IN and OUT roughly once per ~3.6 s (one
+    big wave over the loop), plus a soft hiss of foam riding the crest. Modelled
+    on make_waterfall (filtered-noise beds + slow swells) but slower and broader
+    so it reads as OCEAN WAVES, not falling water. Built periodically — every
+    modulator is an integer cycle count over the loop — so finish_loop wraps
+    cleanly."""
+    dur = 3.6
+    de = dur + 1.0 / SR  # one extra sample for the loop check
+    out = zeros(de)
+
+    # The wash: one broad swell over the whole loop (1 cycle). A wide noise bed
+    # through a slowly opening/closing lowpass that brightens on the crest, so it
+    # surges in then ebbs out. Cosine window keeps the aperiodic noise seamless.
+    wash = noise(de)
+    wash = lowpass(wash, lambda t: 900.0 + 600.0 * math.sin(TWO_PI * (1.0 / dur) * t))
+    # crude high-pass (subtract a low band) so the crest gets an airy surf hiss.
+    low = lowpass(wash, 300.0)
+    surf = [w - 0.55 * l for w, l in zip(wash, low)]
+    # Swell shaping: ramps in, peaks just past the middle, ebbs out — and a
+    # cosine edge window so both loop ends sit at zero.
+    swell = lambda t: (0.20 + 0.80 * (0.5 - 0.5 * math.cos(TWO_PI * (1.0 / dur) * t))) \
+        * (0.5 * (1.0 - math.cos(TWO_PI * t / dur)))
+    surf = apply_env(surf, swell)
+    mix_at(out, surf, g=0.9)
+
+    # Foam hiss riding the crest: brighter filtered noise that swells with the
+    # wave but a touch sharper/later (2 cycles of inner wobble for shimmer).
+    foam = lowpass(noise(de), lambda t: 2400.0 + 900.0 * math.sin(TWO_PI * (2.0 / dur) * t))
+    foam = apply_env(foam, lambda t: (0.5 - 0.5 * math.cos(TWO_PI * (1.0 / dur) * t)) ** 2
+                     * (0.5 * (1.0 - math.cos(TWO_PI * t / dur))))
+    mix_at(out, foam, g=0.22)
+
+    # Deep undertow rumble underneath: a low filtered-noise bed with a slow swell
+    # (1 cycle), giving the surf a broad rolling body.
+    under = lowpass(noise(de), lambda t: 220.0 + 90.0 * math.sin(TWO_PI * (1.0 / dur) * t))
+    under = apply_env(under, lambda t: 0.5 * (1.0 - math.cos(TWO_PI * t / dur)))
+    mix_at(out, under, g=0.30)
+
+    out = soft_clip(out, 1.05)
+    out = normalize(out, peak=PEAK * 0.9)
+    return finish_loop(out, dur, 'waves')
+
+
+# ---------------------------------------------------------------------------
+# Beach map one-shots
+# ---------------------------------------------------------------------------
+
+def make_seagull():
+    """~0.7 s SEAGULL cry: a couple of descending 'eee-ah' gull calls. Each call
+    is a bright reedy voice (saw + FM grit) whose pitch flicks UP then glides DOWN
+    (the 'eee->ah'), through two vowel-ish formant bands so it reads as a bird
+    throat, not a synth tone. Second call a touch higher/shorter."""
+    out = zeros(0.72)
+
+    def cry(dur, f0, fhi, fend):
+        # Pitch: quick rise to the squeal then a falling 'ah' tail.
+        pitch = curve([(0, f0), (0.12 * dur, fhi), (0.45 * dur, fhi * 0.9),
+                       (dur, fend)])
+        # Reedy gull voice: saw + a buzzy FM layer with a little fold jitter.
+        rasp = lambda t: pitch(t) * (1.0 + 0.03 * math.sin(TWO_PI * 24.0 * t))
+        src = osc('saw', rasp, dur)
+        buzz = fm_osc(rasp, 2.0, 2.4, dur)
+        src = [a + 0.4 * b for a, b in zip(src, buzz)]
+        # Two formant bands ('eee' -> 'ah'): F1 opens, F2 falls.
+        f1hi = lowpass(src, curve([(0, 1000.0), (0.4 * dur, 1200.0), (dur, 850.0)]))
+        f1lo = lowpass(src, curve([(0, 600.0), (0.4 * dur, 650.0), (dur, 480.0)]))
+        f1 = [h - l for h, l in zip(f1hi, f1lo)]
+        f2hi = lowpass(src, curve([(0, 3200.0), (0.4 * dur, 2600.0), (dur, 1900.0)]))
+        f2lo = lowpass(src, curve([(0, 2200.0), (0.4 * dur, 1800.0), (dur, 1300.0)]))
+        f2 = [h - l for h, l in zip(f2hi, f2lo)]
+        voice = [1.0 * a + 1.2 * b for a, b in zip(f1, f2)]
+        env = curve([(0, 0.0), (0.04 * dur, 1.0), (0.5 * dur, 0.85),
+                     (0.8 * dur, 0.45), (dur, 0.0)])
+        voice = apply_env(voice, env)
+        voice = soft_clip(voice, 1.5)         # reedy, screechy edge
+        return voice
+
+    mix_at(out, cry(0.34, 1400.0, 1900.0, 900.0), offset=0.00, g=1.0)
+    mix_at(out, cry(0.30, 1550.0, 2100.0, 1000.0), offset=0.40, g=0.85)
+    return normalize(fade(out, 0.003, 0.04))
+
+
+def make_splash():
+    """~0.4 s water SPLASH: a wet low thump (descending sine) + a noisy burst of
+    spray that opens bright then closes, with a droplet hiss tail. A short
+    filtered-noise body sweeping down = the displaced water, over a low thump."""
+    dur = 0.4
+    out = zeros(dur)
+    # Wet low thump: a fast descending sine = the body of water displaced.
+    thump = osc('sine', xsweep(180.0, 60.0, 0.12), dur, amp=exp_env(0.06, attack=0.002))
+    mix_at(out, thump, g=0.85)
+    # Noisy spray burst: broadband noise through a lowpass that opens then closes,
+    # quick percussive envelope = the slap/whoosh of the splash.
+    spray = lowpass(noise(dur), curve([(0, 3500.0), (0.04, 6500.0), (0.18, 2500.0),
+                                       (dur, 900.0)]))
+    spray = apply_env(spray, curve([(0, 0.0), (0.006, 1.0), (0.10, 0.6),
+                                    (0.28, 0.2), (dur, 0.0)]))
+    mix_at(out, spray, g=0.6)
+    # Droplet hiss tail: scattered short high noise ticks = falling droplets.
+    for _ in range(7):
+        off = random.uniform(0.12, 0.34)
+        tk = lowpass(noise(random.uniform(0.006, 0.014)), random.uniform(3500.0, 7000.0))
+        tk = apply_env(tk, exp_env(0.006, attack=0.0005))
+        mix_at(out, tk, offset=off, g=0.3 * (1.0 - off / dur) * random.uniform(0.5, 1.0))
+    out = soft_clip(out, 1.2)
+    return normalize(fade(out, 0.0008, 0.05))
+
+
+def make_squirt():
+    """~0.38 s WATER-GUN spray: a short pressurised hiss/spurt. Filtered noise
+    pitch-swept (the bandpass centre sweeps up then sags) with a fast tremolo
+    sputter on top so it reads as a watery jet, not a flat hiss. The lifeguard
+    threat firing."""
+    dur = 0.38
+    out = zeros(dur)
+    # Pressurised jet: noise through a crude bandpass (hi-lp minus mid-lp) whose
+    # centre sweeps UP fast (the spurt building pressure) then sags as it eases.
+    src = noise(dur)
+    hi = lowpass(src, curve([(0, 1600.0), (0.10, 5000.0), (0.22, 3800.0), (dur, 1800.0)]))
+    lo = lowpass(src, curve([(0, 700.0), (0.10, 1800.0), (0.22, 1400.0), (dur, 600.0)]))
+    jet = [h - l for h, l in zip(hi, lo)]
+    env = curve([(0, 0.0), (0.012, 1.0), (0.18, 0.85), (0.30, 0.5), (dur, 0.0)])
+    jet = apply_env(jet, env)
+    # Watery sputter: a fast amplitude tremolo so the jet spits rather than hisses.
+    n = len(jet)
+    for i in range(n):
+        t = i / SR
+        jet[i] *= 1.0 - 0.30 * (0.5 + 0.5 * math.sin(TWO_PI * 55.0 * t))
+    mix_at(out, jet, g=0.8)
+    # A faint low whoosh under the jet for body.
+    whoosh = osc('sine', xsweep(260.0, 160.0, 0.2), dur, amp=exp_env(0.08, attack=0.006))
+    mix_at(out, whoosh, g=0.12)
+    out = soft_clip(out, 1.15)
+    return normalize(fade(out, 0.001, 0.04))
+
+
+def make_crab():
+    """~0.32 s CRAB skitter: a few quick dry clicks/castanet-like ticks. Each
+    click is a very short high-passed noise snap plus a tiny resonant sine blip,
+    scattered in a tight skittering rhythm."""
+    dur = 0.32
+    out = zeros(dur)
+    # A tight burst of dry clicks at slightly irregular spacing = the skitter.
+    offs = [0.00, 0.05, 0.095, 0.155, 0.225, 0.275]
+    for k, off in enumerate(offs):
+        # Dry click: ultra-short high noise snap (high-passed via subtract-low).
+        snap = noise(0.008)
+        lo = lowpass(snap, 2000.0)
+        click = [s - l for s, l in zip(snap, lo)]
+        click = apply_env(click, exp_env(0.0018, attack=0.0002))
+        # A tiny resonant 'tick' pitch for the castanet body (varies per click).
+        f = 2600.0 + (k % 3) * 350.0
+        blip = osc('sine', f, 0.012, amp=exp_env(0.003, attack=0.0003))
+        seg = zeros(0.014)
+        mix_at(seg, click, g=0.8)
+        mix_at(seg, blip, g=0.4)
+        mix_at(out, seg, offset=off, g=1.0 - 0.06 * k)
+    return normalize(fade(out, 0.0005, 0.02))
+
+
+def make_dolphin():
+    """~0.6 s DOLPHIN whistle: a rising-then-falling pure whistle with a faint
+    second harmonic, topped by a couple of quick echolocation clicks. The whistle
+    swoops up then back down (the classic dolphin call)."""
+    dur = 0.6
+    out = zeros(dur)
+    # Whistle: a clean sine that swoops UP then DOWN, with a subtle vibrato and a
+    # soft second harmonic for a slightly metallic shimmer.
+    pitch = curve([(0, 1600.0), (0.30 * dur, 2900.0), (0.55 * dur, 3300.0),
+                   (dur, 2000.0)])
+    freq = lambda t: pitch(t) * (1.0 + 0.012 * math.sin(TWO_PI * 12.0 * t))
+    whistle = osc('sine', freq, dur,
+                  amp=curve([(0, 0.0), (0.06, 0.9), (0.7 * dur, 1.0), (dur, 0.0)]))
+    harm = osc('sine', lambda t: 2.0 * freq(t), dur,
+               amp=curve([(0, 0.0), (0.1, 0.18), (0.7 * dur, 0.22), (dur, 0.0)]))
+    mix_at(out, whistle, g=0.7)
+    mix_at(out, harm, g=0.7)
+    # Echolocation clicks: a couple of very short broadband ticks up front.
+    for off in (0.02, 0.07):
+        tk = lowpass(noise(0.006), 7000.0)
+        tk = apply_env(tk, exp_env(0.0015, attack=0.0003))
+        mix_at(out, tk, offset=off, g=0.4)
+    return normalize(fade(out, 0.002, 0.05), peak=PEAK * 0.9)
+
+
 # ---------------------------------------------------------------------------
 # Farm animal / machine voices
 # ---------------------------------------------------------------------------
@@ -1108,6 +1295,12 @@ SOUNDS = [
     ('lose',      make_lose),
     ('jingle',    make_jingle),
     ('waterfall', make_waterfall),
+    ('waves',     make_waves),
+    ('seagull',   make_seagull),
+    ('splash',    make_splash),
+    ('squirt',    make_squirt),
+    ('crab',      make_crab),
+    ('dolphin',   make_dolphin),
     # 'bark' is a real CC0 dog-bark sample (assets/audio/bark.wav from
     # lavenderdotpet/CC0-Public-Domain-Sounds) — NOT synthesised here, so it is
     # intentionally omitted from this list and left untouched by the generator.

@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CFG, COLORS } from './config.js';
-import { createFarmer, blobShadow } from './models.js';
+import { createFarmer, createLifeguard, blobShadow } from './models.js';
 import { terrainHeight } from './terrain.js';
 
 const BULLET_POOL = 24;
@@ -21,12 +21,13 @@ function wrapAngle(a) {
 }
 
 export class FarmerManager {
-  constructor(scene, world, effects, audio, { onHitPlayer, difficulty = 1 } = {}) {
+  constructor(scene, world, effects, audio, { onHitPlayer, difficulty = 1, threatVariant = 'farmer' } = {}) {
     this.scene = scene;
     this.world = world;
     this.effects = effects;
     this.audio = audio;
     this.onHitPlayer = onHitPlayer;
+    this._variant = threatVariant;       // 'farmer' (rifle) | 'lifeguard' (water gun)
 
     this.farmers = []; // [{ group, ... }] — read by the minimap
     this._t = 0;
@@ -43,7 +44,7 @@ export class FarmerManager {
     }
     for (let i = 0; i < spawns.length; i++) {
       const s = spawns[i];
-      const group = createFarmer(i % 3);
+      const group = this._variant === 'lifeguard' ? createLifeguard() : createFarmer(i % 3);
       group.position.set(s.x, terrainHeight(s.x, s.z), s.z);
       group.rotation.y = Math.random() * Math.PI * 2;
       group.add(blobShadow(0.7));
@@ -85,7 +86,7 @@ export class FarmerManager {
     const bGeo = new THREE.BoxGeometry(0.16, 0.16, 1.7);
     for (let i = 0; i < BULLET_POOL; i++) {
       const mesh = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({
-        color: 0xffd27a, transparent: true, opacity: 0.95,
+        color: this._variant === 'lifeguard' ? 0x6fd8ff : 0xffd27a, transparent: true, opacity: 0.95,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       mesh.visible = false;
@@ -294,7 +295,7 @@ export class FarmerManager {
     b.mesh.lookAt(_v2); // stretch axis along flight
 
     this.effects.muzzleFlash(_v);
-    this.audio.play('gunshot', {
+    this.audio.play(this._variant === 'lifeguard' ? 'squirt' : 'gunshot', {
       volume: THREE.MathUtils.clamp(1 - d / 120, 0.25, 0.85),
       ratejitter: 0.12,
     });

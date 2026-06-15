@@ -3149,3 +3149,844 @@ export function createPig(variant = 'pink') {
   g.userData = { head, legs, tail };
   return g;
 }
+
+/* ================================================================== *
+ *  BEACH MAP — new low-poly voxel models (Agent M, beach pass).
+ *  Abductable creatures expose userData { head, legs, tail } for the
+ *  critter animator (js/cows.js): head nods on X, every entry of the
+ *  legs array swings on X, tail rotates on Y. Ambient creatures &
+ *  props just return a Group. Bottom-center origin, faces +Z, unless a
+ *  comment notes a deliberate center origin for a flyer / swimmer.
+ * ================================================================== */
+
+/* ------------------------------------------------------------------ *
+ *  createCrab — 'red' | 'blue'. The STAR beach creature. ~0.8× cow,
+ *  so ~1.5 wide. A cute, wide, flat rounded carapace on six little
+ *  legs, two oversized front claws, and two eye stalks.
+ *  userData: { head, legs:[L0,L1,L2,R0,R1,R2], tail }
+ *    head — the eye-stalk pivot (nods on X)
+ *    legs — six hip pivots (3 left, 3 right) that swing on X (skitter)
+ *    tail — the right claw pivot (a "wave"/snap on Y reads as charm)
+ * ------------------------------------------------------------------ */
+
+export function createCrab(variant = 'red') {
+  const g = new THREE.Group();
+  const blue = variant === 'blue';
+  const shellHex = blue ? 0x4f86d6 : 0xe2452f;
+  const shell = mat(shellHex);
+  const shellLt = mat(_tint(shellHex, 1.18));         // top dome highlight
+  const shellDk = mat(_tint(shellHex, 0.78));         // belly / claw shade
+  const clawM = mat(_tint(shellHex, 1.06));
+  const legM = mat(_tint(shellHex, 0.9));
+  const eye = mat(0x14110e);
+  const white = mat(0xf6f6f2);
+
+  // ---- Carapace: a wide, flat, rounded shell. A squashed dome on top of
+  //      a low slab so it reads round but sits low to the ground.
+  box(g, 1.18, 0.34, 0.82, shell, 0, 0.46, 0);                   // main slab
+  const dome = add(g, domeGeo(0.66, 12, 6), shellLt, 0, 0.46, 0);
+  dome.scale.set(1.62, 0.7, 1.0);                                 // wide flat carapace
+  box(g, 1.0, 0.2, 0.6, shellDk, 0, 0.32, 0.02);                 // shaded underbelly rim
+  // A couple of bumpy shell ridges for character.
+  box(g, 0.5, 0.12, 0.14, shellDk, 0, 0.62, -0.16);
+  box(g, 0.16, 0.1, 0.16, shellDk, -0.34, 0.58, 0.1);
+  box(g, 0.16, 0.1, 0.16, shellDk, 0.34, 0.58, 0.1);
+  // Little frothy mouth bubbles + mandible line at the front.
+  box(g, 0.34, 0.08, 0.06, white, 0, 0.34, 0.42);
+  box(g, 0.05, 0.05, 0.05, white, -0.1, 0.3, 0.45).castShadow = false;
+  box(g, 0.05, 0.05, 0.05, white, 0.12, 0.31, 0.45).castShadow = false;
+
+  // ---- Six walking legs, pivoting at the hip just under the shell (y=0.4)
+  //      so each swings on X. Three per side, fanned fore→aft. Built as a
+  //      short upper segment + a kinked, pointed foot reaching to y≈0.
+  const legs = [];
+  const legZ = [0.28, 0.0, -0.3];                  // fore / mid / aft
+  for (const s of [-1, 1]) {                       // left (-X) then right (+X)
+    for (const lz of legZ) {
+      const hip = pivot(g, s * 0.56, 0.4, lz);
+      const upper = box(hip, 0.34, 0.1, 0.1, legM, s * 0.16, -0.04, 0);
+      upper.rotation.z = s * -0.5;                 // splay outward + down
+      const foot = box(hip, 0.1, 0.3, 0.1, legM, s * 0.3, -0.22, 0);
+      foot.rotation.z = s * 0.18;                  // kink down to a point
+      legs.push(hip);
+    }
+  }
+
+  // ---- Two big front claws on pivots. Left claw is static-ish; the RIGHT
+  //      claw is exposed as `tail` so the animator's tail.rotation.y reads
+  //      as a friendly snap/wave. Each: an arm, a fat pincer + a thumb.
+  const makeClaw = (s) => {
+    const claw = pivot(g, s * 0.7, 0.44, 0.42);
+    const arm = box(claw, 0.18, 0.16, 0.4, clawM, s * 0.05, 0, 0.18);
+    arm.rotation.y = s * -0.35;
+    const pincer = box(claw, 0.42, 0.34, 0.34, clawM, s * 0.26, 0.04, 0.46);
+    pincer.rotation.y = s * -0.35;
+    // Upper + lower jaw of the pincer (a wedge gap between them).
+    const jawU = box(claw, 0.3, 0.12, 0.22, shellDk, s * 0.4, 0.14, 0.62);
+    jawU.rotation.y = s * -0.35;
+    const jawL = box(claw, 0.3, 0.12, 0.22, shellDk, s * 0.4, -0.06, 0.62);
+    jawL.rotation.y = s * -0.35;
+    return claw;
+  };
+  makeClaw(-1);
+  const clawR = makeClaw(1);
+  const tail = clawR;                               // right claw = "tail" joint
+
+  // ---- Eye stalks on a pivot exposed as `head`. Two short stalks rising
+  //      from the shell front, each capped with a white+black eye. Nodding
+  //      (head.rotation.x) bobs the eyes adorably.
+  const head = pivot(g, 0, 0.6, 0.26);
+  for (const s of [-1, 1]) {
+    box(head, 0.07, 0.26, 0.07, legM, s * 0.16, 0.13, 0.04);   // stalk
+    add(head, sphGeo(0.11, 6, 5), white, s * 0.16, 0.3, 0.05); // eyeball
+    box(head, 0.06, 0.07, 0.05, eye, s * 0.16, 0.32, 0.13);    // pupil
+  }
+  // A tiny smile between the stalks.
+  box(head, 0.18, 0.04, 0.04, eye, 0, 0.04, 0.1);
+
+  g.userData = { head, legs, tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createBeachgoer — 'a' | 'b' | 'c'. A low-poly human in swimwear.
+ *  ~1.9 tall, bottom-center origin, faces +Z.
+ *  userData: { head, legs:[legL, legR], tail }
+ *    head — neck pivot (nods on X)
+ *    legs — two hip pivots (swing on X for a walk cycle)
+ *    tail — a tiny null-safe pivot (no real tail; animator-safe)
+ *  Variants differ by swimwear / skin / hair colour.
+ * ------------------------------------------------------------------ */
+
+export function createBeachgoer(variant = 'a') {
+  const g = new THREE.Group();
+  const v = variant === 'b' ? 1 : variant === 'c' ? 2 : 0;
+  const skinHex = [0xe8b88a, 0x8d5a3b, 0xf3c7a3][v];
+  const suitHex = [0xe53935, 0x26a69a, 0xffb300][v];   // trunks / one-piece
+  const topHex = [0x1e88e5, 0xff7043, 0xab47bc][v];    // top / bikini
+  const hairHex = [0x3e2723, 0x212121, 0xfff176][v];
+  const skin = mat(skinHex);
+  const suit = mat(suitHex);
+  const top = mat(topHex);
+  const hair = mat(hairHex);
+  const eye = mat(0x14110e);
+
+  // ---- Legs: pivot at the hips (y=0.92). Bare legs + simple flip-flops.
+  const legs = [];
+  for (const s of [1, -1]) {                          // left(+X), right(-X)
+    const hip = pivot(g, s * 0.15, 0.92, 0);
+    box(hip, 0.22, 0.7, 0.24, skin, 0, -0.4, 0);      // leg
+    box(hip, 0.24, 0.08, 0.34, mat(0x37474f), 0, -0.8, 0.04); // flip-flop sole
+    box(hip, 0.05, 0.06, 0.22, suit, 0, -0.72, 0.04); // sandal strap
+    legs.push(hip);
+  }
+  const [legL, legR] = legs;
+
+  // ---- Hips + torso in swimwear.
+  box(g, 0.5, 0.22, 0.3, suit, 0, 1.0, 0);            // swim trunks / brief
+  box(g, 0.54, 0.66, 0.34, skin, 0, 1.42, 0);         // torso
+  // Top: a tank/bikini band across the chest (a bit of swimwear colour).
+  box(g, 0.56, 0.2, 0.36, top, 0, 1.62, 0);
+  if (v === 2) box(g, 0.58, 0.12, 0.37, top, 0, 1.4, 0); // extra band, variant c
+
+  // ---- Arms: pivot at the shoulders, hanging relaxed.
+  for (const s of [1, -1]) {
+    const arm = pivot(g, s * 0.36, 1.66, 0);
+    box(arm, 0.16, 0.5, 0.18, skin, 0, -0.26, 0);     // arm
+    box(arm, 0.16, 0.14, 0.18, skin, 0, -0.52, 0);    // hand
+  }
+
+  // ---- Head: pivot at the neck. Face + hair.
+  const head = pivot(g, 0, 1.74, 0);
+  box(head, 0.4, 0.4, 0.4, skin, 0, 0.2, 0);
+  box(head, 0.06, 0.09, 0.04, eye, -0.1, 0.24, 0.205);
+  box(head, 0.06, 0.09, 0.04, eye, 0.1, 0.24, 0.205);
+  box(head, 0.1, 0.05, 0.05, mat(_tint(suitHex, 0.8)), 0, 0.12, 0.21); // little smile
+  // Hair cap + a fringe (sunglasses on variant b).
+  box(head, 0.44, 0.2, 0.44, hair, 0, 0.36, -0.02);
+  box(head, 0.44, 0.1, 0.12, hair, 0, 0.28, 0.18);
+  if (v === 1) {
+    box(head, 0.36, 0.1, 0.05, mat(0x14110e), 0, 0.26, 0.21); // sunglasses
+  }
+
+  // ---- Tail: a tiny null-safe pivot (humans have no tail; satisfies the
+  //      animator's tail.rotation.y access harmlessly).
+  const tail = pivot(g, 0, 1.0, -0.18);
+
+  g.userData = { head, legs: [legL, legR], tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createFish — 'orange' | 'blue'. A small fish, ~0.7 long. Origin at
+ *  bottom-center (min.y ≈ 0). Faces +Z.
+ *  userData: { head, legs:[], tail }
+ *    legs — empty array (fish have no legs; animator loops harmlessly)
+ *    head — a head pivot at the front (gentle nod on X)
+ *    tail — the tail-fin pivot (wiggles on Y)
+ * ------------------------------------------------------------------ */
+
+export function createFish(variant = 'orange') {
+  const g = new THREE.Group();
+  const blue = variant === 'blue';
+  const bodyHex = blue ? 0x29b6f6 : 0xff8f3c;
+  const bodyM = mat(bodyHex);
+  const bellyM = mat(_tint(bodyHex, 1.22));
+  const finM = mat(_tint(bodyHex, 0.86));
+  const stripe = mat(0xf6f6f2);
+  const eyeW = mat(0xf6f6f2);
+  const eye = mat(0x14110e);
+
+  // ---- Body: a rounded teardrop. Center the mass around y≈0.3 so the
+  //      lowest fin/belly sits at y≈0.
+  const body = add(g, sphGeo(0.3, 10, 8), bodyM, 0, 0.32, 0.05);
+  body.scale.set(1.0, 0.92, 1.5);                     // stretched along Z (forward)
+  add(g, sphGeo(0.2, 8, 6), bellyM, 0, 0.2, 0.12).scale.set(0.9, 0.7, 1.4); // pale belly
+  // A vertical stripe band (clownfish-ish on orange, accent on blue).
+  box(g, 0.04, 0.4, 0.22, stripe, 0, 0.32, 0.16);
+  box(g, 0.04, 0.34, 0.18, stripe, 0, 0.3, -0.16);
+
+  // ---- Tail fin: pivot at the rear (z≈-0.4); a flat triangular-ish fin
+  //      that wiggles on Y.
+  const tail = pivot(g, 0, 0.34, -0.42);
+  box(tail, 0.06, 0.34, 0.3, finM, 0, 0, -0.16);
+  box(tail, 0.05, 0.46, 0.16, finM, 0, 0, -0.3);      // wide fan tip
+
+  // ---- Side (pectoral) fins + a top dorsal.
+  for (const s of [-1, 1]) {
+    const sf = box(g, 0.04, 0.16, 0.24, finM, s * 0.22, 0.28, 0.06);
+    sf.rotation.y = s * 0.5;
+  }
+  const dorsal = box(g, 0.05, 0.22, 0.3, finM, 0, 0.58, 0.0);
+  dorsal.rotation.x = 0.2;
+
+  // ---- Head: pivot at the front (z≈0.4) carrying the eyes + lips.
+  const head = pivot(g, 0, 0.34, 0.4);
+  add(head, sphGeo(0.22, 8, 6), bodyM, 0, 0, 0.05).scale.set(1.0, 0.95, 0.9);
+  for (const s of [-1, 1]) {
+    add(head, sphGeo(0.08, 6, 5), eyeW, s * 0.15, 0.05, 0.1);
+    box(head, 0.05, 0.06, 0.04, eye, s * 0.16, 0.05, 0.17);
+  }
+  box(head, 0.16, 0.07, 0.06, mat(_tint(bodyHex, 0.7)), 0, -0.1, 0.2); // lips
+
+  g.userData = { head, legs: [], tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createLifeguard — the THREAT. A buff lifeguard standing, holding a
+ *  chunky WATER GUN in both hands, red/orange swim shorts + whistle.
+ *  ~2.0 tall, bottom-center origin, faces +Z.
+ *  userData: { head, legs:[legL, legR], tail, arms:[armL, armR], gun, gunTip }
+ *    head — neck pivot (nods on X)
+ *    legs — two hip pivots (swing on X)
+ *    tail — tiny null-safe pivot
+ *    gun  — water-gun prop parented to the right arm (also usable by AI)
+ * ------------------------------------------------------------------ */
+
+export function createLifeguard() {
+  const g = new THREE.Group();
+  const skin = mat(0xd99b6c);                         // tanned
+  const skinDk = mat(0xc48354);                       // muscle shade
+  const shorts = mat(0xe53935);                       // red/orange swim shorts
+  const shortsTrim = mat(0xffb300);
+  const eye = mat(0x14110e);
+  const hair = mat(0x4e342e);
+  const white = mat(0xf6f6f2);
+
+  // ---- Legs: pivot at the hips (y=1.02). Big quads + bare feet.
+  const legs = [];
+  for (const s of [1, -1]) {
+    const hip = pivot(g, s * 0.2, 1.02, 0);
+    box(hip, 0.3, 0.5, 0.34, shorts, 0, -0.22, 0);    // shorts on the thigh
+    box(hip, 0.28, 0.46, 0.3, skin, 0, -0.66, 0);     // lower leg
+    box(hip, 0.3, 0.1, 0.4, skin, 0, -0.9, 0.05);     // foot
+    legs.push(hip);
+  }
+  const [legL, legR] = legs;
+
+  // ---- Hips + buff torso.
+  box(g, 0.62, 0.24, 0.4, shorts, 0, 1.12, 0);        // waistband
+  box(g, 0.66, 0.06, 0.42, shortsTrim, 0, 1.02, 0);   // lower shorts trim
+  box(g, 0.74, 0.7, 0.42, skin, 0, 1.56, 0);          // big chest
+  box(g, 0.3, 0.4, 0.06, skinDk, -0.18, 1.58, 0.22);  // pec shadow L
+  box(g, 0.3, 0.4, 0.06, skinDk, 0.18, 1.58, 0.22);   // pec shadow R
+  box(g, 0.2, 0.34, 0.05, skinDk, 0, 1.42, 0.23);     // abs centre line
+  // Lifeguard cross emblem on the chest.
+  box(g, 0.2, 0.07, 0.05, white, 0, 1.66, 0.24).castShadow = false;
+  box(g, 0.07, 0.2, 0.05, white, 0, 1.66, 0.24).castShadow = false;
+
+  // ---- Whistle on a lanyard around the neck.
+  box(g, 0.04, 0.34, 0.04, white, 0.1, 1.7, 0.2).rotation.z = 0.2; // lanyard
+  add(g, sphGeo(0.07, 6, 5), shortsTrim, 0.16, 1.5, 0.25).castShadow = false; // whistle
+
+  // ---- Arms: pivot at the shoulders. Raised forward to grip the water gun.
+  const arms = [];
+  for (const s of [1, -1]) {
+    const arm = pivot(g, s * 0.46, 1.78, 0);
+    arm.rotation.x = -0.9;                             // arms forward, gripping
+    box(arm, 0.22, 0.4, 0.24, skin, 0, -0.2, 0);       // upper arm (biceps)
+    box(arm, 0.2, 0.34, 0.22, skin, 0, -0.5, 0);       // forearm
+    box(arm, 0.2, 0.14, 0.2, skin, 0, -0.7, 0);        // fist
+    arms.push(arm);
+  }
+  const [armL, armR] = arms;
+
+  // ---- WATER GUN: a chunky squirt gun built pointing +Z, parented to the
+  //      right hand. Bright translucent-look tank, fat barrel + nozzle, a
+  //      grip and a pump handle — reads unmistakably as a water gun.
+  const gun = pivot(armR, 0.0, -0.72, 0.12);
+  gun.rotation.x = Math.PI / 2;                        // lay it along the forward arm
+  const gunBody = mat(0xffd54f);                       // bright yellow toy gun
+  const gunBlue = mat(0x29b6f6);
+  const gunOrange = mat(0xff7043);
+  const tankM = mat(0x4fc3f7);
+  box(gun, 0.18, 0.2, 0.5, gunBody, 0, 0.04, 0.0);     // receiver / pump body
+  box(gun, 0.14, 0.26, 0.16, gunBody, 0, -0.16, -0.18); // grip (down + back)
+  box(gun, 0.13, 0.13, 0.46, gunBlue, 0, 0.08, 0.42);  // fat barrel
+  box(gun, 0.16, 0.16, 0.12, gunOrange, 0, 0.08, 0.68); // nozzle ring
+  box(gun, 0.07, 0.07, 0.1, mat(0x0277bd), 0, 0.08, 0.76); // dark muzzle hole
+  // Big water reservoir on top.
+  add(gun, cylZGeo(0.16, 0.4, 10), tankM, 0, 0.26, 0.12);
+  box(gun, 0.14, 0.06, 0.16, gunOrange, 0, 0.36, 0.12); // tank cap
+  // Pump handle under the barrel.
+  box(gun, 0.1, 0.1, 0.2, gunOrange, 0, -0.04, 0.5);
+  const gunTip = new THREE.Object3D();
+  gunTip.position.set(0, 0.08, 0.82);
+  gun.add(gunTip);
+
+  // ---- Head: pivot at the neck. Square jaw, sunglasses, lifeguard cap.
+  const head = pivot(g, 0, 1.92, 0);
+  box(head, 0.42, 0.44, 0.42, skin, 0, 0.22, 0);
+  box(head, 0.4, 0.1, 0.06, mat(0x263238), 0, 0.26, 0.21); // sunglasses bar
+  box(head, 0.12, 0.09, 0.05, eye, -0.1, 0.26, 0.215).castShadow = false;
+  box(head, 0.12, 0.09, 0.05, eye, 0.1, 0.26, 0.215).castShadow = false;
+  box(head, 0.18, 0.07, 0.06, skinDk, 0, 0.08, 0.21);  // strong jaw / chin
+  // Hair + a red lifeguard cap.
+  box(head, 0.46, 0.16, 0.46, hair, 0, 0.4, -0.02);
+  box(head, 0.48, 0.12, 0.48, shorts, 0, 0.5, 0);      // cap crown
+  box(head, 0.4, 0.05, 0.24, shorts, 0, 0.46, 0.28);   // cap bill
+
+  // ---- Tail: tiny null-safe pivot for the animator contract.
+  const tail = pivot(g, 0, 1.1, -0.2);
+
+  g.userData = { head, legs: [legL, legR], tail, arms: [armL, armR], gun, gunTip };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createShark — ambient. A grey shark with a prominent dorsal fin
+ *  (cruises just under the surface), tail fin + body. ~3.2 long.
+ *  Center origin (vertical center near y=0); animated by world position.
+ * ------------------------------------------------------------------ */
+
+export function createShark() {
+  const g = new THREE.Group();
+  const grey = mat(0x6b7a86);
+  const greyLt = mat(0xb9c4cc);                        // pale belly
+  const greyDk = mat(0x4a5660);                        // fin edge
+  const white = mat(0xf6f6f2);
+  const eye = mat(0x14110e);
+
+  // ---- Body: a long torpedo. Sphere stretched far along Z, tapering to a
+  //      lean tail. Center origin so it sits at the requested vertical 0.
+  const body = add(g, sphGeo(0.6, 12, 8), grey, 0, 0, 0.1);
+  body.scale.set(1.0, 0.92, 2.6);
+  add(g, sphGeo(0.46, 10, 7), greyLt, 0, -0.18, 0.1).scale.set(0.94, 0.6, 2.4); // belly
+  // Lean tail stalk reaching back.
+  box(g, 0.34, 0.34, 0.7, grey, 0, 0.0, -1.4);
+
+  // ---- Snout / head, pointed forward with gills + a toothy mouth.
+  const snout = add(g, sphGeo(0.4, 8, 6), grey, 0, 0.02, 1.5);
+  snout.scale.set(0.9, 0.8, 1.3);
+  for (const s of [-1, 1]) {
+    add(g, sphGeo(0.09, 6, 5), eye, s * 0.28, 0.12, 1.7); // eyes
+    for (let i = 0; i < 3; i++) box(g, 0.04, 0.18, 0.04, greyDk, s * 0.34, 0.0, 1.2 - i * 0.12); // gill slits
+  }
+  box(g, 0.5, 0.1, 0.18, white, 0, -0.2, 1.8);          // toothy mouth
+  for (let i = 0; i < 5; i++) box(g, 0.05, 0.08, 0.04, greyDk, -0.2 + i * 0.1, -0.16, 1.88); // teeth
+
+  // ---- Prominent dorsal fin (the iconic triangle) on top.
+  const dorsal = box(g, 0.1, 0.62, 0.5, grey, 0, 0.62, 0.0);
+  dorsal.rotation.x = -0.3;                              // rakes back
+  box(g, 0.08, 0.3, 0.22, greyDk, 0, 0.86, -0.1).rotation.x = -0.3; // tip
+  // Pectoral fins angled out + down.
+  for (const s of [-1, 1]) {
+    const pec = box(g, 0.5, 0.08, 0.3, grey, s * 0.5, -0.2, 0.5);
+    pec.rotation.z = s * -0.5;
+    pec.rotation.y = s * 0.3;
+  }
+  // Small second dorsal + pelvic fin.
+  box(g, 0.08, 0.22, 0.18, grey, 0, 0.4, -1.1).rotation.x = -0.3;
+
+  // ---- Tail fin: big upper lobe + small lower lobe (heterocercal).
+  const tailTop = box(g, 0.1, 0.7, 0.4, grey, 0, 0.3, -1.85);
+  tailTop.rotation.x = 0.5;
+  const tailBot = box(g, 0.1, 0.4, 0.3, grey, 0, -0.2, -1.8);
+  tailBot.rotation.x = -0.4;
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createDolphin — ambient. A smooth grey/blue dolphin posed mid-leap
+ *  in a gentle arc (body, dorsal fin, tail fluke, beak). ~2.6 long.
+ *  Center origin; animated by world position along its jump.
+ * ------------------------------------------------------------------ */
+
+export function createDolphin() {
+  const g = new THREE.Group();
+  const grey = mat(0x7c8fa6);                           // grey-blue back
+  const belly = mat(0xeef3f8);                          // pale belly
+  const fin = mat(0x6b7d94);
+  const eye = mat(0x14110e);
+
+  // Pose the whole dolphin in a shallow leaping arc (nose up, tail down).
+  const arc = pivot(g, 0, 0, 0);
+  arc.rotation.x = -0.35;                               // tilt nose-up
+
+  // ---- Body: smooth fusiform. Sphere stretched along Z, tapering.
+  const body = add(arc, sphGeo(0.5, 12, 8), grey, 0, 0, 0.1);
+  body.scale.set(1.0, 0.94, 2.4);
+  add(arc, sphGeo(0.4, 10, 7), belly, 0, -0.16, 0.1).scale.set(0.94, 0.62, 2.2); // pale belly
+  box(arc, 0.34, 0.34, 0.7, grey, 0, -0.02, -1.25);     // tail stalk
+
+  // ---- Head with the classic beak (rostrum) + melon forehead.
+  const headBlob = add(arc, sphGeo(0.42, 10, 7), grey, 0, 0.06, 1.2);
+  headBlob.scale.set(0.95, 0.95, 1.1);
+  box(arc, 0.26, 0.2, 0.4, grey, 0, -0.04, 1.6);        // beak base
+  box(arc, 0.18, 0.13, 0.26, belly, 0, -0.06, 1.86);    // beak tip
+  add(arc, sphGeo(0.06, 6, 5), eye, -0.26, 0.1, 1.32);  // eyes
+  add(arc, sphGeo(0.06, 6, 5), eye, 0.26, 0.1, 1.32);
+  box(arc, 0.34, 0.06, 0.1, mat(0x556074), 0, -0.1, 1.7); // smile mouth line
+
+  // ---- Curved dorsal fin (swept back).
+  const dorsal = box(arc, 0.08, 0.46, 0.4, fin, 0, 0.5, 0.0);
+  dorsal.rotation.x = -0.5;
+  // Pectoral flippers angled down.
+  for (const s of [-1, 1]) {
+    const pec = box(arc, 0.4, 0.08, 0.24, fin, s * 0.42, -0.18, 0.6);
+    pec.rotation.z = s * -0.6;
+  }
+
+  // ---- Tail fluke (horizontal, at the back) — two lobes.
+  const fluke = pivot(arc, 0, -0.1, -1.65);
+  fluke.rotation.x = 0.4;
+  box(fluke, 0.7, 0.08, 0.34, fin, 0, 0, -0.16);
+  for (const s of [-1, 1]) box(fluke, 0.3, 0.07, 0.26, fin, s * 0.4, 0, -0.22);
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createSeagull — ambient flyer. Small white/grey gull. Center origin.
+ *  userData: { wings: [wingL, wingR] } — two pivot Groups at the
+ *  shoulders so the world can flap them (rotation.z).
+ * ------------------------------------------------------------------ */
+
+export function createSeagull() {
+  const g = new THREE.Group();
+  const white = mat(0xf6f6f2);
+  const greyWing = mat(0x9aa7b2);
+  const greyDk = mat(0x5a6670);
+  const beakM = mat(0xffb300);
+  const eye = mat(0x14110e);
+
+  // ---- Body + head (white), small grey-capped back.
+  const body = add(g, sphGeo(0.26, 10, 7), white, 0, 0, 0);
+  body.scale.set(1.0, 0.9, 1.5);
+  add(g, sphGeo(0.2, 8, 6), white, 0, 0.16, 0.3);       // head/neck
+  // Short tail.
+  box(g, 0.24, 0.08, 0.26, white, 0, 0.02, -0.34);
+  box(g, 0.2, 0.06, 0.16, greyDk, 0, 0.02, -0.46);      // dark tail tip
+
+  // ---- Beak + eyes.
+  box(g, 0.07, 0.07, 0.18, beakM, 0, 0.14, 0.5);
+  box(g, 0.05, 0.05, 0.06, mat(0xe53935), 0, 0.12, 0.56); // gull beak red dot
+  add(g, sphGeo(0.04, 5, 4), eye, -0.1, 0.2, 0.42);
+  add(g, sphGeo(0.04, 5, 4), eye, 0.1, 0.2, 0.42);
+
+  // ---- Wings: pivot at each shoulder so the world flaps them on Z.
+  //      Each wing is a long swept plank with a grey leading edge + dark tips.
+  const wings = [];
+  for (const s of [-1, 1]) {
+    const wing = pivot(g, s * 0.18, 0.1, 0.05);
+    const inner = box(wing, 0.6, 0.06, 0.32, white, s * 0.32, 0, -0.02);
+    inner.rotation.z = s * 0.05;
+    const outer = box(wing, 0.6, 0.06, 0.24, greyWing, s * 0.86, 0.02, -0.06);
+    outer.rotation.z = s * 0.05;
+    box(wing, 0.26, 0.05, 0.16, greyDk, s * 1.1, 0.03, -0.1); // dark wing tip
+    wings.push(wing);
+  }
+  const [wingL, wingR] = wings;
+
+  g.userData = { wings: [wingL, wingR] };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createUmbrella — a tilted beach umbrella: pole + wide striped canopy
+ *  (two alternating colours) + a small shadow base. Bottom-center origin.
+ *  ~3.4 tall, canopy ~3.2 across.
+ * ------------------------------------------------------------------ */
+
+export function createUmbrella() {
+  const g = new THREE.Group();
+  const poleM = mat(0xcfd8dc);
+  const sandBase = mat(COLORS.sand);
+  const cA = mat(0xe53935);                             // stripe colour A (red)
+  const cB = mat(0xf6f6f2);                             // stripe colour B (white)
+  const ribM = mat(0xb0bec5);
+
+  // Tilt the whole umbrella for a relaxed lean. The lean pivot sits ON the
+  // ground; everything else hangs off it so the lowest point stays at y≈0.
+  const lean = pivot(g, 0, 0.02, 0);
+  lean.rotation.z = 0.16;
+
+  // ---- Pole pushed into the sand, with a little mound at the base.
+  add(g, sphGeo(0.5, 8, 5), sandBase, 0, 0.17, 0).scale.set(1.4, 0.34, 1.4); // sand mound
+  add(lean, cylGeo(0.06, 0.06, 3.0, 8), poleM, 0, 1.5, 0);
+  add(lean, sphGeo(0.08, 6, 5), poleM, 0, 3.0, 0);      // pole finial
+
+  // ---- Canopy: a shallow cone built from alternating-colour radial gore
+  //      panels. Each gore is a flat box whose WIDTH is set directly (no
+  //      scaling of a rotated object), tilted down to the rim so the panels
+  //      slope from the hub (high) to the rim (low) like real umbrella cloth.
+  const segs = 10, R = 1.55, ringY = 2.62, rimDrop = 0.5;
+  const goreW = 2 * R * Math.sin(Math.PI / segs) + 0.02;  // chord width of one gore
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * PI2;
+    // Gore pivot at the hub, rotated to face its slice, panel slung outward.
+    const gore = pivot(lean, 0, ringY, 0);
+    gore.rotation.y = -a;
+    const panel = box(gore, goreW, 0.05, R, i % 2 ? cA : cB, 0, 0, R * 0.5);
+    panel.rotation.x = Math.atan2(rimDrop, R);          // slope down to the rim
+  }
+  // A small solid hub cone tops the gores off where they meet.
+  add(lean, coneGeo(0.28, 0.34, segs), mat(0xb71c1c), 0, ringY + 0.18, 0);
+  // Rim ribs / scalloped edge tips around the canopy edge.
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * PI2;
+    const tip = box(lean, 0.12, 0.06, 0.12, ribM,
+      Math.cos(a) * R, ringY - rimDrop, Math.sin(a) * R);
+    tip.rotation.y = -a;
+  }
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createLifeguardTower — classic raised hut on stilts with a ladder,
+ *  railed deck, and a little pitched roof. Red/white. Bottom-center
+ *  origin; ~4.2 tall.
+ * ------------------------------------------------------------------ */
+
+export function createLifeguardTower() {
+  const g = new THREE.Group();
+  const wood = mat(COLORS.wood, false, 'planks');
+  const post = mat(COLORS.woodDark);
+  const red = mat(0xe53935);
+  const white = mat(0xf6f6f2);
+  const railM = mat(0xfdf5e6);
+  const glass = mat(0x80d8ff);
+
+  const deckY = 2.2;                                    // deck height
+  const hw = 1.1;                                       // half-width of the hut
+
+  // ---- Four stilts splaying slightly outward at the base for stability.
+  for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    const leg = box(g, 0.16, deckY + 0.2, 0.16, post, sx * (hw - 0.1), (deckY) / 2, sz * (hw - 0.1));
+    leg.rotation.z = -sx * 0.05;
+    leg.rotation.x = sz * 0.05;
+  }
+  // Cross-brace X's on two faces.
+  for (const sz of [1, -1]) {
+    const b1 = box(g, 0.08, 2.0, 0.08, post, 0, deckY / 2, sz * (hw - 0.1));
+    b1.rotation.z = 0.7;
+    const b2 = box(g, 0.08, 2.0, 0.08, post, 0, deckY / 2, sz * (hw - 0.1));
+    b2.rotation.z = -0.7;
+  }
+
+  // ---- Deck platform.
+  box(g, hw * 2 + 0.3, 0.16, hw * 2 + 0.3, wood, 0, deckY, 0);
+  // Railing posts + top rail around the deck (open front).
+  for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    box(g, 0.08, 0.5, 0.08, railM, sx * hw, deckY + 0.35, sz * hw);
+  }
+  box(g, hw * 2, 0.07, 0.07, railM, 0, deckY + 0.55, -hw);   // back rail
+  box(g, 0.07, 0.07, hw * 2, railM, hw, deckY + 0.55, 0);    // side rails
+  box(g, 0.07, 0.07, hw * 2, railM, -hw, deckY + 0.55, 0);
+
+  // ---- Hut: white walls + a big red front opening (the lookout window).
+  box(g, hw * 2, 1.1, hw * 2, white, 0, deckY + 0.7, 0);
+  box(g, hw * 2 + 0.04, 0.2, hw * 2 + 0.04, red, 0, deckY + 0.3, 0); // red skirt band
+  box(g, 1.7, 0.7, 0.06, glass, 0, deckY + 0.8, hw + 0.01);          // front window
+  // Side windows.
+  for (const s of [-1, 1]) box(g, 0.06, 0.6, 0.9, glass, s * (hw + 0.01), deckY + 0.8, 0);
+
+  // ---- Pitched roof (red), overhanging.
+  for (const s of [-1, 1]) {
+    const slab = box(g, hw * 2 + 0.5, 0.12, hw + 0.5, red, 0, deckY + 1.5, s * (hw / 2 + 0.1));
+    slab.rotation.x = s * 0.5;
+  }
+  box(g, hw * 2 + 0.5, 0.1, 0.14, post, 0, deckY + 1.72, 0);         // ridge cap
+
+  // ---- Ladder up the front (+Z front side).
+  for (const s of [-1, 1]) box(g, 0.07, deckY, 0.07, post, s * 0.35, deckY / 2 + 0.1, hw + 0.18);
+  for (let i = 0; i < 5; i++) box(g, 0.78, 0.06, 0.06, post, 0, 0.4 + i * 0.42, hw + 0.18);
+
+  // ---- "LIFEGUARD" flag pole on the roof.
+  add(g, cylGeo(0.04, 0.04, 0.8, 6), post, 0, deckY + 2.1, 0);
+  box(g, 0.5, 0.3, 0.04, red, 0.26, deckY + 2.35, 0);
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createBeachBarrel — a real 3D barrel: cylinder body with a bulged
+ *  midsection, two hoop bands, top + bottom rims, and stave seams.
+ *  Washed-up wooden look. Bottom-center origin; ~1.4 tall.
+ * ------------------------------------------------------------------ */
+
+export function createBeachBarrel() {
+  const g = new THREE.Group();
+  const wood = mat(0xa9733f, false, 'planks');
+  const woodDk = mat(0x7a4f29);
+  const hoop = mat(0x5b6670, true);                     // dark metal bands
+  const rim = mat(0x8a8f96, true);
+
+  const H = 1.3, r = 0.5, rBulge = 0.56;
+
+  // ---- Body: a slightly bulged barrel built from three stacked cylinders
+  //      (narrow / wide / narrow) so it has the classic barrel curve.
+  add(g, cylGeo(rBulge, r, H * 0.36, 12), wood, 0, H * 0.18, 0);          // lower taper
+  add(g, cylGeo(rBulge, rBulge, H * 0.3, 12), wood, 0, H * 0.5, 0);        // belly
+  add(g, cylGeo(r, rBulge, H * 0.36, 12), wood, 0, H * 0.82, 0);          // upper taper
+
+  // ---- Stave seams: thin vertical dark ribs around the belly.
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * PI2;
+    const seam = box(g, 0.03, H, 0.04, woodDk, Math.cos(a) * rBulge, H / 2, Math.sin(a) * rBulge);
+    seam.rotation.y = -a;
+  }
+
+  // ---- Two hoop bands around the body + top/bottom rims.
+  add(g, cylGeo(rBulge + 0.03, rBulge + 0.03, 0.1, 12), hoop, 0, H * 0.32, 0);
+  add(g, cylGeo(rBulge + 0.03, rBulge + 0.03, 0.1, 12), hoop, 0, H * 0.68, 0);
+  add(g, cylGeo(r + 0.04, r + 0.04, 0.08, 12), rim, 0, H - 0.02, 0);       // top rim
+  add(g, cylGeo(r + 0.04, r + 0.04, 0.08, 12), rim, 0, 0.04, 0);          // bottom rim
+
+  // ---- Top + bottom lids.
+  add(g, cylGeo(r - 0.02, r - 0.02, 0.06, 12), woodDk, 0, H - 0.01, 0);
+  add(g, cylGeo(r - 0.02, r - 0.02, 0.06, 12), woodDk, 0, 0.02, 0);
+  // A little bung plug on top.
+  add(g, cylGeo(0.07, 0.07, 0.06, 6), hoop, 0, H + 0.02, 0.2);
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createSandcastle — stacked sandy blocks/turrets with a flag on top
+ *  and a little moat ring. Bottom-center origin; ~2.5 tall.
+ * ------------------------------------------------------------------ */
+
+export function createSandcastle() {
+  const g = new THREE.Group();
+  const sand = mat(COLORS.sand);
+  const sandDk = mat(_tint(COLORS.sand, 0.82));
+  const sandLt = mat(_tint(COLORS.sand, 1.1));
+  const flagM = mat(0xe53935);
+  const water = mat(COLORS.water);
+
+  // ---- Moat ring (a thin water torus around the base).
+  const moat = add(g, torusGeo(1.5, 0.18, 6, 16), water, 0, 0.06, 0);
+  moat.rotation.x = Math.PI / 2;
+
+  // ---- Base keep: a wide block with a darker rampart band.
+  box(g, 1.5, 0.6, 1.5, sand, 0, 0.3, 0);
+  box(g, 1.56, 0.12, 1.56, sandDk, 0, 0.56, 0);         // wall-top walkway
+  // Crenellations along the top edges (little merlons).
+  for (let i = -1; i <= 1; i++) {
+    for (const sz of [-1, 1]) box(g, 0.2, 0.16, 0.2, sandLt, i * 0.5, 0.68, sz * 0.7);
+    for (const sx of [-1, 1]) box(g, 0.2, 0.16, 0.2, sandLt, sx * 0.7, 0.68, i * 0.5);
+  }
+  // Arched doorway on the front.
+  box(g, 0.34, 0.4, 0.06, sandDk, 0, 0.22, 0.76);
+
+  // ---- Second tier (smaller block).
+  box(g, 0.86, 0.5, 0.86, sand, 0, 0.85, 0);
+  box(g, 0.9, 0.1, 0.9, sandDk, 0, 1.08, 0);
+
+  // ---- Four corner turrets: cylinders capped with sandy cones.
+  for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    const tx = sx * 0.62, tz = sz * 0.62;
+    add(g, cylGeo(0.18, 0.2, 0.9, 8), sandLt, tx, 0.45, tz);
+    add(g, coneGeo(0.24, 0.3, 8), sandDk, tx, 0.95, tz);
+  }
+  // ---- Central tall turret + flag.
+  add(g, cylGeo(0.22, 0.26, 0.7, 8), sandLt, 0, 1.4, 0);
+  add(g, coneGeo(0.3, 0.34, 8), sandDk, 0, 1.85, 0);
+  add(g, cylGeo(0.025, 0.025, 0.6, 6), mat(0x8d6e63), 0, 2.3, 0); // flag pole
+  const flag = box(g, 0.34, 0.22, 0.03, flagM, 0.18, 2.45, 0);
+  flag.castShadow = false;
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createBoat — a small fishing boat: hull + a small cabin + a mast.
+ *  Bottom-center origin (keel at y≈0 so it floats with a little draft).
+ *  ~3.4 long. Faces +Z (bow forward).
+ * ------------------------------------------------------------------ */
+
+export function createBoat() {
+  const g = new THREE.Group();
+  const hull = mat(0xb53f2e);                           // weathered red hull
+  const hullLt = mat(0xd7e0e6);                         // white topside stripe
+  const deck = mat(COLORS.wood, false, 'planks');
+  const cabin = mat(0xf6f6f2);
+  const trim = mat(0x1e88e5);
+  const mastM = mat(COLORS.woodDark);
+
+  // ---- Hull: a tapered box (pointed bow at +Z) + a sloped underside.
+  box(g, 1.0, 0.5, 2.6, hull, 0, 0.35, -0.1);           // main hull
+  box(g, 0.7, 0.5, 0.7, hull, 0, 0.35, 1.35);           // bow block
+  box(g, 0.5, 0.4, 0.5, hull, 0, 0.28, 1.7);            // pointed bow tip
+  box(g, 1.04, 0.12, 2.6, hullLt, 0, 0.56, -0.1);       // gunwale stripe
+  // Deck floor inset.
+  box(g, 0.8, 0.08, 2.2, deck, 0, 0.6, -0.1);
+
+  // ---- Small cabin toward the stern.
+  box(g, 0.7, 0.6, 0.8, cabin, 0, 0.92, -0.7);
+  box(g, 0.74, 0.08, 0.84, trim, 0, 1.18, -0.7);        // cabin roof trim
+  box(g, 0.4, 0.3, 0.05, mat(0x80d8ff), 0, 0.98, -0.28); // cabin window
+  for (const s of [-1, 1]) box(g, 0.05, 0.3, 0.4, mat(0x80d8ff), s * 0.36, 0.98, -0.7); // side windows
+
+  // ---- Mast + a small boom, with a tiny pennant.
+  add(g, cylGeo(0.05, 0.06, 1.8, 6), mastM, 0, 1.5, 0.3);
+  box(g, 0.05, 0.05, 0.9, mastM, 0, 1.9, 0.55);         // boom
+  const flag = box(g, 0.04, 0.28, 0.4, trim, 0, 2.2, 0.2);
+  flag.castShadow = false;
+
+  // ---- A deck detail: a buoy ring.
+  const buoy = add(g, torusGeo(0.16, 0.06, 5, 10), mat(0xffb300), 0.4, 0.7, 0.5);
+  buoy.rotation.x = Math.PI / 2;
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createYacht — a sleeker, larger white yacht: long hull + multi-level
+ *  cabin + railing. Bottom-center origin (waterline near y≈0). ~5.2 long.
+ *  Faces +Z (bow forward).
+ * ------------------------------------------------------------------ */
+
+export function createYacht() {
+  const g = new THREE.Group();
+  const hull = mat(0xf6f6f2);                           // glossy white hull
+  const hullDk = mat(0x37474f);                         // dark waterline / bottom
+  const cabin = mat(0xeceff1);
+  const glassM = mat(0x80d8ff);
+  const trim = mat(0x1565c0);
+  const teak = mat(COLORS.wood, false, 'planks');
+  const railM = mat(0xcfd8dc);
+
+  // ---- Long sleek hull: wide amidships, tapering to a sharp bow at +Z.
+  box(g, 1.2, 0.4, 3.6, hullDk, 0, 0.25, -0.2);         // dark lower hull
+  box(g, 1.24, 0.5, 3.6, hull, 0, 0.6, -0.2);           // white topsides
+  box(g, 0.9, 0.5, 0.9, hull, 0, 0.6, 1.7);             // bow taper block
+  box(g, 0.5, 0.5, 0.8, hull, 0, 0.56, 2.25);           // sharp bow
+  box(g, 1.26, 0.1, 3.6, trim, 0, 0.5, -0.2);           // blue boot stripe
+
+  // ---- Teak deck.
+  box(g, 1.0, 0.08, 3.0, teak, 0, 0.86, -0.1);
+
+  // ---- Multi-level superstructure (two stacked cabins) + a flybridge.
+  box(g, 1.0, 0.6, 1.8, cabin, 0, 1.18, -0.4);          // main cabin
+  box(g, 1.04, 0.34, 1.4, glassM, 0, 1.3, -0.3);        // wraparound windows
+  box(g, 0.8, 0.5, 1.0, cabin, 0, 1.62, -0.6);          // upper deck
+  box(g, 0.84, 0.28, 0.8, glassM, 0, 1.7, -0.5);        // upper windows
+  box(g, 0.5, 0.3, 0.5, cabin, 0, 1.98, -0.7);          // flybridge helm
+  // Radar arch + a small mast.
+  for (const s of [-1, 1]) {
+    const arch = box(g, 0.06, 0.5, 0.06, railM, s * 0.3, 2.2, -0.9);
+    arch.rotation.z = s * -0.2;
+  }
+  box(g, 0.7, 0.06, 0.06, railM, 0, 2.42, -0.9);        // arch top
+  add(g, cylGeo(0.04, 0.04, 0.6, 6), railM, 0, 2.7, -0.9); // antenna
+
+  // ---- Bow railing (stanchions + a top rail) running forward.
+  for (const z of [1.0, 1.4, 1.8]) {
+    for (const s of [-1, 1]) box(g, 0.04, 0.34, 0.04, railM, s * 0.5, 1.0, z);
+  }
+  for (const s of [-1, 1]) box(g, 0.05, 0.05, 1.0, railM, s * 0.5, 1.16, 1.4);
+
+  // ---- A little blue flag at the stern.
+  add(g, cylGeo(0.035, 0.035, 0.7, 6), railM, 0, 1.2, -2.0);
+  const flag = box(g, 0.04, 0.26, 0.4, trim, 0, 1.42, -2.18);
+  flag.castShadow = false;
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createPalm — a palm tree: a gently curved trunk made of stacked
+ *  ring segments, a crown of several drooping fronds, and a few
+ *  coconuts. Bottom-center origin; ~5 tall.
+ * ------------------------------------------------------------------ */
+
+export function createPalm() {
+  const g = new THREE.Group();
+  const bark = mat(0xa6824c);
+  const barkDk = mat(0x806035);
+  const frond = mat(0x43a047);
+  const frondDk = mat(0x2e7d32);
+  const coco = mat(0x6d4c41);
+
+  // ---- Curved trunk: stack short ring segments, each nudged in +Z and
+  //      tilted a touch so the trunk leans/curves like a real palm. The
+  //      crown pivot rides the top of the curve.
+  const segH = 0.5, segs = 8;
+  let cy = 0, cz = 0, lean = 0;
+  let topY = 0, topZ = 0;
+  for (let i = 0; i < segs; i++) {
+    const r = 0.26 - i * 0.014;                         // taper upward
+    const seg = add(g, cylGeo(r - 0.01, r, segH + 0.04, 8), i % 2 ? bark : barkDk,
+      0, cy + segH / 2, cz);
+    seg.rotation.x = -lean;                             // tilt forward (+Z)
+    // Advance up the curve: more lean as we climb for the classic arc.
+    lean += 0.06;
+    cy += segH * Math.cos(lean);
+    cz += segH * Math.sin(lean);
+    topY = cy; topZ = cz;
+  }
+
+  // ---- Crown hub at the top of the trunk.
+  const crown = pivot(g, 0, topY, topZ);
+  add(crown, sphGeo(0.22, 8, 6), barkDk, 0, 0, 0);      // frond base knot
+
+  // ---- Several drooping fronds radiating out + down.
+  const nFronds = 7;
+  for (let i = 0; i < nFronds; i++) {
+    const a = (i / nFronds) * PI2;
+    const frondG = pivot(crown, 0, 0, 0);
+    frondG.rotation.y = a;
+    frondG.rotation.x = 0.5;                            // droop downward
+    // Each frond: a tapered midrib + a few leaflet blades.
+    const midrib = box(frondG, 0.06, 0.06, 1.5, frondDk, 0, 0.0, 0.78);
+    midrib.rotation.x = 0.25;
+    for (let k = 1; k <= 4; k++) {
+      const blade = box(frondG, 0.5 - k * 0.06, 0.03, 0.4, frond, 0, -0.05 * k, 0.35 * k);
+      blade.rotation.x = 0.25;
+    }
+    // Drooping tip.
+    box(frondG, 0.18, 0.03, 0.4, frond, 0, -0.32, 1.55).rotation.x = 0.7;
+  }
+
+  // ---- A small cluster of coconuts under the crown.
+  for (const [dx, dz] of [[0.12, 0.12], [-0.12, 0.1], [0.02, -0.14]]) {
+    add(crown, sphGeo(0.11, 6, 5), coco, dx, -0.18, dz);
+  }
+
+  return g;
+}

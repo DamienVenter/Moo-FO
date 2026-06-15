@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { CFG, COLORS, IS_MOBILE, ENABLE_SHADOWS } from './config.js';
 import { World } from './world.js';
+import { BeachWorld } from './beachworld.js';
 import { Sky } from './sky.js';
 import { DayCycle } from './daycycle.js';
 import { UFO } from './ufo.js';
@@ -53,7 +54,10 @@ window.addEventListener('resize', () => {
 // ---------------------------------------------------------------------------
 const audio = new AudioManager();
 const cycle = new DayCycle();
-const world = new World(scene);
+// Which map to load is a persisted boot choice (switching reloads the page;
+// all progress lives in localStorage so nothing is lost). 'farm' | 'beach'.
+const MAP = (() => { try { return localStorage.getItem('moofo-map') === 'beach' ? 'beach' : 'farm'; } catch (_) { return 'farm'; } })();
+const world = MAP === 'beach' ? new BeachWorld(scene, audio) : new World(scene);
 const sky = new Sky(scene);
 const effects = new Effects(scene);
 const ufo = new UFO(scene, world, effects, audio);
@@ -128,7 +132,7 @@ function onAbduct({ kind, variant, points, pos }) {
   // Cow Coins per abduction (stacks with end-of-level star rewards): 10 for a
   // cow (incl. golden), 5 for any other critter. Banked live so the wallet
   // grows every run.
-  const coinGain = (kind === 'chicken' || kind === 'sheep' || kind === 'pig' || kind === 'horse') ? 5 : 10;
+  const coinGain = (kind === 'chicken' || kind === 'sheep' || kind === 'pig' || kind === 'horse' || kind === 'fish') ? 5 : 10;
   wallet.add(coinGain);
 
   // Daily-mission progress (abductions, points earned, combo reached). Each may
@@ -173,8 +177,11 @@ function spawnEntities() {
   disposeEntities();
   cows = new CowManager(scene, world, effects, audio, { onAbduct });
   cows.populate();
-  farmers = new FarmerManager(scene, world, effects, audio, { onHitPlayer, difficulty });
-  dogs = new DogManager(scene, world, effects, audio, { farmers });
+  // On the beach the "farmer" threat is a LIFEGUARD with a water gun; no dogs.
+  farmers = new FarmerManager(scene, world, effects, audio, { onHitPlayer, difficulty, threatVariant: MAP === 'beach' ? 'lifeguard' : 'farmer' });
+  dogs = (MAP === 'beach')
+    ? { dogs: [], update() {}, dispose() {} }
+    : new DogManager(scene, world, effects, audio, { farmers });
 }
 
 function disposeEntities() {
@@ -246,6 +253,7 @@ const ui = new UI({
   upgrades,
   cosmetics,
   dailyMissions,
+  map: MAP,
   onBuyUpgrade: (track) => {
     const ok = upgrades.buy(track, wallet);
     if (ok) ufo.applyUpgrades(upgrades);   // reflect immediately
@@ -432,6 +440,13 @@ document.addEventListener('pointerdown', (e) => {
   if (!btn || btn.closest('#mf-touch')) return;
   audio.play('click', { volume: 0.5, ratejitter: 0.06 });
 }, true);
+
+// Beach: a constant ocean-surf ambience while flying the map.
+function updateWavesSound() {
+  if (MAP !== 'beach') return;
+  if (state === State.PLAYING || state === State.COUNTDOWN) audio.startLoop('waves', { volume: 0.5 });
+  else audio.stopLoop('waves');
+}
 
 // Waterfall ambience: a proximity loop that swells as you near the falls.
 function updateWaterfallSound() {
@@ -669,6 +684,7 @@ function frame() {
 
   updateWaterfallSound();
   updateTractorSound();
+  updateWavesSound();
   updateCamera(dt);
   renderer.render(scene, camera);
 }

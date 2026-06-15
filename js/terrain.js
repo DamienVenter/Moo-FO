@@ -143,7 +143,7 @@ function basinField(x, z, b, skirt) {
   return d;
 }
 
-export function terrainHeight(x, z) {
+function farmHeight(x, z) {
   // base rolling hills (broader + taller now for more elevation variety)
   let h = 0.6 + fbm(x * 0.011, z * 0.011) * 8.5;
 
@@ -244,6 +244,41 @@ export function terrainHeight(x, z) {
   }
 
   return h;
+}
+
+// The shoreline runs (roughly N–S) along z, meandering a little, at this x.
+// Left of it (smaller x) = OCEAN; right of it = BEACH sand + dunes.
+export const BEACH_SHORE_X = -30;
+export function beachShoreX(z) {
+  return BEACH_SHORE_X + Math.sin(z * 0.03) * 5 + Math.sin(z * 0.013 + 1.0) * 7;
+}
+
+// Beach biome height: ocean on the left (sloping down underwater), a sandy
+// shore, then gently rising sand with rolling dunes inland on the right.
+function beachHeight(x, z) {
+  const dx = x - beachShoreX(z);              // <0 sea side, >0 beach side
+  if (dx < 0) {
+    // ocean floor — slopes deeper to the left, with a soft seabed ripple.
+    let depth = -1.2 + dx * 0.05;             // dx negative → goes negative
+    depth += (fbm(x * 0.02 + 5, z * 0.02 + 5) - 0.5) * 1.2;
+    return Math.max(depth, -16);
+  }
+  // wet sand near the waterline rising into the dry beach.
+  let h = 0.15 + dx * 0.03;
+  // rolling dunes further inland (fade in past the foreshore, capped so the
+  // UFO always clears them).
+  const dune = (fbm(x * 0.013 + 20, z * 0.013 + 20) - 0.45) * 16;
+  h += Math.max(0, dune) * clamp01((dx - 18) / 70);
+  return Math.min(h, 7.5);
+}
+
+let _biome = 'farm';
+/** Switch the global heightfield biome ('farm' | 'beach'). */
+export function setBiome(name) { _biome = (name === 'beach') ? 'beach' : 'farm'; }
+export function getBiome() { return _biome; }
+
+export function terrainHeight(x, z) {
+  return _biome === 'beach' ? beachHeight(x, z) : farmHeight(x, z);
 }
 
 // Highest ground in a small disc — the UFO probes this so it never clips a slope.

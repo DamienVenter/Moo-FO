@@ -124,9 +124,10 @@ export class UI {
     campaign, wallet,
     onStartLevel, onRetryLevel, onNextLevel, onLevelSelect,
     // --- shop / upgrades additions (all optional / duck-typed) ---
-    upgrades, cosmetics, dailyMissions,
+    upgrades, cosmetics, dailyMissions, map,
     onBuyUpgrade, onBuyCosmetic, onSelectCosmetic,
   } = {}) {
+    this._mapName = map === 'beach' ? 'beach' : 'farm';
     this.cb = {
       onStart: onStart || (() => {}),
       onResume: onResume || (() => {}),
@@ -562,6 +563,14 @@ export class UI {
       () => this.showUpgrades());
     this._modesMissionsBtn = button('mf-btn-secondary mf-modes-action', topActions, 'MISSIONS',
       () => this.showMissions());
+    // Map toggle: switch between the Farm and the Beach (persisted; reloads).
+    const onBeach = this._mapName === 'beach';
+    this._modesMapBtn = button('mf-btn-secondary mf-modes-action mf-modes-map', topActions,
+      onBeach ? '\u{1F33E} FARM' : '\u{1F3D6}\u{FE0F} BEACH',
+      () => {
+        try { localStorage.setItem('moofo-map', onBeach ? 'farm' : 'beach'); } catch (_) { /* blocked */ }
+        location.reload();
+      });
 
     const grid = el('div', 'mf-mode-grid', view);
 
