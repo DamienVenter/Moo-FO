@@ -4276,3 +4276,64 @@ button {
   .mf-upg-side .mf-preview { height: 180px; }
   .mf-shop-count { position: static; transform: none; margin-left: 8px; }
 }
+
+/* ====================================================================== */
+/* PHASE 3b polish — side-by-side shop, bigger preview, fuller upgrades,   */
+/* per-track colour fix, bigger coin bank. Appended last (wins cascade).   */
+/* ====================================================================== */
+
+/* SHOP: big preview + action on the LEFT, scrollable model grid on the RIGHT */
+.mf-shop-body { position: relative; z-index: 2; display: flex; gap: 22px; flex: 1 1 auto; min-height: 0; padding-top: 8px; }
+.mf-shop-left { flex: 0 0 40%; display: flex; flex-direction: column; min-width: 0; gap: 6px; }
+.mf-shop-left .mf-shop-stage { flex: 1 1 auto; height: auto; min-height: 0; width: 100%; }
+.mf-shop-left .mf-preview { width: 100%; height: 100%; }
+.mf-shop-left .mf-shop-focusname { font-size: 17px; }
+.mf-shop-right { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+.mf-shop-right .mf-shop-tabbar { flex: 0 0 auto; margin-bottom: 6px; }
+.mf-shop-right .mf-shop-grid { flex: 1 1 auto; min-height: 0; }
+.mf-shop-actionbar { padding: 6px 0 2px; }
+
+/* slightly smaller tiles so two-plus model rows are visible at once */
+.mf-shop-right .mf-shop-row5 { gap: 8px; }
+.mf-shop-right .mf-shop-cell { padding: 5px; border-radius: 10px; }
+.mf-shop-right .mf-shop-cell-name { font-size: 11px; }
+.mf-shop-right .mf-shop-model { margin-bottom: 12px; }
+.mf-shop-right .mf-shop-modelhd { margin: 2px 2px 6px; }
+
+/* UPGRADES: list fills the whole left side (rows grow to share the height) */
+.mf-upg-panel .mf-upg-left { min-height: 0; }
+.mf-upg-list { flex: 1 1 auto; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.mf-upg-row { flex: 1 1 0; min-height: 70px; }
+.mf-upg-side .mf-preview { height: 100%; width: 100%; }
+.mf-upg-side { justify-content: stretch; }
+
+/* per-track colour: drive BOTH the old CSS-variable spine/glow AND the new
+   rules from one source so warp-capacity is yellow everywhere (not purple). */
+.mf-upg-row[data-track="speed"]        { --mf-track: #5ad0ff; }
+.mf-upg-row[data-track="beam"]         { --mf-track: #7cfc9a; }
+.mf-upg-row[data-track="warpSpeed"]    { --mf-track: #c08bff; }
+.mf-upg-row[data-track="warpStrength"] { --mf-track: #ffd24a; }
+.mf-upg-row[data-track="hull"]         { --mf-track: #ff8a6e; }
+
+/* bigger, easier-to-read coin bank in the shop / upgrade / missions header */
+.mf-coin-shop { font-size: 22px; padding: 8px 18px 8px 12px; border-width: 2px; gap: 9px; }
+.mf-coin-shop .mf-coin-ico { width: 30px; height: 30px; }
+
+@media (max-width: 820px) {
+  .mf-shop-body { flex-direction: column; }
+  .mf-shop-left { flex-basis: auto; }
+  .mf-shop-left .mf-shop-stage { height: 30vh; flex: 0 0 auto; }
+  .mf-shop-right .mf-shop-row5 { grid-template-columns: repeat(5, 1fr); }
+}
+
+/* make the full-screen shop/upgrade panel actually fill the viewport (the base
+   .mf-screen centres its child; stretch it instead so the grid gets full height) */
+.mf-shop.mf-fullscreen { align-items: stretch; justify-content: stretch; padding: var(--sat, 0) var(--sar, 0) var(--sab, 0) var(--sal, 0); }
+.mf-shop-panel-full { flex: 1 1 auto; height: auto; align-self: stretch; }
+
+/* the grid sits in a full-height flex column now — drop the old 36vh cap */
+.mf-shop-right .mf-shop-grid { max-height: none; }
+
+/* bound the flex chain so the grid scrolls within the column (min-height:auto
+   was letting it expand to its full content height) */
+.mf-shop-panel-full, .mf-shop-left, .mf-shop-right { min-height: 0; }

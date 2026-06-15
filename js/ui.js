@@ -3555,7 +3555,20 @@ export class UI {
     el('h2', 'mf-panel-title mf-shop-title', head, 'SHOP');
     this._shopCoin = this._buildCoinWidget(head, 'mf-coin-shop');
 
-    const tabbar = el('div', 'mf-shop-tabbar', panel);
+    // Side-by-side body: big preview + action on the LEFT, tabs/counter/grid
+    // (scrolls through many model rows) on the RIGHT.
+    const body = el('div', 'mf-shop-body', panel);
+    const left = el('div', 'mf-shop-left', body);
+    const stage = el('div', 'mf-shop-stage', left);
+    this._shopPreview = this._buildPreviewCanvas(stage, 'mf-shop-preview');
+    this._shopFocusName = el('div', 'mf-shop-focusname', left, '');
+    const action = el('div', 'mf-shop-actionbar', left);
+    this._shopActPrice = el('div', 'mf-shop-actprice', action);
+    this._shopActBtn = el('button', 'mf-shop-actionbtn', action, 'BUY'); this._shopActBtn.type = 'button';
+    this._shopActBtn.addEventListener('click', (e) => { e.preventDefault(); this._onShopAction(); });
+
+    const right = el('div', 'mf-shop-right', body);
+    const tabbar = el('div', 'mf-shop-tabbar', right);
     const tabs = el('div', 'mf-shop-tabs', tabbar);
     this._shopTabUfo = el('button', 'mf-shop-tab mf-shop-tab-on', tabs); this._shopTabUfo.type = 'button';
     el('span', 'mf-shop-tab-txt', this._shopTabUfo, 'UFO');
@@ -3566,16 +3579,7 @@ export class UI {
     this._shopTabBeam.addEventListener('click', (e) => { e.preventDefault(); this._setShopTab('beam'); });
     this._shopCount = el('div', 'mf-shop-count', tabbar, '');
 
-    const stage = el('div', 'mf-shop-stage', panel);
-    this._shopPreview = this._buildPreviewCanvas(stage, 'mf-shop-preview');
-    this._shopFocusName = el('div', 'mf-shop-focusname', stage, '');
-
-    const action = el('div', 'mf-shop-actionbar', panel);
-    this._shopActPrice = el('div', 'mf-shop-actprice', action);
-    this._shopActBtn = el('button', 'mf-shop-actionbtn', action, 'BUY'); this._shopActBtn.type = 'button';
-    this._shopActBtn.addEventListener('click', (e) => { e.preventDefault(); this._onShopAction(); });
-
-    this._shopGrid = el('div', 'mf-shop-grid', panel);
+    this._shopGrid = el('div', 'mf-shop-grid', right);
 
     this._shopTab = 'ufo';
     this._shopFocusId = null;
@@ -3653,7 +3657,7 @@ export class UI {
         el('span', 'mf-shop-modelcap', hd, `Lv ${m.cap} cap`);
         el('span', `mf-shop-modeltag ${unlocked ? 'mf-modeltag-on' : ''}`, hd, unlocked ? 'UNLOCKED' : 'LOCKED');
         const row = el('div', 'mf-shop-row5', sec);
-        m.skins.forEach((sk, i) => this._makeCell(sk, false, row, { groupLocked: !unlocked && i !== 0 }));
+        m.skins.forEach((sk, i) => this._makeCell({ ...sk, shape: m.shape, model: m.id, modelName: m.name }, false, row, { groupLocked: !unlocked && i !== 0 }));
       }
     }
     this._observeThumbs(grid);
