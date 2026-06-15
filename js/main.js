@@ -504,9 +504,12 @@ function updateCamera(dt) {
     orbitOffset *= Math.exp(-dt * 0.7);   // drift back behind the ship while flying
   }
 
-  // chase: settle behind the flight heading (+ the player's offset)
+  // chase: settle behind the flight heading (+ the player's offset). The follow
+  // is gentler at low speed so the view doesn't tilt/swing sharply when you're
+  // creeping along (full responsiveness once you're moving at a fair clip).
   const targetYaw = ufo.heading + orbitOffset;
-  camYaw += wrapAngle(targetYaw - camYaw) * Math.min(1, dt * CFG.CAM_FOLLOW);
+  const followGain = CFG.CAM_FOLLOW * THREE.MathUtils.clamp(speed / 12, 0.4, 1);
+  camYaw += wrapAngle(targetYaw - camYaw) * Math.min(1, dt * followGain);
 
   const fx = Math.sin(camYaw);
   const fz = Math.cos(camYaw);

@@ -75,7 +75,7 @@ export const CFG = Object.freeze({
   FARMER_RANGE: 40,          // stops and shoots
   FARMER_FIRE_RATE: 0.85,    // seconds between shots
   BULLET_SPEED: 70,
-  BULLET_DAMAGE: 9,
+  BULLET_DAMAGE: 1,          // each hit removes exactly one hull "shot"
   BULLET_LIFETIME: 2.0,
 
   // Scoring

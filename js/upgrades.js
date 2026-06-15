@@ -19,7 +19,7 @@ export const TRACK_INFO = {
 };
 
 // level-0 floor and per-level gain per track (1.0 = the tuned baseline).
-const FLOOR = { speed: 1.20, beam: 0.60, warpSpeed: 0.60, warpStrength: 0.30, hull: 0.30 };
+const FLOOR = { speed: 0.84, beam: 0.60, warpSpeed: 0.60, warpStrength: 0.30, hull: 0.30 };
 const STEP  = { speed: 0.12, beam: 0.14, warpSpeed: 0.14, warpStrength: 0.16, hull: 0.16 };
 
 // Cost of each successive upgrade tier (level n → n+1): 200 … 1900.
@@ -82,6 +82,12 @@ export class Upgrades {
   /** Effectiveness multiplier for a track on the ACTIVE model. */
   mult(track) {
     return (FLOOR[track] || 0.3) + (STEP[track] || 0.13) * this.level(track);
+  }
+
+  /** Hull is measured in SHOTS the ship can take: 2 at level 0, +~1 per level
+   *  (so the cheapest model survives 2 hits, and tougher models far more). */
+  shots(id = this._active) {
+    return 2 + Math.round(this.level('hull', id) * 0.85);
   }
 
   /** Buy the next tier for the active (or given) model. Returns true on success. */

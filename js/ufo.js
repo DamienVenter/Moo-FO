@@ -28,7 +28,7 @@ export class UFO {
     this.ud = this.group.userData || {};
 
     // ---- public state (spec contract) ----
-    this.maxHealth = CFG.UFO_MAX_HEALTH;
+    this.maxHealth = 2;            // shots the hull can take (set by applyUpgrades)
     this.health = this.maxHealth;
     this.warpEnergy = 1;
     this.beamActive = false;
@@ -152,9 +152,9 @@ export class UFO {
     this.beamMul = up ? up.mult('beam') : 1;
     this.warpSpeedMul = up ? up.mult('warpSpeed') : 1;
     this.warpStrengthMul = up ? up.mult('warpStrength') : 1;
-    this.hullMul = up ? up.mult('hull') : 1;
-    // hull scales the ship's max HP off the tuned baseline (level 0 ≈ one hit).
-    this.maxHealth = Math.max(1, Math.round(CFG.UFO_MAX_HEALTH * this.hullMul));
+    // Hull is measured in SHOTS: each enemy hit removes exactly one. Level 0 =
+    // 2 shots (so you're never one-shot); tougher models take many more.
+    this.maxHealth = up ? up.shots() : 2;
     if (this.health > this.maxHealth) this.health = this.maxHealth;
     this.beamRadius = CFG.BEAM_RADIUS * this.beamMul;
     this.beamLiftSpeed = CFG.BEAM_LIFT_SPEED * this.beamMul;

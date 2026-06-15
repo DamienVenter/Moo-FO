@@ -313,21 +313,26 @@ export class HUD {
       }
     }
 
-    // Health (segments + green→yellow→red + shake on damage)
+    // Health = discrete SHOTS the hull can take. One segment per shot (so the
+    // bar literally shows how many hits you can survive); each hit clears one.
     if (typeof health === 'number') {
+      const hpMax = (typeof maxHealth === 'number' && maxHealth > 0) ? Math.round(maxHealth) : (p.healthMax || HEALTH_SEGS);
+      // rebuild the segment elements when the shot count changes.
+      if (hpMax !== p.healthMax) {
+        p.healthMax = hpMax;
+        this._healthBar.textContent = '';
+        this._healthSegEls = [];
+        for (let i = 0; i < hpMax; i++) this._healthSegEls.push(el('div', 'mf-seg mf-on', this._healthBar));
+        p.healthSegs = -1;   // force a re-fill below
+      }
       if (health < p.health - 0.001) this._repop(this._healthBar, 'mf-shake');
       p.health = health;
-      // Use the ship's CURRENT max (hull upgrades raise it) so an undamaged
-      // hull always reads full, whatever the player's hull level.
-      const hpMax = (typeof maxHealth === 'number' && maxHealth > 0) ? maxHealth : CFG.UFO_MAX_HEALTH;
-      const frac = Math.max(0, Math.min(1, health / hpMax));
-      const segs = frac <= 0 ? 0 : Math.max(1, Math.ceil(frac * HEALTH_SEGS));
-      if (segs !== p.healthSegs) {
-        p.healthSegs = segs;
-        for (let i = 0; i < HEALTH_SEGS; i++) {
-          this._healthSegEls[i].classList.toggle('mf-on', i < segs);
-        }
+      const cur = Math.max(0, Math.round(health));
+      if (cur !== p.healthSegs) {
+        p.healthSegs = cur;
+        for (let i = 0; i < this._healthSegEls.length; i++) this._healthSegEls[i].classList.toggle('mf-on', i < cur);
       }
+      const frac = hpMax ? cur / hpMax : 0;
       const cls = frac > 0.6 ? 'mf-hp-hi' : frac > 0.3 ? 'mf-hp-mid' : 'mf-hp-low';
       if (cls !== p.healthCls) {
         this._healthBar.classList.remove('mf-hp-hi', 'mf-hp-mid', 'mf-hp-low');
