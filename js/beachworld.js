@@ -11,12 +11,87 @@ import * as M from './models.js';
 const H = CFG.MAP_HALF;
 const WATER_Y = WATER_LEVEL + 0.05;
 
-// directional swell components for the ocean surface (Gerstner-ish).
-const WAVES = [
-  { dx: 1.0, dz: 0.18, len: 34, amp: 0.55, speed: 0.9 },
-  { dx: 0.7, dz: -0.5, len: 19, amp: 0.32, speed: 1.35 },
-  { dx: 0.3, dz: 0.9, len: 11, amp: 0.18, speed: 1.9 },
-];
+// ---- GPU ocean: Gerstner-wave vertex displacement + textured water shading.
+const OCEAN_VERT = `
+  uniform float uTime;
+  varying vec3 vWorld;
+  varying vec3 vN;
+  varying float vFoam;
+  varying float vShore;
+  float shoreX(float z){ return -30.0 + 5.0*sin(z*0.03) + 7.0*sin(z*0.013+1.0); }
+  void main(){
+    vec2 xz = vec2(position.x, position.z);
+    float sx = shoreX(xz.y);
+    float shoreDist = sx - xz.x;                 // >0 = open sea
+    vShore = shoreDist;
+    float ampF = clamp(shoreDist/55.0, 0.0, 1.0);// flatten to a clean waterline
+
+    vec2 dirs[5]; float L[5]; float Q[5]; float A[5]; float S[5];
+    dirs[0]=normalize(vec2(1.0,0.18)); L[0]=37.0; Q[0]=0.82; A[0]=0.85; S[0]=1.0;
+    dirs[1]=normalize(vec2(0.7,-0.5)); L[1]=21.0; Q[1]=0.72; A[1]=0.5;  S[1]=1.4;
+    dirs[2]=normalize(vec2(0.25,0.97));L[2]=12.5; Q[2]=0.6;  A[2]=0.3;  S[2]=1.9;
+    dirs[3]=normalize(vec2(-0.5,0.62));L[3]=7.7;  Q[3]=0.5;  A[3]=0.17; S[3]=2.5;
+    dirs[4]=normalize(vec2(0.9,0.42)); L[4]=4.6;  Q[4]=0.4;  A[4]=0.09; S[4]=3.3;
+
+    vec3 disp = vec3(0.0);
+    vec3 nrm = vec3(0.0, 1.0, 0.0);
+    float foam = 0.0;
+    for (int i=0;i<5;i++){
+      float k = 6.2831853/L[i];
+      float f = k*dot(dirs[i], xz) + uTime*S[i];
+      float a = A[i]*ampF;
+      float ca = cos(f), sa = sin(f);
+      disp.x += Q[i]*a*dirs[i].x*ca;
+      disp.z += Q[i]*a*dirs[i].y*ca;
+      disp.y += a*sa;
+      nrm.x -= dirs[i].x*k*a*ca;
+      nrm.z -= dirs[i].y*k*a*ca;
+      nrm.y -= Q[i]*k*a*sa;
+      foam += max(0.0, sa)*a;
+    }
+    // fine cross-chop for unpredictable surface texture
+    disp.y += ampF*0.05*sin(xz.x*0.8 + uTime*2.1)*cos(xz.y*0.7 - uTime*1.7);
+    vFoam = foam;
+    vN = normalize(nrm);
+    vec3 dp = vec3(position.x + disp.x, position.y + disp.y, position.z + disp.z);
+    vec4 wp = modelMatrix * vec4(dp, 1.0);
+    vWorld = wp.xyz;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+const OCEAN_FRAG = `
+  uniform float uTime;
+  uniform vec3 uDeep, uShallow, uFoam, uSun;
+  varying vec3 vWorld;
+  varying vec3 vN;
+  varying float vFoam;
+  varying float vShore;
+  float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+  float noise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+    return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),f.x), mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0,1.0)),f.x), f.y); }
+  void main(){
+    vec3 N = normalize(vN);
+    vec3 V = normalize(cameraPosition - vWorld);
+    float depthT = clamp(vShore/130.0, 0.0, 1.0);
+    vec3 col = mix(uShallow, uDeep, depthT);
+    // Fresnel sky sheen
+    float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+    col = mix(col, vec3(0.55,0.74,0.95), fres*0.55);
+    // animated sun glitter
+    vec3 Hh = normalize(uSun + V);
+    float spec = pow(max(dot(N, Hh), 0.0), 140.0);
+    float twk = 0.6 + 0.4*noise(vWorld.xz*0.6 + uTime*1.5);
+    col += spec * vec3(1.0,0.97,0.85) * 1.6 * twk;
+    // whitecaps on steep crests + a foam band hugging the shore, broken by noise
+    float crest = smoothstep(0.5, 1.0, vFoam);
+    float shoreFoam = smoothstep(16.0, 0.0, vShore);
+    float fn = noise(vWorld.xz*0.22 + uTime*0.35);
+    float foam = clamp(crest*0.85 + shoreFoam*1.1, 0.0, 1.0) * smoothstep(0.25, 0.7, fn+0.25);
+    col = mix(col, uFoam, foam);
+    float alpha = mix(0.95, 0.75, depthT);
+    gl_FragColor = vec4(col, clamp(alpha + foam*0.25, 0.0, 1.0));
+  }
+`;
 
 export class BeachWorld {
   constructor(scene, audio) {
@@ -92,34 +167,39 @@ export class BeachWorld {
 
   // -------------------------------------------------------------- ocean
   _buildOcean() {
-    // The ocean covers the left side (out past the shoreline). A subdivided
-    // plane whose vertices are displaced every frame by the swell.
-    const segX = 96, segZ = 130;
-    // span x∈[-H-60 .. -6] (ocean only — stops just sea-ward of the beach so
-    // it never overlaps dry sand), z∈[-H-60 .. H+60].
-    const width = (H + 60) - 6;
-    const geo = new THREE.PlaneGeometry(width, H * 2 + 120, segX, segZ);
+    // A real GPU ocean: a high-res plane displaced in the VERTEX shader by
+    // layered Gerstner waves + chop, coloured in the FRAGMENT shader by depth,
+    // Fresnel sky-sheen, animated sun-glitter and crest/shore whitecaps.
+    const width = (H + 60) - 6;            // x∈[-H-60 .. -6] (sea only)
+    const geo = new THREE.PlaneGeometry(width, H * 2 + 120, 200, 240);
     geo.rotateX(-Math.PI / 2);
     geo.translate(-6 - width / 2, 0, 0);
-    this._oceanGeo = geo;
-    this._oceanBase = Float32Array.from(geo.attributes.position.array);
-    const mat = new THREE.MeshPhongMaterial({
-      color: COLORS.water, transparent: true, opacity: 0.86, shininess: 80,
-      specular: 0x9fd0ff, flatShading: true, side: THREE.DoubleSide,
+
+    this._oceanMat = new THREE.ShaderMaterial({
+      transparent: true,
+      uniforms: {
+        uTime: { value: 0 },
+        uDeep: { value: new THREE.Color(0x0a3b7a) },
+        uShallow: { value: new THREE.Color(0x2bbfc4) },
+        uFoam: { value: new THREE.Color(0xeaf7ff) },
+        uSun: { value: new THREE.Vector3(0.45, 0.72, 0.5).normalize() },
+      },
+      vertexShader: OCEAN_VERT,
+      fragmentShader: OCEAN_FRAG,
     });
-    mat.emissive = new THREE.Color(0x12386b); mat.emissiveIntensity = 0.35;
-    this._ocean = new THREE.Mesh(geo, mat);
+    this._ocean = new THREE.Mesh(geo, this._oceanMat);
     this._ocean.position.y = WATER_Y;
+    this._ocean.frustumCulled = false;
     this.scene.add(this._ocean);
     this._objs.push(this._ocean);
 
-    // a deep, opaque "underwater" plane below so gaps never show through.
+    // a deep, opaque shelf below so nothing ever shows through the sea.
     const deep = new THREE.Mesh(
       new THREE.PlaneGeometry(width, H * 2 + 120),
-      new THREE.MeshBasicMaterial({ color: COLORS.waterDeep })
+      new THREE.MeshBasicMaterial({ color: 0x07336b })
     );
     deep.rotation.x = -Math.PI / 2;
-    deep.position.set(-6 - width / 2, WATER_Y - 3, 0);
+    deep.position.set(-6 - width / 2, WATER_Y - 3.5, 0);
     this.scene.add(deep);
     this._objs.push(deep);
   }
@@ -291,30 +371,8 @@ export class BeachWorld {
 
   // ------------------------------------------------------------- update
   update(dt, elapsed) {
-    // 1) OCEAN SURFACE — displace every vertex by the swell, then re-face it.
-    if (this._oceanGeo) {
-      const arr = this._oceanGeo.attributes.position.array;
-      const base = this._oceanBase;
-      for (let i = 0; i < arr.length; i += 3) {
-        const bx = base[i], bz = base[i + 2];
-        // damp the swell to zero as it nears the shore so it never pokes above
-        // the sand (clean waterline); full height in open water.
-        const ampF = Math.max(0, Math.min(1, (beachShoreX(bz) - bx) / 55));
-        let y = 0, dx = 0, dz = 0;
-        for (const w of WAVES) {
-          const k = (2 * Math.PI) / w.len;
-          const ph = (bx * w.dx + bz * w.dz) * k + elapsed * w.speed;
-          y += Math.sin(ph) * w.amp * ampF;
-          const c = Math.cos(ph) * w.amp * 0.5 * ampF;
-          dx += w.dx * c; dz += w.dz * c;
-        }
-        arr[i] = bx + dx;
-        arr[i + 1] = y;
-        arr[i + 2] = bz + dz;
-      }
-      this._oceanGeo.attributes.position.needsUpdate = true;
-      this._oceanGeo.computeVertexNormals();
-    }
+    // 1) OCEAN — the GPU shader does the waves; just advance its clock.
+    if (this._oceanMat) this._oceanMat.uniforms.uTime.value = elapsed;
 
     // 2) ROLLING BREAKERS — each crest line travels from sea toward the shore.
     if (this._breakers) {
@@ -378,30 +436,48 @@ export class BeachWorld {
   drawMinimap(ctx, sizePx) {
     const s = sizePx / (H * 2);
     const toPx = (wx) => (wx + H) * s;
-    // beach sand fill
-    ctx.fillStyle = '#e7d39a';
-    ctx.fillRect(0, 0, sizePx, sizePx);
-    // ocean (left of the meandering shoreline)
-    ctx.fillStyle = '#2f63b0';
+    const shorePxAt = (z) => toPx(beachShoreX(z));
+
+    // SAND — a warm vertical gradient with a faint speckle so it reads as beach.
+    const sg = ctx.createLinearGradient(0, 0, sizePx, 0);
+    sg.addColorStop(0, '#d8c074'); sg.addColorStop(1, '#efe0ad');
+    ctx.fillStyle = sg; ctx.fillRect(0, 0, sizePx, sizePx);
+
+    // OCEAN — a depth gradient (deep navy offshore → bright turquoise at shore),
+    // clipped to the meandering shoreline.
+    ctx.save();
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    for (let z = -H; z <= H; z += 12) ctx.lineTo(toPx(beachShoreX(z)), toPx(z));
-    ctx.lineTo(0, sizePx);
-    ctx.closePath();
-    ctx.fill();
-    // foam line along the shore
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = Math.max(1.5, sizePx * 0.012);
+    for (let z = -H; z <= H; z += 8) ctx.lineTo(shorePxAt(z), toPx(z));
+    ctx.lineTo(0, sizePx); ctx.closePath(); ctx.clip();
+    const og = ctx.createLinearGradient(0, 0, sizePx * 0.62, 0);
+    og.addColorStop(0, '#0a2f63'); og.addColorStop(0.7, '#1f6fb0'); og.addColorStop(1, '#39c2c4');
+    ctx.fillStyle = og; ctx.fillRect(0, 0, sizePx, sizePx);
+    // a couple of soft swell bands
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = sizePx * 0.008;
+    for (let o = 0.18; o < 0.95; o += 0.22) {
+      ctx.beginPath();
+      for (let z = -H; z <= H; z += 10) { const px = shorePxAt(z) * o, py = toPx(z); z === -H ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // FOAM — a soft glowing band right along the waterline.
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(2, sizePx * 0.018);
+    ctx.shadowColor = 'rgba(255,255,255,0.7)'; ctx.shadowBlur = sizePx * 0.02;
     ctx.beginPath();
-    for (let z = -H; z <= H; z += 12) { const px = toPx(beachShoreX(z)), py = toPx(z); if (z === -H) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+    for (let z = -H; z <= H; z += 8) { const px = shorePxAt(z), py = toPx(z); z === -H ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
     ctx.stroke();
-    // props
+    ctx.shadowBlur = 0;
+
+    // PROPS — clean little icons.
     for (const p of this._map.props) {
       const px = toPx(p.x), py = toPx(p.z);
-      if (p.kind === 'umbrella') { ctx.fillStyle = '#ff5a5a'; dot(ctx, px, py, sizePx * 0.02); }
-      else if (p.kind === 'tower') { ctx.fillStyle = '#ffffff'; sq(ctx, px, py, sizePx * 0.03); }
-      else if (p.kind === 'barrel') { ctx.fillStyle = '#8a6d52'; dot(ctx, px, py, sizePx * 0.013); }
-      else if (p.kind === 'castle') { ctx.fillStyle = '#cba66a'; dot(ctx, px, py, sizePx * 0.014); }
-      else if (p.kind === 'boat') { ctx.fillStyle = '#eaeaea'; sq(ctx, px, py, sizePx * 0.02); }
+      if (p.kind === 'umbrella') { ctx.fillStyle = '#ff5a5a'; dot(ctx, px, py, sizePx * 0.022); ctx.fillStyle = '#fff'; dot(ctx, px, py, sizePx * 0.008); }
+      else if (p.kind === 'tower') { ctx.fillStyle = '#ff7043'; sq(ctx, px, py, sizePx * 0.026); }
+      else if (p.kind === 'barrel') { ctx.fillStyle = '#7a5b3a'; dot(ctx, px, py, sizePx * 0.012); }
+      else if (p.kind === 'castle') { ctx.fillStyle = '#c9a96a'; sq(ctx, px, py, sizePx * 0.016); }
+      else if (p.kind === 'boat') { ctx.fillStyle = '#f0f0f0'; sq(ctx, px, py, sizePx * 0.02); }
     }
   }
 

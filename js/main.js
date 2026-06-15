@@ -532,12 +532,14 @@ function updateCamera(dt) {
 
   camPos.set(
     p.x - fx * CFG.CAM_DIST,
-    p.y + CFG.CAM_HEIGHT * 0.82 + (state === State.ESCAPE ? p.y * 0.4 : 0),
+    p.y + CFG.CAM_HEIGHT * 0.9 + (state === State.ESCAPE ? p.y * 0.4 : 0),
     p.z - fz * CFG.CAM_DIST
   );
   camera.position.lerp(camPos, 1 - Math.exp(-dt * 5));
 
-  camTarget.lerp(new THREE.Vector3(p.x + fx * 5, p.y - 3, p.z + fz * 5), 1 - Math.exp(-dt * 6));
+  // Look further ahead and much less downward → the view tilts UP so far more
+  // of the map is visible while flying.
+  camTarget.lerp(new THREE.Vector3(p.x + fx * 11, p.y - 0.6, p.z + fz * 11), 1 - Math.exp(-dt * 6));
 
   if (shake > 0.001) {
     shake *= Math.exp(-dt * 6);
