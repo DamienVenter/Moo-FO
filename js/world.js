@@ -201,6 +201,8 @@ export class World {
     this.cowSpawnAreas = [];
     this.chickenSpawnAreas = [];
     this.sheepSpawnAreas = [];
+    this.pigSpawnAreas = [];
+    this.horseSpawnAreas = [];
     this.duckAreas = [];
     this.farmerSpawns = [];
     this.fences = [];        // [{x1,z1,x2,z2}] solid fence segments (gates excluded)
@@ -1979,38 +1981,13 @@ export class World {
     this._fenceRect(padCx, padCz, padW, padD, [2]);
     this._clearRects.push({ x: padCx, z: padCz, w: padW, d: padD });
 
-    // Scatter a few horses (3–5) grazing/standing inside the paddock, kept off
-    // the fence lines and spaced apart. Static decor — no AI.
-    if (M.createHorse) {
-      const count = 4;
-      const inset = 4.5;                       // keep horses off the rails
-      const placed = [];
-      let firstX = padCx, firstZ = padCz;      // fallback paddock centre
-      let attempt = 0;
-      while (placed.length < count && attempt < 80) {
-        attempt++;
-        const x = padCx + (Math.random() * 2 - 1) * (padW / 2 - inset);
-        const z = padCz + (Math.random() * 2 - 1) * (padD / 2 - inset);
-        let ok = true;
-        for (const p of placed) {
-          if ((x - p.x) ** 2 + (z - p.z) ** 2 < 7 * 7) { ok = false; break; }
-        }
-        if (!ok) continue;
-        const horse = M.createHorse();
-        horse.position.set(x, terrainHeight(x, z), z);
-        horse.rotation.y = Math.random() * Math.PI * 2;   // facing random ways
-        this.scene.add(horse);
-        placed.push({ x, z });
-        if (placed.length === 1) { firstX = x; firstZ = z; }
-      }
-      // Representative horse (the paddock centre, anchored on the first horse)
-      // for main.js proximity audio.
-      this.horsePos = { x: firstX, y: terrainHeight(firstX, firstZ), z: firstZ };
-    } else {
-      // Stable exists but horse model not ready: expose the paddock centre so
-      // consumers always have a valid horsePos to read.
-      this.horsePos = { x: padCx, y: terrainHeight(padCx, padCz), z: padCz };
-    }
+    // The paddock is a horse spawn area — the CowManager populates it with
+    // ABDUCTABLE horses (they graze/wander with AI and can be beamed up).
+    this.horseSpawnAreas.push({ x: padCx, z: padCz, r: Math.min(padW, padD) / 2 - 4, count: CFG.HORSE_COUNT });
+    this.horsePos = { x: padCx, y: terrainHeight(padCx, padCz), z: padCz };
+
+    // A drove of pigs snuffles in the open ground just south-west of the barn.
+    this.pigSpawnAreas.push({ x: 40, z: 14, r: 13, count: CFG.PIG_COUNT });
 
     // Remember the stable for the minimap (drawn explicitly as a distinct icon
     // in addition to its building footprint).

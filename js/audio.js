@@ -20,7 +20,7 @@ const SOUND_NAMES = [
   'jingle', 'waterfall',
   'bark', 'baa', 'quack',
   'scream', 'tractor', 'hoot',
-  'horse',
+  'horse', 'farmer', 'oink',
 ];
 
 const MUTE_KEY = 'moofo-muted';

@@ -2858,65 +2858,161 @@ export function createStable() {
 export function createHorse(variant = 'bay') {
   const g = new THREE.Group();
   const v = variant === 'brown' ? 'brown' : variant === 'white' ? 'white' : 'bay';
-  // Coat / mane (mane + tail are darker) / muzzle palettes per variant.
+  // Coat / mane (mane + tail run darker) / muzzle palettes per variant.
   const coatHex = v === 'white' ? 0xe9e6df : v === 'brown' ? 0x8d5a3b : 0x9c5a2b;
-  const maneHex = v === 'white' ? 0xb9b3a6 : v === 'brown' ? 0x4a2f1d : 0x2b1c12;
+  const maneHex = v === 'white' ? 0xb6afa0 : v === 'brown' ? 0x4a2f1d : 0x2b1c12;
   const coat = mat(coatHex);
+  const coatLt = mat(v === 'white' ? 0xf3f0e9 : _tint(coatHex, 1.12)); // belly / muzzle highlight
   const mane = mat(maneHex);
   const hoof = mat(0x2e2722);
   const muzzle = mat(v === 'white' ? 0xc9b9b0 : 0x5a3a26);
   const eye = mat(0x14110e);
 
-  // Barrel body + chest + rump (bottom-center origin; legs reach to y=0).
-  const body = box(g, 0.7, 0.78, 1.5, coat, 0, 1.1, 0);
-  void body;
-  box(g, 0.66, 0.66, 0.34, coat, 0, 1.12, 0.74);           // chest
-  box(g, 0.66, 0.6, 0.3, coat, 0, 1.08, -0.74);            // rump
-  // Withers/back blanket line (slight two-tone) — purely cosmetic.
-  box(g, 0.6, 0.1, 1.3, mat(v === 'white' ? 0xd8d3c8 : _tint(coatHex, 0.86)), 0, 1.5, 0);
+  // ---- Barrel body: deep chest tapering to a leaner rump (bottom-center
+  //      origin; the legs below reach down to y=0 so it stands ON the ground).
+  box(g, 0.74, 0.86, 1.5, coat, 0, 1.18, 0);               // main barrel
+  box(g, 0.7, 0.78, 0.4, coat, 0, 1.22, 0.74);             // deep chest, forward + high
+  box(g, 0.64, 0.62, 0.34, coat, 0, 1.12, -0.76);          // rump, a touch lower
+  box(g, 0.66, 0.26, 1.18, coatLt, 0, 0.82, -0.02);        // lighter underbelly
+  // Withers/back ridge (slight two-tone) — purely cosmetic.
+  box(g, 0.62, 0.1, 1.28, mat(v === 'white' ? 0xd8d3c8 : _tint(coatHex, 0.86)), 0, 1.62, 0);
 
-  // ---- Legs: pivot at the shoulder/hip (y=0.78). The stack reaches DOWN
-  //      so the hoof bottom lands exactly on the ground (y=0): cannon bottom
-  //      -0.73, hoof centred -0.71 (h 0.14 → bottom -0.78 = world 0).
+  // ---- Legs: long and slim, pivot at the shoulder/hip (y=0.94). The stack
+  //      reaches DOWN so the hoof bottom lands exactly on the ground (y=0):
+  //      thigh, then cannon, then a hoof whose base sits at -0.94 = world 0.
+  //      Order: FL, FR, BL, BR (front legs forward, hinds back).
   const legs = [];
-  for (const [lx, lz] of [[0.24, 0.56], [-0.24, 0.56], [0.24, -0.56], [-0.24, -0.56]]) {
-    const hip = pivot(g, lx, 0.78, lz);
-    box(hip, 0.2, 0.5, 0.22, coat, 0, -0.16, 0);            // upper leg
-    box(hip, 0.15, 0.38, 0.16, coat, 0, -0.5, 0);           // lower leg / cannon
-    box(hip, 0.18, 0.14, 0.2, hoof, 0, -0.71, 0.01);        // hoof
+  for (const [lx, lz] of [[0.26, 0.54], [-0.26, 0.54], [0.26, -0.56], [-0.26, -0.56]]) {
+    const hip = pivot(g, lx, 0.94, lz);
+    box(hip, 0.24, 0.46, 0.28, coat, 0, -0.2, 0.01);        // shoulder / thigh
+    box(hip, 0.15, 0.46, 0.17, coat, 0, -0.58, 0);          // cannon
+    box(hip, 0.16, 0.1, 0.18, coat, 0, -0.78, 0.01);        // fetlock
+    box(hip, 0.19, 0.13, 0.21, hoof, 0, -0.875, 0.01);      // hoof (base = world 0)
     legs.push(hip);
   }
 
-  // ---- Tail: pivot at the dock; long darker hair hanging down.
-  const tail = pivot(g, 0, 1.36, -0.86);
-  const tailSeg = box(tail, 0.16, 0.66, 0.16, mane, 0, -0.3, -0.06);
-  tailSeg.rotation.x = 0.2;
-  box(tail, 0.13, 0.2, 0.13, mane, 0, -0.62, -0.13);        // tail tip
+  // ---- Tail: pivot at the dock high on the rump; long flowing dark hair
+  //      that sweeps down and slightly back. rotation.y flicks it side to side.
+  const tail = pivot(g, 0, 1.42, -0.92);
+  const tailTop = box(tail, 0.18, 0.4, 0.18, mane, 0, -0.18, -0.05);
+  tailTop.rotation.x = 0.22;
+  const tailMid = box(tail, 0.15, 0.4, 0.15, mane, 0, -0.5, -0.16);
+  tailMid.rotation.x = 0.34;
+  box(tail, 0.12, 0.22, 0.12, mane, 0, -0.74, -0.26);       // wispy tip
 
-  // ---- Head: pivot at the neck base; arched neck up to the skull.
-  const head = pivot(g, 0, 1.45, 0.62);
-  // Arched neck rising forward+up.
-  const neck = box(head, 0.36, 0.7, 0.4, coat, 0, 0.28, 0.16);
-  neck.rotation.x = -0.4;
-  // Mane crest running down the neck (darker).
-  const crest = box(head, 0.14, 0.66, 0.18, mane, 0, 0.32, 0.02);
-  crest.rotation.x = -0.4;
-  // Skull + long muzzle, tilted forward at the top of the neck.
-  const skull = pivot(head, 0, 0.6, 0.4);
-  skull.rotation.x = 0.35;
-  box(skull, 0.32, 0.34, 0.42, coat, 0, 0.05, 0.16);        // head/jaw
-  box(skull, 0.24, 0.24, 0.32, coat, 0, 0.0, 0.42);         // muzzle bridge
-  box(skull, 0.22, 0.18, 0.14, muzzle, 0, -0.06, 0.6);      // soft nose
-  box(skull, 0.04, 0.05, 0.04, eye, -0.07, 0.0, 0.66);      // nostrils
-  box(skull, 0.04, 0.05, 0.04, eye, 0.07, 0.0, 0.66);
-  box(skull, 0.05, 0.07, 0.04, eye, -0.16, 0.12, 0.3);      // eyes
-  box(skull, 0.05, 0.07, 0.04, eye, 0.16, 0.12, 0.3);
-  // Forelock tuft between the ears.
-  box(skull, 0.14, 0.1, 0.1, mane, 0, 0.24, 0.18);
-  // Ears (pricked forward).
+  // ---- Head: pivot at the neck base; nods/grazes on rotation.x. An arched
+  //      neck rises forward+up, then the skull tilts back down to the muzzle.
+  const head = pivot(g, 0, 1.5, 0.66);
+  // Arched neck rising forward + up.
+  const neck = box(head, 0.34, 0.84, 0.42, coat, 0, 0.34, 0.18);
+  neck.rotation.x = -0.42;
+  const throat = box(head, 0.26, 0.5, 0.24, coatLt, 0, 0.18, 0.36); // lighter throatlatch
+  throat.rotation.x = -0.42;
+  // Flowing mane crest running down the neck (darker, sits proud at the back).
+  const crest = box(head, 0.13, 0.82, 0.2, mane, 0, 0.36, 0.0);
+  crest.rotation.x = -0.42;
+  const crestLow = box(head, 0.12, 0.34, 0.16, mane, 0, 0.02, -0.12);
+  crestLow.rotation.x = -0.42;
+  // Skull + long tapering muzzle, tilted forward at the top of the neck.
+  const skull = pivot(head, 0, 0.72, 0.46);
+  skull.rotation.x = 0.4;
+  box(skull, 0.3, 0.36, 0.4, coat, 0, 0.06, 0.16);          // cheeks / jaw
+  box(skull, 0.23, 0.26, 0.34, coat, 0, -0.02, 0.44);       // muzzle bridge
+  box(skull, 0.21, 0.18, 0.16, muzzle, 0, -0.08, 0.62);     // soft nose
+  box(skull, 0.04, 0.05, 0.04, eye, -0.07, -0.04, 0.68);    // nostrils
+  box(skull, 0.04, 0.05, 0.04, eye, 0.07, -0.04, 0.68);
+  box(skull, 0.05, 0.08, 0.05, eye, -0.17, 0.14, 0.28);     // eyes (set wide)
+  box(skull, 0.05, 0.08, 0.05, eye, 0.17, 0.14, 0.28);
+  // Forelock tuft falling between the ears.
+  box(skull, 0.16, 0.13, 0.1, mane, 0, 0.26, 0.12);
+  // Ears (pricked forward + slightly out) with darker inner channel.
   for (const s of [-1, 1]) {
-    const ear = box(skull, 0.1, 0.18, 0.08, coat, s * 0.12, 0.28, 0.06);
-    ear.rotation.z = s * 0.25;
+    const ear = box(skull, 0.1, 0.2, 0.09, coat, s * 0.13, 0.32, 0.05);
+    ear.rotation.z = s * 0.28;
+    const inner = box(skull, 0.05, 0.13, 0.05, mane, s * 0.135, 0.31, 0.08);
+    inner.rotation.z = s * 0.28;
+  }
+
+  g.userData = { head, legs, tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createPig — variant 'pink' | 'spotted'. A cute, round, ~0.7×-cow pig:
+ *  fat barrel body, short stubby legs, a flat snout with two nostrils,
+ *  perky ears, beady eyes and a little kinked curly tail. 'spotted' adds
+ *  darker dappled patches over the pink coat.
+ *  userData: { head, legs:[FL,FR,BL,BR], tail } — same animation contract
+ *  as createCow (head nods on X, legs swing on X, tail flicks on Y).
+ * ------------------------------------------------------------------ */
+
+export function createPig(variant = 'pink') {
+  const g = new THREE.Group();
+  const spotted = variant === 'spotted';
+  const skinHex = 0xf2a8a8;                                 // bright piggy pink
+  const skin = mat(skinHex);
+  const skinLt = mat(_tint(skinHex, 1.08));                 // belly / snout highlight
+  const patch = mat(0x7a4a44);                              // dappled spots (spotted)
+  const snoutM = mat(0xe28b8b);                             // snout disc
+  const hoof = mat(0x3a302a);
+  const eye = mat(0x14110e);
+
+  // ---- Round barrel body: a fat slab plus chest + rump lumps for a plump,
+  //      sausage silhouette. Bottom-center origin; stubby legs reach to y=0.
+  box(g, 0.72, 0.66, 0.96, skin, 0, 0.62, 0);              // main barrel
+  box(g, 0.62, 0.58, 0.3, skin, 0, 0.62, 0.52);           // chest
+  box(g, 0.66, 0.6, 0.3, skin, 0, 0.6, -0.5);             // big round rump
+  box(g, 0.56, 0.2, 0.78, skinLt, 0, 0.34, -0.02);        // lighter underbelly
+
+  // Spotted variant: a few darker dapples proud of the body, per side.
+  if (spotted) {
+    box(g, 0.42, 0.3, 0.06, patch, 0, 0.74, 0.49);         // chest blotch
+    box(g, 0.06, 0.34, 0.4, patch, 0.37, 0.66, -0.18);     // right flank
+    box(g, 0.06, 0.26, 0.3, patch, -0.37, 0.58, 0.24);     // left flank
+    box(g, 0.36, 0.06, 0.34, patch, -0.1, 0.95, -0.3);     // back saddle spot
+  }
+
+  // ---- Legs: short + stubby, pivot at the hip (y=0.42) so they swing on X.
+  //      Stack reaches DOWN to the ground: shank then trotter, base at world 0.
+  //      Order: FL, FR, BL, BR.
+  const legs = [];
+  for (const [lx, lz] of [[0.24, 0.32], [-0.24, 0.32], [0.24, -0.34], [-0.24, -0.34]]) {
+    const hip = pivot(g, lx, 0.42, lz);
+    box(hip, 0.2, 0.28, 0.22, skin, 0, -0.15, 0);          // stubby leg
+    box(hip, 0.21, 0.12, 0.23, hoof, 0, -0.36, 0.01);      // trotter (base = world 0)
+    legs.push(hip);
+  }
+
+  // ---- Tail: a little kinked, curly tail. pivot at the base so rotation.y
+  //      gives it a happy wiggle; built from short offset segments for a curl.
+  const tail = pivot(g, 0, 0.78, -0.66);
+  const t1 = box(tail, 0.08, 0.08, 0.16, skin, 0, 0.02, -0.06);
+  t1.rotation.x = -0.5;
+  const t2 = box(tail, 0.07, 0.16, 0.07, skin, 0.06, 0.1, -0.12);
+  t2.rotation.x = 0.4;
+  box(tail, 0.06, 0.1, 0.06, skin, -0.04, 0.16, -0.08);    // curl tip
+
+  // ---- Head: pivot at the neck; nods/grazes on rotation.x. Big blocky head
+  //      with a flat round snout, two nostrils, beady eyes and perky ears.
+  const head = pivot(g, 0, 0.66, 0.46);
+  box(head, 0.5, 0.46, 0.42, skin, 0, 0.04, 0.1);          // head/jowls
+  if (spotted) box(head, 0.2, 0.22, 0.05, patch, 0.16, 0.12, 0.31); // cheek patch
+  // Snout: a stubby nose with a flat round disc + two nostrils.
+  box(head, 0.3, 0.24, 0.18, skin, 0, -0.04, 0.36);        // snout block
+  box(head, 0.26, 0.2, 0.06, snoutM, 0, -0.04, 0.47);      // flat snout disc
+  box(head, 0.05, 0.07, 0.04, eye, -0.07, -0.04, 0.5);     // nostrils
+  box(head, 0.05, 0.07, 0.04, eye, 0.07, -0.04, 0.5);
+  // Beady little eyes.
+  box(head, 0.06, 0.08, 0.04, eye, -0.15, 0.14, 0.31);
+  box(head, 0.06, 0.08, 0.04, eye, 0.15, 0.14, 0.31);
+  // Perky triangular ears tipping forward, with a darker inner channel.
+  for (const s of [-1, 1]) {
+    const ear = box(head, 0.16, 0.18, 0.1, skin, s * 0.21, 0.3, 0.04);
+    ear.rotation.z = s * 0.4;
+    ear.rotation.x = -0.25;
+    const inner = box(head, 0.08, 0.1, 0.06, snoutM, s * 0.21, 0.29, 0.07);
+    inner.rotation.z = s * 0.4;
+    inner.rotation.x = -0.25;
   }
 
   g.userData = { head, legs, tail };

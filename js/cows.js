@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CFG } from './config.js';
-import { createCow, createChicken, createSheep, createDuck, blobShadow } from './models.js';
+import { createCow, createChicken, createSheep, createDuck, createPig, createHorse, blobShadow } from './models.js';
 import { terrainHeight, WATER_LEVEL } from './terrain.js';
 
 const MOOS = ['moo1', 'moo2', 'moo3'];
@@ -87,6 +87,22 @@ export class CowManager {
       for (let i = 0; i < area.count; i++) {
         const p = this._spawnPointIn(area);
         this._add('sheep', null, p.x, p.z);
+      }
+    }
+    const pAreas = this.world.pigSpawnAreas || [];
+    for (let a = 0; a < pAreas.length; a++) {
+      const area = pAreas[a];
+      for (let i = 0; i < area.count; i++) {
+        const p = this._spawnPointIn(area);
+        this._add('pig', Math.random() < 0.7 ? 'pink' : 'spotted', p.x, p.z);
+      }
+    }
+    const hAreas = this.world.horseSpawnAreas || [];
+    for (let a = 0; a < hAreas.length; a++) {
+      const area = hAreas[a];
+      for (let i = 0; i < area.count; i++) {
+        const p = this._spawnPointIn(area);
+        this._add('horse', ['bay', 'brown', 'white'][(Math.random() * 3) | 0], p.x, p.z);
       }
     }
     // ducks paddle their ponds — atmosphere only, the beam ignores them
@@ -240,6 +256,16 @@ export class CowManager {
               volume: THREE.MathUtils.clamp(0.7 - d / 90, 0.1, 0.6),
               ratejitter: 0.12,
             });
+          } else if (c.kind === 'pig') {
+            this.audio.play('oink', {
+              volume: THREE.MathUtils.clamp(0.6 - d / 90, 0.1, 0.5),
+              ratejitter: 0.14,
+            });
+          } else if (c.kind === 'horse') {
+            this.audio.play('horse', {
+              volume: THREE.MathUtils.clamp(0.5 - d / 90, 0.08, 0.4),
+              ratejitter: 0.1,
+            });
           } else {
             this.audio.play(MOOS[(Math.random() * 3) | 0], {
               volume: THREE.MathUtils.clamp(1 - d / 70, 0.15, 0.9),
@@ -317,11 +343,15 @@ export class CowManager {
     const group =
       kind === 'chicken' ? createChicken() :
       kind === 'sheep' ? createSheep() :
+      kind === 'pig' ? createPig(variant) :
+      kind === 'horse' ? createHorse(variant) :
       kind === 'duck' ? createDuck() : createCow(variant);
     const gy = kind === 'duck' ? WATER_Y : terrainHeight(x, z);
     group.position.set(x, gy, z);
     group.rotation.y = Math.random() * Math.PI * 2;
-    const shadow = blobShadow(kind === 'chicken' || kind === 'duck' ? 0.4 : 1.0);
+    const shadow = blobShadow(
+      kind === 'chicken' || kind === 'duck' ? 0.4 :
+      kind === 'pig' ? 0.8 : kind === 'horse' ? 1.2 : 1.0);
     if (shadow.material) shadow.material = shadow.material.clone();
     if (kind === 'duck') shadow.visible = false;
     group.add(shadow);
@@ -345,7 +375,7 @@ export class CowManager {
       vy: 0,
       spin: 0,
       calm: 10,
-      speedMult: kind === 'golden' ? CFG.GOLDEN_SPEED_MULT : 1,
+      speedMult: kind === 'golden' ? CFG.GOLDEN_SPEED_MULT : kind === 'horse' ? CFG.HORSE_SPEED_MULT : 1,
     };
     this._pickTarget(c);
     this.cows.push(c);
@@ -364,6 +394,10 @@ export class CowManager {
       this.audio.play('chicken', { volume: 0.6, rate: 1.2, ratejitter: 0.12 });
     } else if (c.kind === 'sheep') {
       this.audio.play('baa', { volume: 0.7, rate: 1.12, ratejitter: 0.1 });
+    } else if (c.kind === 'pig') {
+      this.audio.play('oink', { volume: 0.7, rate: 1.15, ratejitter: 0.12 });
+    } else if (c.kind === 'horse') {
+      this.audio.play('horse', { volume: 0.5, rate: 1.1, ratejitter: 0.1 });
     } else if (d < MOO_RANGE) {
       this.audio.play(MOOS[(Math.random() * 3) | 0], { volume: 0.7, rate: 1.18, ratejitter: 0.08 });
     }
@@ -427,7 +461,9 @@ export class CowManager {
     const points =
       kind === 'golden' ? CFG.SCORE_GOLDEN :
       kind === 'chicken' ? CFG.SCORE_CHICKEN :
-      kind === 'sheep' ? CFG.SCORE_SHEEP : CFG.SCORE_COW;
+      kind === 'sheep' ? CFG.SCORE_SHEEP :
+      kind === 'pig' ? CFG.SCORE_PIG :
+      kind === 'horse' ? CFG.SCORE_HORSE : CFG.SCORE_COW;
     const pos = { x: g.position.x, y: g.position.y, z: g.position.z };
     this.scene.remove(g);
     this.cows[i] = this.cows[this.cows.length - 1];

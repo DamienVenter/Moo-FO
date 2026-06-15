@@ -438,21 +438,6 @@ function updateTractorSound() {
   else audio.stopLoop('tractor');
 }
 
-// Horses whinny when the UFO disturbs them — a throttled one-shot, deliberately
-// ~40% quieter than the other animals.
-let _horseT = 0;
-function updateHorseSound(dt) {
-  const hp = world.horsePos;
-  if (!hp) return;
-  _horseT -= dt;
-  if (state !== State.PLAYING) return;
-  const d = Math.hypot(ufo.group.position.x - hp.x, ufo.group.position.z - hp.z);
-  if (d < 30 && _horseT <= 0) {
-    _horseT = 3 + Math.random() * 3.5;
-    audio.play('horse', { volume: Math.max(0.12, 1 - d / 30) * 0.42, ratejitter: 0.1 });
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Chase camera with manual orbit (Q/E, right stick, mouse drag)
 // ---------------------------------------------------------------------------
@@ -660,7 +645,6 @@ function frame() {
 
   updateWaterfallSound();
   updateTractorSound();
-  updateHorseSound(dt);
   updateCamera(dt);
   renderer.render(scene, camera);
 }

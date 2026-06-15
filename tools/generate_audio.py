@@ -999,6 +999,86 @@ def make_horse():
     return normalize(fade(out, 0.004, 0.05))
 
 
+def make_farmer():
+    """Gruff male FARMER SHOUT: a deliberate angry holler — 'HEY! GIT OFF MY
+    LAND!'. A low, chesty male voice (vs the higher cartoon 'scream' yelp): a
+    rich buzzy larynx (FM + saw grit) at a LOW pitch with vocal-fold rasp, run
+    through two vowel formants so it reads as a human mouth. A noisy fricative
+    consonant ONSET ('G/H' burst) snaps it open, then a short shouted vowel body
+    with a falling-but-emphatic pitch contour. Deliberately throaty/compressed
+    and lower than 'scream' so it's clearly a man bellowing, not a screech."""
+    dur = 0.6
+    # Pitch: a hard accented onset up around the 'HEY', then a gruff fall on the
+    # body — a man's bellow sits low (~150 Hz fundamental), not a yelp.
+    pitch = curve([(0, 150.0), (0.04, 175.0), (0.12, 188.0),
+                   (0.28, 168.0), (0.42, 150.0), (dur, 128.0)])
+    # Vocal-fold rasp: low-rate jitter so the shout sounds chesty and rough.
+    rasp = lambda t: pitch(t) * (1.0 + 0.035 * math.sin(TWO_PI * 23.0 * t)
+                                 + 0.02 * math.sin(TWO_PI * 37.0 * t))
+    # Buzzy larynx: FM fundamental + a saw layer for harsh shouting overtones.
+    idx = curve([(0, 4.6), (0.05, 3.8), (0.4 * dur, 2.8), (dur, 1.8)])
+    voiced = fm_osc(rasp, 1.0, idx, dur)
+    bright = fm_osc(rasp, 2.0, lambda t: 0.5 * idx(t), dur)
+    grit = osc('saw', rasp, dur)
+    src = [a + 0.35 * b + 0.3 * c for a, b, c in zip(voiced, bright, grit)]
+    # Two-formant open shout vowel ('AH/EH'): F1 ~650 Hz, F2 ~1500 Hz, opening on
+    # the vowel then closing as the mouth shuts on 'LAND'.
+    f1hi = lowpass(src, curve([(0, 600.0), (0.18, 760.0), (dur, 560.0)]))
+    f1lo = lowpass(src, curve([(0, 380.0), (0.18, 440.0), (dur, 340.0)]))
+    f1 = [h - l for h, l in zip(f1hi, f1lo)]
+    f2hi = lowpass(src, curve([(0, 1700.0), (0.18, 1850.0), (dur, 1350.0)]))
+    f2lo = lowpass(src, curve([(0, 1150.0), (0.18, 1250.0), (dur, 1000.0)]))
+    f2 = [h - l for h, l in zip(f2hi, f2lo)]
+    voice = [1.3 * a + 0.9 * b for a, b in zip(f1, f2)]
+    # Shout envelope: a hard, percussive accent on the onset then a held vowel
+    # that's cut off firmly (the bark of an angry command).
+    env = curve([(0, 0.0), (0.012, 1.0), (0.06, 0.82), (0.22, 0.95),
+                 (0.45, 0.7), (0.52, 0.4), (dur, 0.0)])
+    voice = apply_env(voice, env)
+    # Noisy consonant ONSET: a short filtered-noise burst = the 'G/H' fricative
+    # crack that kicks off the holler.
+    crack = lowpass(noise(0.06), xsweep(3200.0, 800.0, 0.05))
+    crack = apply_env(crack, exp_env(0.018, attack=0.001))
+    out = zeros(dur)
+    mix_at(out, voice)
+    mix_at(out, crack, g=0.4)
+    out = soft_clip(out, 1.7)               # throaty, compressed bellow
+    return normalize(fade(out, 0.002, 0.05))
+
+
+def make_oink():
+    """Short pig OINK/grunt: a couple of quick low, nasal, buzzy grunt pulses.
+    Each grunt is a buzzy larynx (FM + saw) at a low pitch with a fast downward
+    flick, pushed through a strong NASAL bandpass (~700-1500 Hz) and hard soft-
+    clipped so it snorts. Two quick pulses = the 'oink-oink' snuffle."""
+    out = zeros(0.42)
+
+    def grunt(dur, f0, f1):
+        # Low pitch with a quick downward flick (the snorted 'oink').
+        pitch = curve([(0, f0), (0.3 * dur, f0 * 0.92), (dur, f1)])
+        # Buzzy nasal larynx with a touch of fold jitter for the wet snort.
+        rasp = lambda t: pitch(t) * (1.0 + 0.04 * math.sin(TWO_PI * 30.0 * t))
+        src = fm_osc(rasp, 1.5, 3.0, dur)
+        grit = osc('saw', rasp, dur)
+        src = [a + 0.4 * b for a, b in zip(src, grit)]
+        # Strong nasal bandpass (~700-1500 Hz) = the pinched, buzzy pig timbre.
+        hi = lowpass(src, curve([(0, 1600.0), (dur, 1200.0)]))
+        lo = lowpass(src, curve([(0, 700.0), (dur, 560.0)]))
+        voice = [h - l for h, l in zip(hi, lo)]
+        env = curve([(0, 0.0), (0.01, 1.0), (0.5 * dur, 0.8), (dur, 0.0)])
+        voice = apply_env(voice, env)
+        # Wet snuffle: a little nasal noise under each grunt.
+        snort = lowpass(noise(dur), 1300.0)
+        snort = apply_env(snort, env)
+        seg = [a + 0.12 * b for a, b in zip(voice, snort)]
+        seg = soft_clip(seg, 2.0)           # hard buzzy snort
+        return seg
+
+    mix_at(out, grunt(0.17, 230.0, 150.0), offset=0.00, g=1.0)
+    mix_at(out, grunt(0.16, 250.0, 160.0), offset=0.22, g=0.85)
+    return normalize(fade(out, 0.0015, 0.03))
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -1037,6 +1117,8 @@ SOUNDS = [
     ('tractor',   make_tractor),
     ('hoot',      make_hoot),
     ('horse',     make_horse),
+    ('farmer',    make_farmer),
+    ('oink',      make_oink),
 ]
 
 

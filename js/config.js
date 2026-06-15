@@ -53,6 +53,9 @@ export const CFG = Object.freeze({
   CHICKEN_COUNT: 14,
   SHEEP_COUNT: 10,
   DUCK_COUNT: 8,             // ducks are NOT abductable — atmosphere + panic only
+  PIG_COUNT: 10,
+  HORSE_COUNT: 5,
+  HORSE_SPEED_MULT: 1.35,    // horses bolt faster than other livestock
   COW_SPEED: 2.2,
   COW_FLEE_SPEED: 4.6,
   CHICKEN_SPEED: 2.0,
@@ -80,6 +83,8 @@ export const CFG = Object.freeze({
   SCORE_GOLDEN: 500,
   SCORE_CHICKEN: 25,
   SCORE_SHEEP: 75,
+  SCORE_PIG: 60,
+  SCORE_HORSE: 150,
   COMBO_WINDOW: 5.0,         // seconds between grabs to keep the chain
   COMBO_MAX: 4,              // multiplier cap (x4)
   MEDALS: { bronze: 1500, silver: 3000, gold: 5000 },

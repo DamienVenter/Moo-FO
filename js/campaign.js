@@ -16,21 +16,21 @@ const COUNT = 15;
 // Two bonus objectives per level (★2, ★3). Objective specs are evaluated by
 // js/missions.js. Difficulty ramps across the campaign.
 const MISSIONS = [
-  [{ t: 'chickens', n: 2 }, { t: 'nohit' }],                         // 1
+  [{ t: 'chickens', n: 2 }, { t: 'pigs', n: 1 }],                    // 1
   [{ t: 'sheep', n: 2 }, { t: 'cows', variant: 'brown', n: 3 }],     // 2
-  [{ t: 'nohit' }, { t: 'chickens', n: 3 }],                         // 3
+  [{ t: 'nohit' }, { t: 'horses', n: 1 }],                           // 3
   [{ t: 'cows', variant: 'holstein', n: 5 }, { t: 'golden' }],       // 4
-  [{ t: 'sheep', n: 3 }, { t: 'combo', n: 3 }],                      // 5
-  [{ t: 'nohit' }, { t: 'cows', variant: 'brown', n: 4 }],           // 6
-  [{ t: 'chickens', n: 4 }, { t: 'golden' }],                        // 7
+  [{ t: 'pigs', n: 3 }, { t: 'combo', n: 3 }],                       // 5
+  [{ t: 'nohit' }, { t: 'total', n: 14 }],                           // 6
+  [{ t: 'chickens', n: 4 }, { t: 'horses', n: 2 }],                  // 7
   [{ t: 'sheep', n: 4 }, { t: 'nowarp' }],                           // 8
-  [{ t: 'cows', variant: 'holstein', n: 8 }, { t: 'nohit' }],        // 9
-  [{ t: 'combo', n: 4 }, { t: 'sheep', n: 4 }],                      // 10
-  [{ t: 'golden' }, { t: 'chickens', n: 5 }],                        // 11
-  [{ t: 'nohit' }, { t: 'cows', variant: 'brown', n: 6 }],           // 12
-  [{ t: 'sheep', n: 5 }, { t: 'combo', n: 4 }],                      // 13
-  [{ t: 'nowarp' }, { t: 'golden' }],                                // 14
-  [{ t: 'nohit' }, { t: 'sheep', n: 6 }],                            // 15
+  [{ t: 'pigs', n: 4 }, { t: 'cows', variant: 'brown', n: 4 }],      // 9
+  [{ t: 'combo', n: 4 }, { t: 'variety' }],                          // 10
+  [{ t: 'golden' }, { t: 'horses', n: 3 }],                          // 11
+  [{ t: 'nohit' }, { t: 'total', n: 22 }],                           // 12
+  [{ t: 'pigs', n: 5 }, { t: 'sheep', n: 5 }],                       // 13
+  [{ t: 'nowarp' }, { t: 'variety' }],                               // 14
+  [{ t: 'horses', n: 4 }, { t: 'total', n: 28 }],                    // 15
 ];
 
 function buildLevels() {

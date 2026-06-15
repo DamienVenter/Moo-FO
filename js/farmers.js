@@ -132,7 +132,7 @@ export class FarmerManager {
         f.bangT = 0;
         f.bang.visible = true;
         // farmer hollers when he spots you
-        this.audio.play('scream', {
+        this.audio.play('farmer', {
           volume: THREE.MathUtils.clamp(1 - d / 90, 0.2, 0.8), ratejitter: 0.14,
         });
       } else if (st === 'patrol' && f.aggroed) {
