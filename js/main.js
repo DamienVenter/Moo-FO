@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { CFG, COLORS, IS_MOBILE, ENABLE_SHADOWS } from './config.js';
 import { World } from './world.js';
-import { BeachWorld } from './beachworld.js';
+import { SavannahWorld } from './savannahworld.js';
 import { Sky } from './sky.js';
 import { DayCycle } from './daycycle.js';
 import { UFO } from './ufo.js';
@@ -55,9 +55,9 @@ window.addEventListener('resize', () => {
 const audio = new AudioManager();
 const cycle = new DayCycle();
 // Which map to load is a persisted boot choice (switching reloads the page;
-// all progress lives in localStorage so nothing is lost). 'farm' | 'beach'.
-const MAP = (() => { try { return localStorage.getItem('moofo-map') === 'beach' ? 'beach' : 'farm'; } catch (_) { return 'farm'; } })();
-const world = MAP === 'beach' ? new BeachWorld(scene, audio) : new World(scene);
+// all progress lives in localStorage so nothing is lost). 'farm' | 'savannah'.
+const MAP = (() => { try { return localStorage.getItem('moofo-map') === 'savannah' ? 'savannah' : 'farm'; } catch (_) { return 'farm'; } })();
+const world = MAP === 'savannah' ? new SavannahWorld(scene, audio, { onHitPlayer }) : new World(scene);
 const sky = new Sky(scene);
 const effects = new Effects(scene);
 const ufo = new UFO(scene, world, effects, audio);
@@ -177,9 +177,9 @@ function spawnEntities() {
   disposeEntities();
   cows = new CowManager(scene, world, effects, audio, { onAbduct });
   cows.populate();
-  // On the beach the "farmer" threat is a LIFEGUARD with a water gun; no dogs.
-  farmers = new FarmerManager(scene, world, effects, audio, { onHitPlayer, difficulty, threatVariant: MAP === 'beach' ? 'lifeguard' : 'farmer' });
-  dogs = (MAP === 'beach')
+  // On the savannah the threat is a RANGER who chases on foot; no dogs.
+  farmers = new FarmerManager(scene, world, effects, audio, { onHitPlayer, difficulty, threatVariant: MAP === 'savannah' ? 'ranger' : 'farmer' });
+  dogs = (MAP === 'savannah')
     ? { dogs: [], update() {}, dispose() {} }
     : new DogManager(scene, world, effects, audio, { farmers });
 }
@@ -301,7 +301,7 @@ function freePlayStart(cfg) {
   cfg = cfg || {};
   if (cfg.skinId) cosmetics.select(cfg.skinId);
   if (cfg.beamId) cosmetics.select(cfg.beamId);
-  const targetMap = cfg.map === 'beach' ? 'beach' : 'farm';
+  const targetMap = cfg.map === 'savannah' ? 'savannah' : 'farm';
   if (targetMap !== MAP) {
     try {
       localStorage.setItem('moofo-fp', JSON.stringify({ ...cfg, map: targetMap }));
@@ -464,13 +464,6 @@ document.addEventListener('pointerdown', (e) => {
   if (!btn || btn.closest('#mf-touch')) return;
   audio.play('click', { volume: 0.5, ratejitter: 0.06 });
 }, true);
-
-// Beach: a constant ocean-surf ambience while flying the map.
-function updateWavesSound() {
-  if (MAP !== 'beach') return;
-  if (state === State.PLAYING || state === State.COUNTDOWN) audio.startLoop('waves', { volume: 0.5 });
-  else audio.stopLoop('waves');
-}
 
 // Waterfall ambience: a proximity loop that swells as you near the falls.
 function updateWaterfallSound() {
@@ -710,7 +703,6 @@ function frame() {
 
   updateWaterfallSound();
   updateTractorSound();
-  updateWavesSound();
   updateCamera(dt);
   renderer.render(scene, camera);
 }
@@ -752,7 +744,7 @@ frame();
 // now that we've booted into the right map.
 try {
   const fp = JSON.parse(localStorage.getItem('moofo-fp') || 'null');
-  if (fp && (fp.map === 'beach' ? 'beach' : 'farm') === MAP) {
+  if (fp && (fp.map === 'savannah' ? 'savannah' : 'farm') === MAP) {
     localStorage.removeItem('moofo-fp');
     freePlayStart({ ...fp, map: MAP });
   } else if (fp) {

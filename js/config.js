@@ -68,7 +68,7 @@ export const CFG = Object.freeze({
   FENCE_JUMP_CHANCE: 0.08,   // chance a blocked, fleeing cow hops the fence
 
   // Farmers (harder: they sprint and lead their shots)
-  FARMER_COUNT: 4,
+  FARMER_COUNT: 3,
   FARMER_WALK: 3.4,
   FARMER_RUN: 9.5,
   FARMER_AGGRO: 75,          // starts chasing
@@ -85,9 +85,11 @@ export const CFG = Object.freeze({
   SCORE_SHEEP: 75,
   SCORE_PIG: 60,
   SCORE_HORSE: 150,
-  SCORE_CRAB: 80,
-  SCORE_HUMAN: 160,
-  SCORE_FISH: 40,
+  SCORE_LION: 200,
+  SCORE_ELEPHANT: 200,
+  SCORE_FLAMINGO: 60,
+  SCORE_STORK: 70,
+  SCORE_CROC: 120,
   COMBO_WINDOW: 5.0,         // seconds between grabs to keep the chain
   COMBO_MAX: 4,              // multiplier cap (x4)
   MEDALS: { bronze: 1500, silver: 3000, gold: 5000 },

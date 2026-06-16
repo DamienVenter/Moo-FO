@@ -2976,14 +2976,17 @@ export function createStable() {
 }
 
 /* ------------------------------------------------------------------ *
- *  createHorse — voxel horse, ~2 long, ~1.8 tall. Faces +Z.
- *  variant: 'bay' (default) | 'brown' | 'white'. Origin at BOTTOM-CENTER.
+ *  createHorse — clean MINECRAFT-STYLE voxel horse, ~2 long, ~2 tall.
+ *  Faces +Z. variant: 'bay' (default) | 'brown' | 'white'. Bottom-center
+ *  origin (hooves at y=0). Deliberately BLOCKY: a boxy barrel, a single
+ *  straight ANGLED neck box rising to a rectangular head (no lumpy curve),
+ *  a blocky muzzle, two upright box ears, a flat slab mane running down the
+ *  back of the neck, four straight rectangular legs, and a hanging box tail.
  *  userData: { head, legs: [FL, FR, BL, BR], tail }
  *    head — pivot Group at the neck base; rotate.x to graze / startle.
  *    legs — 4 pivot Groups at the hips/shoulders; rotate.x for the gait.
- *    tail — pivot Group at the dock; swishes with rotation.
- *  Body, arched neck, head with muzzle + ears, darker mane + tail, four
- *  legs with hooves. ≤ ~30 meshes; geometry/material shared.
+ *    tail — pivot Group at the dock; swishes with rotation.y.
+ *  ≤ ~30 meshes; geometry/material shared.
  * ------------------------------------------------------------------ */
 
 export function createHorse(variant = 'bay') {
@@ -2993,76 +2996,60 @@ export function createHorse(variant = 'bay') {
   const coatHex = v === 'white' ? 0xe9e6df : v === 'brown' ? 0x8d5a3b : 0x9c5a2b;
   const maneHex = v === 'white' ? 0xb6afa0 : v === 'brown' ? 0x4a2f1d : 0x2b1c12;
   const coat = mat(coatHex);
-  const coatLt = mat(v === 'white' ? 0xf3f0e9 : _tint(coatHex, 1.12)); // belly / muzzle highlight
   const mane = mat(maneHex);
   const hoof = mat(0x2e2722);
   const muzzle = mat(v === 'white' ? 0xc9b9b0 : 0x5a3a26);
   const eye = mat(0x14110e);
 
-  // ---- Barrel body: deep chest tapering to a leaner rump (bottom-center
-  //      origin; the legs below reach down to y=0 so it stands ON the ground).
-  box(g, 0.74, 0.86, 1.5, coat, 0, 1.18, 0);               // main barrel
-  box(g, 0.7, 0.78, 0.4, coat, 0, 1.22, 0.74);             // deep chest, forward + high
-  box(g, 0.64, 0.62, 0.34, coat, 0, 1.12, -0.76);          // rump, a touch lower
-  box(g, 0.66, 0.26, 1.18, coatLt, 0, 0.82, -0.02);        // lighter underbelly
-  // Withers/back ridge (slight two-tone) — purely cosmetic.
-  box(g, 0.62, 0.1, 1.28, mat(v === 'white' ? 0xd8d3c8 : _tint(coatHex, 0.86)), 0, 1.62, 0);
+  // ---- Boxy barrel body: one clean rectangular block (no bulges). Bottom-
+  //      center origin; the straight legs below reach down to y=0.
+  box(g, 0.72, 0.78, 1.5, coat, 0, 1.2, 0);                // main barrel block
 
-  // ---- Legs: long and slim, pivot at the shoulder/hip (y=0.94). The stack
-  //      reaches DOWN so the hoof bottom lands exactly on the ground (y=0):
-  //      thigh, then cannon, then a hoof whose base sits at -0.94 = world 0.
-  //      Order: FL, FR, BL, BR (front legs forward, hinds back).
+  // ---- Legs: four STRAIGHT rectangular legs, pivot at the hip/shoulder
+  //      (y=0.82) so they swing on X. Each is a plain leg box capped by a
+  //      hoof whose base lands exactly on the ground (y=0). Order FL,FR,BL,BR.
   const legs = [];
-  for (const [lx, lz] of [[0.26, 0.54], [-0.26, 0.54], [0.26, -0.56], [-0.26, -0.56]]) {
-    const hip = pivot(g, lx, 0.94, lz);
-    box(hip, 0.24, 0.46, 0.28, coat, 0, -0.2, 0.01);        // shoulder / thigh
-    box(hip, 0.15, 0.46, 0.17, coat, 0, -0.58, 0);          // cannon
-    box(hip, 0.16, 0.1, 0.18, coat, 0, -0.78, 0.01);        // fetlock
-    box(hip, 0.19, 0.13, 0.21, hoof, 0, -0.875, 0.01);      // hoof (base = world 0)
+  for (const [lx, lz] of [[0.24, 0.5], [-0.24, 0.5], [0.24, -0.5], [-0.24, -0.5]]) {
+    const hip = pivot(g, lx, 0.82, lz);
+    box(hip, 0.22, 0.72, 0.22, coat, 0, -0.37, 0);          // straight leg
+    box(hip, 0.24, 0.12, 0.24, hoof, 0, -0.76, 0);          // hoof (base = world 0)
     legs.push(hip);
   }
 
-  // ---- Tail: pivot at the dock high on the rump; long flowing dark hair
-  //      that sweeps down and slightly back. rotation.y flicks it side to side.
-  const tail = pivot(g, 0, 1.42, -0.92);
-  const tailTop = box(tail, 0.18, 0.4, 0.18, mane, 0, -0.18, -0.05);
-  tailTop.rotation.x = 0.22;
-  const tailMid = box(tail, 0.15, 0.4, 0.15, mane, 0, -0.5, -0.16);
-  tailMid.rotation.x = 0.34;
-  box(tail, 0.12, 0.22, 0.12, mane, 0, -0.74, -0.26);       // wispy tip
-
-  // ---- Head: pivot at the neck base; nods/grazes on rotation.x. An arched
-  //      neck rises forward+up, then the skull tilts back down to the muzzle.
-  const head = pivot(g, 0, 1.5, 0.66);
-  // Arched neck rising forward + up.
-  const neck = box(head, 0.34, 0.84, 0.42, coat, 0, 0.34, 0.18);
-  neck.rotation.x = -0.42;
-  const throat = box(head, 0.26, 0.5, 0.24, coatLt, 0, 0.18, 0.36); // lighter throatlatch
-  throat.rotation.x = -0.42;
-  // Flowing mane crest running down the neck (darker, sits proud at the back).
-  const crest = box(head, 0.13, 0.82, 0.2, mane, 0, 0.36, 0.0);
-  crest.rotation.x = -0.42;
-  const crestLow = box(head, 0.12, 0.34, 0.16, mane, 0, 0.02, -0.12);
-  crestLow.rotation.x = -0.42;
-  // Skull + long tapering muzzle, tilted forward at the top of the neck.
-  const skull = pivot(head, 0, 0.72, 0.46);
-  skull.rotation.x = 0.4;
-  box(skull, 0.3, 0.36, 0.4, coat, 0, 0.06, 0.16);          // cheeks / jaw
-  box(skull, 0.23, 0.26, 0.34, coat, 0, -0.02, 0.44);       // muzzle bridge
-  box(skull, 0.21, 0.18, 0.16, muzzle, 0, -0.08, 0.62);     // soft nose
-  box(skull, 0.04, 0.05, 0.04, eye, -0.07, -0.04, 0.68);    // nostrils
-  box(skull, 0.04, 0.05, 0.04, eye, 0.07, -0.04, 0.68);
-  box(skull, 0.05, 0.08, 0.05, eye, -0.17, 0.14, 0.28);     // eyes (set wide)
-  box(skull, 0.05, 0.08, 0.05, eye, 0.17, 0.14, 0.28);
-  // Forelock tuft falling between the ears.
-  box(skull, 0.16, 0.13, 0.1, mane, 0, 0.26, 0.12);
-  // Ears (pricked forward + slightly out) with darker inner channel.
+  // ---- Neck + head as ONE pivot at the neck base (rotate.x to graze). The
+  //      neck is a single straight box tilted up toward the chest, the head a
+  //      plain rectangular box at its top — no bulging curve anywhere.
+  const head = pivot(g, 0, 1.5, 0.62);
+  // Single straight ANGLED neck box rising from the chest.
+  const neck = box(head, 0.3, 0.84, 0.34, coat, 0, 0.3, 0.12);
+  neck.rotation.x = -0.5;
+  // Flat SLAB mane running down the back of the neck (sits just behind it).
+  const maneSlab = box(head, 0.12, 0.92, 0.14, mane, 0, 0.28, -0.04);
+  maneSlab.rotation.x = -0.5;
+  // Rectangular HEAD box sitting at the top of the neck, level + forward.
+  box(head, 0.32, 0.4, 0.46, coat, 0, 0.68, 0.42);         // skull / cheeks
+  // Blocky muzzle extending off the front of the head.
+  box(head, 0.26, 0.26, 0.24, coat, 0, 0.58, 0.74);        // muzzle bridge
+  box(head, 0.24, 0.2, 0.1, muzzle, 0, 0.55, 0.9);         // soft nose pad
+  box(head, 0.05, 0.06, 0.04, eye, -0.08, 0.5, 0.93);      // nostrils
+  box(head, 0.05, 0.06, 0.04, eye, 0.08, 0.5, 0.93);
+  box(head, 0.05, 0.09, 0.05, eye, -0.18, 0.74, 0.6);      // eyes (set wide)
+  box(head, 0.05, 0.09, 0.05, eye, 0.18, 0.74, 0.6);
+  // Forelock tuft + flat mane cap between the ears.
+  box(head, 0.18, 0.1, 0.12, mane, 0, 0.86, 0.42);
+  // Two upright BOX ears standing on top of the head.
   for (const s of [-1, 1]) {
-    const ear = box(skull, 0.1, 0.2, 0.09, coat, s * 0.13, 0.32, 0.05);
-    ear.rotation.z = s * 0.28;
-    const inner = box(skull, 0.05, 0.13, 0.05, mane, s * 0.135, 0.31, 0.08);
-    inner.rotation.z = s * 0.28;
+    box(head, 0.09, 0.18, 0.09, coat, s * 0.12, 0.96, 0.4);
+    box(head, 0.04, 0.1, 0.04, mane, s * 0.12, 0.96, 0.43); // inner ear channel
   }
+
+  // ---- Tail: pivot at the dock high on the rump; a hanging box that swings
+  //      side to side on rotation.y. A couple of segments for a flowing look.
+  const tail = pivot(g, 0, 1.5, -0.78);
+  const tailTop = box(tail, 0.14, 0.46, 0.14, mane, 0, -0.22, -0.04);
+  tailTop.rotation.x = 0.2;
+  const tailBot = box(tail, 0.11, 0.34, 0.11, mane, 0, -0.56, -0.12);
+  tailBot.rotation.x = 0.3;
 
   g.userData = { head, legs, tail };
   return g;
@@ -3990,3 +3977,918 @@ export function createPalm() {
 
   return g;
 }
+
+/* ================================================================== *
+ *  SAVANNAH MAP — new low-poly voxel models (Agent M, savannah pass).
+ *  Abductable animals expose userData { head, legs, tail } for the critter
+ *  animator (js/cows.js): head nods on X, each entry of the legs array
+ *  swings on X, tail rotates on Y. Ambient / hazard creatures expose the
+ *  extras noted on each (wings / rings). Props, trees & vehicles just return
+ *  a Group. Bottom-center origin, faces +Z, unless a comment notes a
+ *  deliberate center origin for a flyer.
+ * ================================================================== */
+
+/* ------------------------------------------------------------------ *
+ *  createLion — 'male' (default) | 'female'. A big tawny cat, cow-ish
+ *  scale (~1.7 long, ~1.2 tall). Four legs, a long tail with a dark tuft.
+ *  'male' wears a shaggy MANE of stacked boxes around the head; 'female'
+ *  has a clean rounded head, no mane.
+ *  userData: { head, legs:[FL,FR,BL,BR], tail } — same contract as the cow.
+ * ------------------------------------------------------------------ */
+
+export function createLion(variant = 'male') {
+  const g = new THREE.Group();
+  const male = variant !== 'female';
+  const coat = mat(0xd6a35c);                              // tawny body
+  const coatLt = mat(0xe6bd80);                            // pale belly / muzzle
+  const maneM = mat(0x7a4a22);                             // shaggy mane brown
+  const dark = mat(0x3a2a18);                              // tail tuft / nose
+  const paw = mat(0xb88a48);
+  const eye = mat(0x14110e);
+
+  // ---- Barrel body: a slab with a lower chest and a haunch lump.
+  box(g, 0.62, 0.56, 1.3, coat, 0, 0.84, 0);              // main barrel
+  box(g, 0.58, 0.5, 0.36, coat, 0, 0.82, 0.6);            // chest
+  box(g, 0.6, 0.58, 0.4, coat, 0, 0.86, -0.6);            // rounded haunch
+  box(g, 0.5, 0.2, 1.0, coatLt, 0, 0.6, 0);               // pale underbelly
+
+  // ---- Legs: pivot at the hip (y=0.6), swing on X. Order FL,FR,BL,BR.
+  const legs = [];
+  for (const [lx, lz] of [[0.22, 0.44], [-0.22, 0.44], [0.22, -0.46], [-0.22, -0.46]]) {
+    const hip = pivot(g, lx, 0.6, lz);
+    box(hip, 0.2, 0.46, 0.22, coat, 0, -0.24, 0);          // leg
+    box(hip, 0.22, 0.12, 0.26, paw, 0, -0.52, 0.02);       // big paw (base = world 0)
+    legs.push(hip);
+  }
+
+  // ---- Tail: long thin box that hangs and curves, with a dark TUFT at the
+  //      tip. pivot at the dock so rotation.y swishes it.
+  const tail = pivot(g, 0, 0.96, -0.66);
+  const t1 = box(tail, 0.08, 0.5, 0.08, coat, 0, -0.18, -0.16);
+  t1.rotation.x = 0.55;
+  const t2 = box(tail, 0.07, 0.34, 0.07, coat, 0, -0.42, -0.4);
+  t2.rotation.x = 1.0;
+  box(tail, 0.13, 0.16, 0.13, dark, 0, -0.5, -0.56);       // tuft
+
+  // ---- Head: pivot at the neck (nods on X). Blocky muzzle, beady eyes.
+  const head = pivot(g, 0, 1.0, 0.56);
+  box(head, 0.4, 0.4, 0.4, coat, 0, 0.08, 0.12);           // skull
+  box(head, 0.26, 0.22, 0.18, coatLt, 0, -0.02, 0.34);     // muzzle
+  box(head, 0.1, 0.06, 0.06, dark, 0, 0.04, 0.44);         // nose
+  box(head, 0.06, 0.08, 0.04, eye, -0.11, 0.14, 0.32);     // eyes
+  box(head, 0.06, 0.08, 0.04, eye, 0.11, 0.14, 0.32);
+  for (const s of [-1, 1]) {                                // rounded ears
+    const ear = box(head, 0.12, 0.1, 0.08, coat, s * 0.18, 0.28, 0.08);
+    ear.rotation.z = s * 0.2;
+  }
+
+  if (male) {
+    // ---- Shaggy MANE: a ring of stacked brown boxes encircling the head,
+    //      plus a fuller back-of-neck collar. Parented to the head so it
+    //      moves with the nod.
+    const n = 10;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * PI2;
+      const mb = box(head, 0.18, 0.22, 0.16, maneM,
+        Math.cos(a) * 0.34, 0.08 + Math.sin(a) * 0.18, 0.08 + Math.cos(a + 1) * 0.04);
+      mb.rotation.z = a;
+    }
+    box(head, 0.5, 0.16, 0.3, maneM, 0, 0.2, -0.12);        // crown fluff
+    // Chest ruff hanging below the chin (on the body, not the head).
+    box(g, 0.4, 0.36, 0.2, maneM, 0, 0.78, 0.78);
+  }
+
+  g.userData = { head, legs, tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createElephant — a large grey elephant, the BIGGEST animal (~1.4× cow,
+ *  ~2.4 long, ~2.0 tall). Bulky body, big head with floppy ears, a long
+ *  segmented TRUNK, two short tusks, four thick legs and a little tail.
+ *  userData: { head, legs:[FL,FR,BL,BR], tail } — the HEAD pivot carries the
+ *  trunk base, so a nod (rotation.x) swings the trunk; legs swing on X.
+ * ------------------------------------------------------------------ */
+
+export function createElephant() {
+  const g = new THREE.Group();
+  const grey = mat(0x8b8e92);
+  const greyLt = mat(0x9ea2a6);
+  const greyDk = mat(0x70747a);
+  const tuskM = mat(0xece3cf);
+  const eye = mat(0x14110e);
+
+  // ---- Massive barrel body: a big slab plus a domed back and haunches.
+  box(g, 1.2, 1.2, 1.9, grey, 0, 1.5, 0);                 // main body
+  const back = add(g, sphGeo(0.74, 10, 6), grey, 0, 2.0, -0.1); // domed back
+  back.scale.set(0.85, 0.6, 1.1);
+  box(g, 1.1, 0.96, 0.5, grey, 0, 1.42, -0.86);           // rounded rump
+  box(g, 1.0, 0.4, 1.6, greyDk, 0, 0.96, 0);              // shaded underbelly
+
+  // ---- Legs: four THICK pillar legs, pivot at the hip (y=0.96). Order
+  //      FL,FR,BL,BR. Stout boxes with broad foot pads (base = world 0).
+  const legs = [];
+  for (const [lx, lz] of [[0.42, 0.6], [-0.42, 0.6], [0.42, -0.64], [-0.42, -0.64]]) {
+    const hip = pivot(g, lx, 0.96, lz);
+    box(hip, 0.38, 0.84, 0.4, grey, 0, -0.44, 0);          // pillar leg
+    box(hip, 0.44, 0.14, 0.46, greyDk, 0, -0.89, 0.02);    // foot pad (base = world 0)
+    legs.push(hip);
+  }
+
+  // ---- Tail: a thin little tail with a tuft. pivot at the dock (rotation.y).
+  const tail = pivot(g, 0, 1.7, -1.04);
+  const ts = box(tail, 0.1, 0.6, 0.1, grey, 0, -0.3, -0.06);
+  ts.rotation.x = 0.18;
+  box(tail, 0.12, 0.16, 0.12, greyDk, 0, -0.58, -0.12);    // tail tuft
+
+  // ---- Head: pivot at the neck (rotation.x). Carries ears, tusks AND the
+  //      whole trunk, so a nod swings the trunk down.
+  const head = pivot(g, 0, 1.84, 0.86);
+  box(head, 0.94, 0.9, 0.7, grey, 0, 0.1, 0.1);            // big head
+  box(head, 0.4, 0.4, 0.1, greyLt, 0, 0.18, 0.46);        // forehead bump
+  box(head, 0.06, 0.08, 0.04, eye, -0.26, 0.18, 0.43);     // eyes
+  box(head, 0.06, 0.08, 0.04, eye, 0.26, 0.18, 0.43);
+  // Big floppy EARS — wide flat slabs splayed off each side.
+  for (const s of [-1, 1]) {
+    const ear = box(head, 0.6, 0.8, 0.1, greyLt, s * 0.62, 0.06, -0.08);
+    ear.rotation.y = s * 0.5;
+    ear.rotation.z = s * -0.12;
+    box(head, 0.4, 0.56, 0.06, greyDk, s * 0.78, 0.04, -0.06).rotation.y = s * 0.5; // inner ear
+  }
+  // Two short curved TUSKS jutting forward + down from the muzzle.
+  for (const s of [-1, 1]) {
+    const tu = box(head, 0.08, 0.1, 0.5, tuskM, s * 0.18, -0.34, 0.42);
+    tu.rotation.x = 0.4;
+    box(head, 0.07, 0.08, 0.14, tuskM, s * 0.21, -0.5, 0.66).rotation.x = 0.7; // tip
+  }
+  // Long segmented TRUNK hanging down off the front of the head; each box
+  // steps forward + down + narrower for a tapering, drooping curl.
+  const trunkSegs = 5;
+  let tx = 0, ty = -0.22, tz = 0.5, w = 0.34;
+  for (let i = 0; i < trunkSegs; i++) {
+    const seg = box(head, w, 0.26, w, i % 2 ? greyLt : grey, tx, ty, tz);
+    seg.rotation.x = 0.3 + i * 0.12;
+    ty -= 0.26; tz += 0.06 - i * 0.03; w = Math.max(0.16, w - 0.04);
+  }
+  box(head, 0.16, 0.1, 0.16, greyDk, tx, ty + 0.04, tz);   // trunk tip
+
+  g.userData = { head, legs, tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createFlamingo — a tall pink wading bird (~1.4 tall). Long thin legs,
+ *  an S-curved neck, a small head with a down-curved black-tipped beak, a
+ *  plump body and folded wings.
+ *  userData: { head, legs:[L,R], tail } — head nods on X, the two leg
+ *  pivots swing on X, tail flicks on Y.
+ * ------------------------------------------------------------------ */
+
+export function createFlamingo() {
+  const g = new THREE.Group();
+  const pink = mat(0xf48fb1);
+  const pinkLt = mat(0xf8bbd0);
+  const pinkDk = mat(0xec6fa0);
+  const legM = mat(0xe0728f);
+  const beakM = mat(0xf3a9c0);
+  const black = mat(0x1c1c1c);
+  const eye = mat(0x14110e);
+
+  // ---- Legs: two long thin stilts, pivot at the hip (y=0.84). A thigh, a
+  //      back-bent "knee" kink, and a little foot (base = world 0).
+  const legs = [];
+  for (const s of [1, -1]) {
+    const hip = pivot(g, s * 0.1, 0.84, 0);
+    box(hip, 0.06, 0.46, 0.06, legM, 0, -0.23, 0);          // upper shank
+    box(hip, 0.05, 0.42, 0.05, legM, 0, -0.63, 0.02);       // lower shank
+    box(hip, 0.16, 0.04, 0.18, legM, 0, -0.84, 0.05);       // webbed foot
+    legs.push(hip);
+  }
+
+  // ---- Plump body sitting on the legs; folded wings as side slabs.
+  box(g, 0.36, 0.4, 0.62, pink, 0, 1.0, 0);                // body
+  box(g, 0.3, 0.24, 0.3, pinkLt, 0, 0.86, 0.18);           // pale breast
+  for (const s of [-1, 1]) {
+    const wing = box(g, 0.08, 0.3, 0.46, pinkDk, s * 0.2, 1.02, -0.04);
+    wing.rotation.z = s * -0.06;
+  }
+  // ---- Tail: short upswept feather wedge (pivot rotation.y flicks it).
+  const tail = pivot(g, 0, 1.08, -0.32);
+  const tf = box(tail, 0.22, 0.14, 0.24, pinkLt, 0, 0.02, -0.12);
+  tf.rotation.x = -0.4;
+
+  // ---- Head + S-curved NECK as one pivot at the neck base (nods on X). The
+  //      neck is two boxes: one rising up, one bending forward, then a small
+  //      head with a down-curved beak.
+  const head = pivot(g, 0, 1.18, 0.18);
+  const n1 = box(head, 0.1, 0.56, 0.1, pink, 0, 0.26, 0.04);   // neck rising up
+  n1.rotation.x = 0.18;
+  const n2 = box(head, 0.09, 0.4, 0.09, pink, 0, 0.6, 0.2);    // neck arching forward
+  n2.rotation.x = 0.85;
+  box(head, 0.16, 0.16, 0.2, pinkLt, 0, 0.74, 0.42);           // little head
+  box(head, 0.04, 0.05, 0.03, eye, -0.07, 0.78, 0.5);          // eyes
+  box(head, 0.04, 0.05, 0.03, eye, 0.07, 0.78, 0.5);
+  // Down-curved beak: a pink base then a black hooked tip pointing down.
+  const beak = box(head, 0.1, 0.1, 0.18, beakM, 0, 0.7, 0.58);
+  beak.rotation.x = 0.4;
+  box(head, 0.08, 0.12, 0.08, black, 0, 0.6, 0.64).rotation.x = 0.9; // black hooked tip
+
+  g.userData = { head, legs, tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createStork — a white/grey wading bird (~1.4 tall) with black wing
+ *  tips, long red legs, a long straight orange beak and a long neck.
+ *  userData: { head, legs:[L,R], tail }.
+ * ------------------------------------------------------------------ */
+
+export function createStork() {
+  const g = new THREE.Group();
+  const white = mat(0xf3f1ea);
+  const greyW = mat(0xdcd8cf);
+  const black = mat(0x2a2a2a);
+  const legM = mat(0xd2483f);                              // long red legs
+  const beakM = mat(0xee8c2a);                             // orange beak
+  const eye = mat(0x14110e);
+
+  // ---- Legs: two long red stilts, pivot at the hip (y=0.82).
+  const legs = [];
+  for (const s of [1, -1]) {
+    const hip = pivot(g, s * 0.1, 0.82, 0);
+    box(hip, 0.06, 0.44, 0.06, legM, 0, -0.22, 0);          // upper shank
+    box(hip, 0.05, 0.4, 0.05, legM, 0, -0.6, 0.01);         // lower shank
+    box(hip, 0.16, 0.04, 0.2, legM, 0, -0.81, 0.05);        // foot
+    legs.push(hip);
+  }
+
+  // ---- Plump body; wings white with BLACK tips at the back.
+  box(g, 0.38, 0.42, 0.66, white, 0, 0.98, 0);            // body
+  box(g, 0.32, 0.26, 0.3, greyW, 0, 0.84, 0.18);          // pale breast
+  for (const s of [-1, 1]) {
+    box(g, 0.08, 0.32, 0.48, white, s * 0.21, 1.0, -0.04);  // folded wing
+    box(g, 0.09, 0.22, 0.2, black, s * 0.21, 0.92, -0.28);  // black wing tip
+  }
+  // ---- Tail: short black-tipped feather wedge.
+  const tail = pivot(g, 0, 1.04, -0.34);
+  const tf = box(tail, 0.24, 0.12, 0.26, white, 0, 0.0, -0.12);
+  tf.rotation.x = -0.3;
+  box(tail, 0.2, 0.1, 0.12, black, 0, -0.04, -0.26).rotation.x = -0.3;
+
+  // ---- Head + long NECK pivot at the base (nods on X). A long straight
+  //      neck box, a small head, and a LONG STRAIGHT orange beak.
+  const head = pivot(g, 0, 1.16, 0.2);
+  const neck = box(head, 0.12, 0.66, 0.12, white, 0, 0.3, 0.1);
+  neck.rotation.x = 0.3;
+  box(head, 0.18, 0.18, 0.2, white, 0, 0.66, 0.32);        // head
+  box(head, 0.04, 0.05, 0.03, eye, -0.07, 0.7, 0.4);       // eyes
+  box(head, 0.04, 0.05, 0.03, eye, 0.07, 0.7, 0.4);
+  const beak = box(head, 0.07, 0.07, 0.42, beakM, 0, 0.64, 0.6); // long straight beak
+  beak.rotation.x = 0.18;
+
+  g.userData = { head, legs, tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createCrocodile — a long low green-grey croc (~2.6 long), sitting LOW
+ *  (it lurks in water). A long flat snout with teeth, a ridged back, short
+ *  splayed legs and a long tail.
+ *  userData: { head, legs:[FL,FR,BL,BR], tail } — head nods (jaw lift), legs
+ *  swing on X (splayed waddle), tail sweeps on Y.
+ * ------------------------------------------------------------------ */
+
+export function createCrocodile() {
+  const g = new THREE.Group();
+  const green = mat(0x5a6e3a);
+  const greenLt = mat(0x6f8348);
+  const greenDk = mat(0x44542c);
+  const belly = mat(0xb6b78a);
+  const tooth = mat(0xeae6d6);
+  const eye = mat(0xd9c44a);                               // reptilian eye
+
+  // ---- Long low body: a flat slab with a ridged back and a pale belly.
+  box(g, 0.62, 0.36, 1.5, green, 0, 0.32, 0);             // body slab
+  box(g, 0.56, 0.12, 1.4, belly, 0, 0.16, 0);            // pale underbelly
+  // Ridged back: a row of triangular-ish scute boxes down the spine.
+  for (let i = 0; i < 6; i++) {
+    const z = 0.55 - i * 0.22;
+    const sc = box(g, 0.18, 0.16, 0.14, greenDk, 0, 0.5, z);
+    sc.rotation.x = 0.4;
+    box(g, 0.12, 0.12, 0.1, greenLt, 0.16, 0.46, z);      // side scute
+    box(g, 0.12, 0.12, 0.1, greenLt, -0.16, 0.46, z);
+  }
+
+  // ---- Legs: four SHORT splayed legs, pivot at the hip (y=0.26). Splayed
+  //      outward so it sits low and wide. Order FL,FR,BL,BR.
+  const legs = [];
+  for (const [lx, lz] of [[0.36, 0.5], [-0.36, 0.5], [0.36, -0.5], [-0.36, -0.5]]) {
+    const hip = pivot(g, lx, 0.26, lz);
+    const upper = box(hip, 0.3, 0.12, 0.16, green, lx > 0 ? 0.08 : -0.08, -0.02, 0); // splayed out
+    upper.rotation.z = lx > 0 ? -0.5 : 0.5;
+    box(hip, 0.16, 0.18, 0.16, greenDk, lx > 0 ? 0.18 : -0.18, -0.14, 0); // foot down to ground
+    legs.push(hip);
+  }
+
+  // ---- Tail: long tapering tail that sweeps side to side (pivot rotation.y).
+  const tail = pivot(g, 0, 0.34, -0.78);
+  const t1 = box(tail, 0.42, 0.3, 0.5, green, 0, -0.04, -0.24);
+  const t2 = box(tail, 0.28, 0.22, 0.46, greenLt, 0, -0.06, -0.66);
+  box(tail, 0.16, 0.14, 0.4, green, 0, -0.08, -1.02);      // tail tip
+  // Tail ridge scutes.
+  for (const z of [-0.3, -0.6, -0.9]) {
+    box(tail, 0.1, 0.12, 0.1, greenDk, 0, 0.16, z).rotation.x = 0.4;
+  }
+
+  // ---- Head: pivot at the neck (rotation.x lifts the snout). A long FLAT
+  //      snout with an upper + lower jaw and a row of white teeth between.
+  const head = pivot(g, 0, 0.34, 0.74);
+  box(head, 0.52, 0.26, 0.4, green, 0, 0.04, 0.0);         // skull
+  box(head, 0.36, 0.16, 0.62, green, 0, 0.06, 0.52);       // long flat upper snout
+  box(head, 0.34, 0.12, 0.6, greenLt, 0, -0.06, 0.5);      // lower jaw
+  // Teeth: little white box stubs along the snout edge.
+  for (let i = 0; i < 5; i++) {
+    const z = 0.28 + i * 0.16;
+    box(head, 0.04, 0.06, 0.04, tooth, 0.14, -0.02, z);
+    box(head, 0.04, 0.06, 0.04, tooth, -0.14, -0.02, z);
+  }
+  // Bulging eyes raised on top of the head (so they peek above water).
+  for (const s of [-1, 1]) {
+    box(head, 0.12, 0.12, 0.12, green, s * 0.16, 0.18, 0.04); // eye bump
+    box(head, 0.06, 0.07, 0.05, eye, s * 0.16, 0.22, 0.08);   // yellow eye
+    box(head, 0.06, 0.02, 0.05, mat(0x14110e), s * 0.16, 0.22, 0.1); // slit pupil
+  }
+  // Nostril bumps at the snout tip.
+  box(head, 0.08, 0.06, 0.08, green, 0.08, 0.12, 0.78);
+  box(head, 0.08, 0.06, 0.08, green, -0.08, 0.12, 0.78);
+
+  g.userData = { head, legs, tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createGiraffe — a VERY TALL giraffe (~4.5 tall). Extremely long neck,
+ *  long legs, a small head with ossicones, tan coat with brown patches.
+ *  Bottom-center origin (hooves at y=0).
+ *  userData: { head, legs:[FL,FR,BL,BR], tail } — head nods on the long
+ *  neck (rotation.x), legs swing on X, tail flicks on Y.
+ * ------------------------------------------------------------------ */
+
+export function createGiraffe() {
+  const g = new THREE.Group();
+  const tan = mat(0xe2b86a);
+  const patch = mat(0xa9743b);                            // brown patches
+  const tanLt = mat(0xeccb8c);
+  const mane = mat(0x7a4a22);
+  const hoof = mat(0x3a2a18);
+  const eye = mat(0x14110e);
+
+  // ---- Sloping body: higher at the shoulders than the rump.
+  box(g, 0.7, 0.74, 1.2, tan, 0, 2.5, 0);                 // body slab
+  box(g, 0.66, 0.6, 0.4, tan, 0, 2.66, 0.6);             // raised shoulders
+  box(g, 0.62, 0.5, 0.34, tan, 0, 2.36, -0.6);           // lower rump
+
+  // ---- Scattered brown patches proud of the coat (a few per side).
+  for (const [px, py, pz, pw, ph] of [
+    [0.36, 2.6, 0.2, 0.06, 0.3], [0.36, 2.4, -0.3, 0.06, 0.26],
+    [-0.36, 2.55, 0.0, 0.06, 0.3], [-0.36, 2.35, -0.4, 0.06, 0.22],
+    [0.0, 2.9, 0.3, 0.34, 0.06], [0.0, 2.84, -0.4, 0.3, 0.06],
+  ]) {
+    box(g, pw, ph, 0.34, patch, px, py, pz);
+  }
+
+  // ---- Legs: VERY long, pivot at the shoulder/hip (y=2.18). Order FL,FR,
+  //      BL,BR. Each is a long box + hoof (base = world 0).
+  const legs = [];
+  for (const [lx, lz] of [[0.24, 0.46], [-0.24, 0.46], [0.24, -0.48], [-0.24, -0.48]]) {
+    const hip = pivot(g, lx, 2.18, lz);
+    box(hip, 0.22, 2.0, 0.24, tan, 0, -1.06, 0);           // long leg
+    box(hip, 0.2, 0.8, 0.2, patch, 0, -0.5, 0.01);         // upper patchy band
+    box(hip, 0.24, 0.12, 0.26, hoof, 0, -2.12, 0);         // hoof (base = world 0)
+    legs.push(hip);
+  }
+
+  // ---- Tail: thin tail with a dark tuft (pivot rotation.y).
+  const tail = pivot(g, 0, 2.7, -0.78);
+  const ts = box(tail, 0.07, 0.7, 0.07, tan, 0, -0.34, -0.06);
+  ts.rotation.x = 0.18;
+  box(tail, 0.1, 0.22, 0.1, mane, 0, -0.7, -0.12);         // tuft
+
+  // ---- Head + extremely long NECK as one pivot at the base (nods on X).
+  //      A single long angled neck box, a mane slab down its back, then a
+  //      small head with a muzzle and two ossicones.
+  const head = pivot(g, 0, 2.9, 0.5);
+  const neck = box(head, 0.34, 1.7, 0.4, tan, 0, 0.78, 0.34);
+  neck.rotation.x = -0.32;
+  // Brown patches on the neck.
+  box(head, 0.36, 0.24, 0.1, patch, 0, 0.7, 0.62).rotation.x = -0.32;
+  box(head, 0.36, 0.24, 0.1, patch, 0, 1.2, 0.46).rotation.x = -0.32;
+  // Flat mane slab down the back of the neck.
+  const maneSlab = box(head, 0.12, 1.7, 0.14, mane, 0, 0.78, 0.16);
+  maneSlab.rotation.x = -0.32;
+  // Small head at the top, tilted level + forward.
+  box(head, 0.3, 0.32, 0.42, tan, 0, 1.66, 0.66);          // skull
+  box(head, 0.22, 0.2, 0.18, tanLt, 0, 1.6, 0.88);         // muzzle
+  box(head, 0.05, 0.05, 0.03, eye, -0.11, 1.72, 0.78);     // eyes
+  box(head, 0.05, 0.05, 0.03, eye, 0.11, 1.72, 0.78);
+  for (const s of [-1, 1]) {                                // ears
+    const ear = box(head, 0.14, 0.08, 0.08, tan, s * 0.18, 1.74, 0.6);
+    ear.rotation.z = s * 0.4;
+  }
+  // Two ossicones (horn knobs) on top.
+  for (const s of [-1, 1]) {
+    box(head, 0.06, 0.16, 0.06, mane, s * 0.08, 1.86, 0.62);
+    box(head, 0.09, 0.07, 0.09, patch, s * 0.08, 1.95, 0.62); // knob top
+  }
+
+  g.userData = { head, legs, tail };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createVulture — a dark scruffy vulture (~0.9 tall) with a bald pinkish
+ *  head, a hunched body and big wings. Bottom-center origin (perched / on
+ *  the ground). Expose userData.wings = [L, R] (two shoulder pivots) so the
+ *  world can FLAP it (rotation.z), plus a head pivot for charm.
+ * ------------------------------------------------------------------ */
+
+export function createVulture() {
+  const g = new THREE.Group();
+  const dark = mat(0x35302c);                             // scruffy dark feathers
+  const darkLt = mat(0x4a443d);
+  const ruff = mat(0xe8e2d2);                             // pale neck ruff
+  const baldM = mat(0xc98f86);                            // bald pinkish head
+  const beakM = mat(0x2a2620);
+  const eye = mat(0xd9b24a);
+
+  // ---- Feet gripping the perch.
+  for (const s of [-1, 1]) {
+    box(g, 0.07, 0.16, 0.07, mat(0x6b5a3a), s * 0.1, 0.08, 0);
+    box(g, 0.12, 0.04, 0.18, mat(0x6b5a3a), s * 0.1, 0.02, 0.04);
+  }
+
+  // ---- Hunched body: a tilted-forward slab with scruffy tail feathers.
+  const body = box(g, 0.42, 0.5, 0.46, dark, 0, 0.42, 0);
+  body.rotation.x = 0.2;
+  box(g, 0.36, 0.3, 0.16, darkLt, 0, 0.4, 0.2);            // chest
+  const tailF = box(g, 0.3, 0.1, 0.34, dark, 0, 0.34, -0.28);
+  tailF.rotation.x = -0.3;                                  // stubby tail
+  box(g, 0.2, 0.08, 0.16, darkLt, 0, 0.32, -0.44).rotation.x = -0.3;
+  // Pale ruff of feathers around the base of the neck.
+  box(g, 0.36, 0.16, 0.34, ruff, 0, 0.62, 0.06);
+
+  // ---- Wings: big folded wing slabs, pivot at the shoulders so rotation.z
+  //      flaps them open. [L(+X), R(-X)].
+  const wings = [];
+  for (const s of [1, -1]) {
+    const wing = pivot(g, s * 0.2, 0.56, -0.02);
+    const inner = box(wing, 0.1, 0.46, 0.36, dark, s * 0.04, -0.18, -0.04);
+    inner.rotation.z = s * 0.06;
+    const outer = box(wing, 0.08, 0.36, 0.3, darkLt, s * 0.1, -0.42, -0.08);
+    outer.rotation.z = s * 0.1;
+    // Splayed primary feather tips.
+    for (let i = 0; i < 3; i++) box(wing, 0.05, 0.18, 0.06, dark, s * 0.12, -0.6, -0.14 + i * 0.08);
+    wings.push(wing);
+  }
+
+  // ---- Head: pivot on a long bald neck. Bald pinkish skin, a heavy hooked
+  //      beak, beady eyes.
+  const head = pivot(g, 0, 0.72, 0.1);
+  const neck = box(head, 0.14, 0.2, 0.14, baldM, 0, 0.1, 0.04); // bald neck
+  neck.rotation.x = 0.3;
+  box(head, 0.2, 0.2, 0.22, baldM, 0, 0.26, 0.14);         // bald head
+  box(head, 0.04, 0.05, 0.03, eye, -0.07, 0.3, 0.24);      // eyes
+  box(head, 0.04, 0.05, 0.03, eye, 0.07, 0.3, 0.24);
+  box(head, 0.1, 0.1, 0.14, beakM, 0, 0.24, 0.28);         // heavy beak
+  box(head, 0.07, 0.08, 0.06, beakM, 0, 0.18, 0.34).rotation.x = 0.7; // hooked tip
+
+  g.userData = { head, wings };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createDustDevil — a swirling DUST DEVIL (mini tornado), ~3 tall.
+ *  A tall tapering column of stacked translucent tan/brown dust RINGS
+ *  (torus discs) that get wider toward the TOP, plus a few small dust puff
+ *  boxes drifting around it. Bottom origin at y≈0.
+ *  Expose userData.rings = [...] (the ring meshes) so the world can SPIN
+ *  them (rotation.y) at varying speeds for the swirl.
+ * ------------------------------------------------------------------ */
+
+export function createDustDevil() {
+  const g = new THREE.Group();
+  // Translucent dusty materials (unique, not shared — they're see-through).
+  const dustMat = (hex, op) => new THREE.MeshLambertMaterial({
+    color: hex, transparent: true, opacity: op, depthWrite: false, flatShading: true,
+  });
+  const tones = [0xc9b083, 0xbfa477, 0xd6bd92, 0xb59868];
+
+  // ---- Stacked dust rings: narrow at the bottom, flaring WIDER toward the
+  //      top, each a flat torus that the world spins on Y.
+  const rings = [];
+  const nRings = 7;
+  for (let i = 0; i < nRings; i++) {
+    const f = i / (nRings - 1);
+    const y = 0.25 + f * 2.5;                              // climb the column
+    const r = 0.2 + f * 0.85;                              // flare outward going up
+    const op = 0.5 - f * 0.22;                             // fade toward the top
+    const ring = add(g, torusGeo(r, 0.12 + f * 0.06, 6, 12),
+      dustMat(tones[i % tones.length], op), 0, y, 0);
+    ring.rotation.x = Math.PI / 2;                          // lay it flat
+    ring.castShadow = false;
+    rings.push(ring);
+  }
+
+  // ---- A narrow translucent core column tying the rings together.
+  const core = add(g, cylGeo(0.6, 0.12, 2.7, 10), dustMat(0xc2a778, 0.18), 0, 1.45, 0);
+  core.castShadow = false;
+
+  // ---- A few small dust PUFF boxes drifting around the column.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * PI2;
+    const f = (i % 3) / 3;
+    const r = 0.3 + f * 0.7;
+    const puff = box(g, 0.22, 0.18, 0.22, dustMat(tones[i % tones.length], 0.4),
+      Math.cos(a) * r, 0.3 + f * 2.2, Math.sin(a) * r);
+    puff.rotation.set(0.3, a, 0.2);
+    puff.castShadow = false;
+  }
+
+  g.userData = { rings };
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createAcacia — the iconic flat-topped umbrella acacia (~4.5 tall). A
+ *  slightly leaning trunk splits into a few upward branches, all topped by
+ *  a WIDE FLAT canopy (a flattened green ellipsoid disc). Bottom-center
+ *  origin. Instanced — kept lean.
+ * ------------------------------------------------------------------ */
+
+export function createAcacia() {
+  const g = new THREE.Group();
+  const bark = mat(0x9c7b4f);
+  const barkDk = mat(0x6f5535);
+  const leaf = mat(0x6f8f3a);                             // dry savannah green
+  const leafDk = mat(0x5a7a2e);
+  const leafLt = mat(0x88a84e);
+
+  // ---- Leaning trunk that forks into upward branches.
+  const trunk = box(g, 0.34, 2.4, 0.34, bark, 0, 1.2, 0);
+  trunk.rotation.x = -0.06;                                // slight lean
+  box(g, 0.3, 0.3, 0.26, barkDk, 0, 0.16, 0).rotation.z = 0.2; // root flare
+  // A few branches angling up + out from the top of the trunk.
+  const branchTops = [];
+  for (const [bx, bz, rz, rx] of [
+    [0.0, 0.1, 0.0, -0.2], [0.5, 0.0, -0.5, -0.1],
+    [-0.5, -0.1, 0.5, -0.1], [0.2, -0.5, -0.2, 0.3],
+  ]) {
+    const br = box(g, 0.18, 1.3, 0.18, bark, bx * 0.4, 2.4, bz * 0.4);
+    br.rotation.z = rz;
+    br.rotation.x = rx;
+    branchTops.push([bx, bz]);
+  }
+
+  // ---- Wide FLAT umbrella canopy: a big flattened ellipsoid + a couple of
+  //      offset puffs so the flat top reads from any angle.
+  const canopy = add(g, sphGeo(2.3, 12, 7), leaf, 0, 3.7, 0);
+  canopy.scale.set(1, 0.3, 1);                             // flatten into a disc
+  const c2 = add(g, sphGeo(1.5, 10, 6), leafDk, 0.9, 3.62, 0.5);
+  c2.scale.set(1, 0.28, 1);
+  const c3 = add(g, sphGeo(1.4, 10, 6), leafLt, -0.8, 3.78, -0.4);
+  c3.scale.set(1, 0.26, 1);
+  // A thin darker underside slab so the canopy reads as solid from below.
+  const under = add(g, cylGeo(2.2, 1.9, 0.2, 14), leafDk, 0, 3.55, 0);
+  under.castShadow = false;
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createBaobab — the "upside-down tree": a fat, bulbous swollen TRUNK
+ *  (very thick, tapering up) topped by a small crown of stubby bare
+ *  branches. Tall and chunky (~5 tall). Bottom-center origin.
+ * ------------------------------------------------------------------ */
+
+export function createBaobab() {
+  const g = new THREE.Group();
+  const bark = mat(0xa98c63);
+  const barkLt = mat(0xc0a47a);
+  const barkDk = mat(0x836b48);
+  const leaf = mat(0x6f8f3a);
+
+  // ---- Hugely swollen TRUNK: a wide base tapering up through a few stacked
+  //      cylinder sections so it bulges in the middle like a real baobab.
+  add(g, cylGeo(1.0, 1.25, 0.6, 12), barkDk, 0, 0.3, 0);  // flared root base
+  add(g, cylGeo(1.05, 1.0, 1.6, 12), bark, 0, 1.4, 0);    // fat lower trunk
+  add(g, cylGeo(0.85, 1.08, 1.4, 12), barkLt, 0, 2.9, 0); // bulging mid
+  add(g, cylGeo(0.5, 0.85, 1.1, 12), bark, 0, 4.0, 0);    // tapering shoulder
+  // Vertical bark seam ribs around the swollen trunk.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * PI2;
+    const rib = box(g, 0.12, 2.6, 0.12, barkDk, Math.cos(a) * 0.95, 1.8, Math.sin(a) * 0.95);
+    rib.rotation.y = -a;
+  }
+
+  // ---- Small crown of stubby BARE branches splaying off the top, with just
+  //      a few sparse leaf clumps (baobabs are bare much of the year).
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * PI2;
+    const br = box(g, 0.12, 0.9, 0.12, bark, Math.cos(a) * 0.3, 4.9, Math.sin(a) * 0.3);
+    br.rotation.z = Math.cos(a) * 0.8;
+    br.rotation.x = -Math.sin(a) * 0.8;
+    // Sparse leaf clump on every other branch.
+    if (i % 2 === 0) {
+      const clump = add(g, sphGeo(0.4, 7, 5), leaf, Math.cos(a) * 0.85, 5.35, Math.sin(a) * 0.85);
+      clump.scale.set(1, 0.7, 1);
+    }
+  }
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createDeadTree — a bare, pale dead tree (~3.5 tall): a bent trunk with
+ *  a few leafless gnarled branches (a perch for a vulture). Bottom-center
+ *  origin.
+ * ------------------------------------------------------------------ */
+
+export function createDeadTree() {
+  const g = new THREE.Group();
+  const wood = mat(0xb8ac96);                             // pale weathered wood
+  const woodDk = mat(0x968b76);
+
+  // ---- Bent trunk: two stacked boxes kinked at the join so it leans.
+  box(g, 0.3, 1.8, 0.3, wood, 0, 0.9, 0).rotation.z = 0.06;
+  const upper = box(g, 0.24, 1.5, 0.24, woodDk, 0.12, 2.45, 0.05);
+  upper.rotation.z = -0.18;                                // kink the other way
+  box(g, 0.26, 0.26, 0.22, woodDk, 0, 0.14, 0);           // root flare
+
+  // ---- A few leafless gnarled branches angling off the trunk.
+  for (const [bx, by, bz, rz, rx, len] of [
+    [0.2, 2.2, 0.0, -0.9, 0.1, 1.0],
+    [-0.15, 1.9, 0.1, 0.9, 0.2, 0.9],
+    [0.05, 2.9, -0.1, -0.5, -0.3, 0.8],
+    [-0.1, 2.7, 0.0, 0.6, 0.3, 0.7],
+  ]) {
+    const br = box(g, 0.12, len, 0.12, wood, bx, by, bz);
+    br.rotation.z = rz;
+    br.rotation.x = rx;
+    // A short twig fork at the end of each branch.
+    const twig = box(g, 0.07, 0.5, 0.07, woodDk,
+      bx + Math.sin(rz) * len * 0.4, by + Math.cos(rz) * len * 0.4, bz);
+    twig.rotation.z = rz * 0.4 - 0.3;
+  }
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createGrassTuft — a small tuft of tall savannah grass: a handful of
+ *  thin tapered blades fanning up, dry gold-green. Small (~0.6 tall) — it
+ *  will be instanced by the thousands, so it is kept very lean.
+ *  Bottom-center origin.
+ * ------------------------------------------------------------------ */
+
+export function createGrassTuft() {
+  const g = new THREE.Group();
+  const dryA = mat(0xb7a14c, true);                       // dry gold
+  const dryB = mat(0x9c8b3a, true);                       // darker gold
+  const greenA = mat(0x8a9a4a, true);                     // gold-green
+
+  // ---- 6 thin tapered blades fanning up + out from the base in a ring.
+  const blades = [dryA, greenA, dryB, dryA, greenA, dryB];
+  const n = 6;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * PI2 + 0.4;
+    const lean = 0.18 + (i % 2) * 0.12;                    // alternate splay
+    const h = 0.46 + (i % 3) * 0.12;
+    const blade = box(g, 0.05, h, 0.05, blades[i], Math.cos(a) * 0.07, h / 2, Math.sin(a) * 0.07);
+    // Lean each blade outward in its own direction.
+    blade.rotation.z = Math.cos(a) * lean;
+    blade.rotation.x = -Math.sin(a) * lean;
+    blade.castShadow = false;
+  }
+  // A couple of central upright blades for body.
+  box(g, 0.05, 0.6, 0.05, dryA, 0, 0.3, 0).castShadow = false;
+  box(g, 0.05, 0.52, 0.05, greenA, 0.04, 0.26, -0.02).castShadow = false;
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createJeep — a boxy 4x4 jeep (~2 wide, ~4 long), khaki/olive. Body +
+ *  cabin + windshield + 4 chunky wheels. Bottom-center origin, faces +Z.
+ * ------------------------------------------------------------------ */
+
+export function createJeep() {
+  const g = new THREE.Group();
+  const khaki = mat(0x8a7d4a);
+  const khakiD = mat(0x6e6338);
+  const dark = mat(0x2b2f25);
+  const glass = emat(0xbfe3ff, 0x3a6a8a, 0.25);
+  const chrome = mat(0xc7ccc4);
+
+  // ---- Chassis slab + boxy body + raised hood.
+  box(g, 1.7, 0.4, 3.6, khakiD, 0, 0.62, 0);             // chassis
+  box(g, 1.74, 0.55, 3.5, khaki, 0, 1.0, 0);             // body tub
+  box(g, 1.7, 0.4, 1.2, khaki, 0, 1.34, 1.05);           // engine hood (front)
+  box(g, 1.6, 0.06, 1.18, khakiD, 0, 1.56, 1.05);        // hood ridge
+  // ---- Squared cabin with a flat roof set back over the seats.
+  box(g, 1.64, 0.7, 1.5, khaki, 0, 1.6, -0.35);          // cabin box
+  box(g, 1.7, 0.12, 1.6, khakiD, 0, 1.98, -0.35);        // roof cap
+  // Windshield + side windows (a poking-out glass band, Crossy style).
+  box(g, 1.5, 0.5, 0.1, glass, 0, 1.62, 0.42).castShadow = false;       // windshield
+  box(g, 1.66, 0.5, 1.1, glass, 0, 1.62, -0.35).castShadow = false;     // cabin glass
+  box(g, 0.12, 0.7, 1.5, khaki, 0.82, 1.6, -0.35);       // re-cover left pillar
+  box(g, 0.12, 0.7, 1.5, khaki, -0.82, 1.6, -0.35);      // right pillar
+  // ---- Front: grille + round headlights + bumper + spare wheel on the back.
+  box(g, 1.4, 0.34, 0.1, mat(0x55606a, false, 'metal'), 0, 1.0, 1.66); // grille
+  for (const s of [-1, 1]) {
+    const hl = add(g, cylZGeo(0.13, 0.08, 8), emat(0xffe3a1, 0xffb547, 0.7, true), s * 0.55, 1.06, 1.7);
+    hl.castShadow = false;
+    box(g, 0.06, 0.06, 0.16, chrome, s * 0.78, 1.85, 1.0); // wing mirror arm
+    box(g, 0.04, 0.12, 0.1, mat(0xd9d9d9), s * 0.84, 1.85, 1.0);
+  }
+  box(g, 1.85, 0.16, 0.16, dark, 0, 0.66, 1.74);          // front bumper
+  box(g, 1.85, 0.16, 0.16, dark, 0, 0.66, -1.74);         // rear bumper
+  // Spare wheel mounted on the tailgate.
+  add(g, cylZGeo(0.4, 0.26, 10), dark, 0, 1.1, -1.82);
+  add(g, cylZGeo(0.16, 0.3, 8), khakiD, 0, 1.1, -1.84);
+  // ---- Four chunky off-road wheels with pale hubs.
+  for (const [x, z] of [[-0.86, 1.15], [0.86, 1.15], [-0.86, -1.15], [0.86, -1.15]]) {
+    add(g, cylXGeo(0.5, 0.36, 10), mat(0x21261d, true), x, 0.5, z);     // fat tyre
+    add(g, cylXGeo(0.2, 0.4, 8), chrome, x, 0.5, z);                    // hub
+    // A couple of tread lug boxes for the off-road look.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * PI2;
+      const lug = box(g, 0.4, 0.08, 0.12, dark, x, 0.5 + Math.cos(a) * 0.5, z + Math.sin(a) * 0.5);
+      lug.rotation.x = -a;
+    }
+  }
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createSafariCar — an OPEN-SEATED safari vehicle (~2.2 wide, ~4.4 long),
+ *  safari green/tan. An open-top 4x4 with a raised roll-frame / canopy bar
+ *  cage and tiered bench seats visible inside. Bottom-center origin.
+ * ------------------------------------------------------------------ */
+
+export function createSafariCar() {
+  const g = new THREE.Group();
+  const green = mat(0x5b6b3a);                            // safari green
+  const greenD = mat(0x45522c);
+  const tan = mat(0xc9b27e);                              // tan canopy / trim
+  const dark = mat(0x2b2f25);
+  const seat = mat(0x6e5a36);                             // bench upholstery
+  const chrome = mat(0xc7ccc4);
+  const glass = emat(0xbfe3ff, 0x3a6a8a, 0.25);
+
+  // ---- Chassis + low body tub (open-topped — no roof box).
+  box(g, 1.85, 0.4, 4.0, greenD, 0, 0.6, 0);             // chassis
+  box(g, 1.9, 0.6, 3.9, green, 0, 0.98, 0);              // body tub
+  box(g, 1.84, 0.4, 1.2, green, 0, 1.3, 1.3);            // engine hood (front)
+  box(g, 1.7, 0.5, 0.1, glass, 0, 1.55, 0.74).castShadow = false; // low windshield
+  for (const s of [-1, 1]) box(g, 0.08, 0.5, 0.1, green, s * 0.82, 1.55, 0.74); // screen posts
+  // Side body cut lower at the back so the open seating shows.
+  box(g, 0.12, 0.3, 2.4, greenD, 0.9, 1.2, -0.4);        // left side rail
+  box(g, 0.12, 0.3, 2.4, greenD, -0.9, 1.2, -0.4);       // right side rail
+
+  // ---- Tiered BENCH SEATS visible in the open back (each row higher than
+  //      the one in front, stadium-style — the safari look).
+  for (let row = 0; row < 3; row++) {
+    const z = 0.1 - row * 0.85;
+    const y = 1.3 + row * 0.28;                            // tier up
+    box(g, 1.5, 0.16, 0.5, seat, 0, y, z);                // seat base
+    box(g, 1.5, 0.4, 0.14, seat, 0, y + 0.26, z - 0.26);  // seat back
+  }
+
+  // ---- Raised roll-frame / canopy bars: four corner posts + a top frame,
+  //      with a tan shade canopy stretched over the top.
+  const postY = 2.0;
+  for (const [px, pz] of [[0.82, 0.7], [-0.82, 0.7], [0.82, -1.7], [-0.82, -1.7]]) {
+    box(g, 0.1, 1.7, 0.1, dark, px, 1.3, pz);             // roll post
+  }
+  // Top frame rails.
+  for (const s of [-1, 1]) box(g, 0.08, 0.08, 2.5, dark, s * 0.82, postY + 0.12, -0.5);
+  box(g, 1.74, 0.08, 0.08, dark, 0, postY + 0.12, 0.7);
+  box(g, 1.74, 0.08, 0.08, dark, 0, postY + 0.12, -1.7);
+  box(g, 1.74, 0.08, 2.5, dark, 0, postY + 0.12, -0.5).castShadow = false; // cross bars
+  // Tan shade canopy over the frame.
+  box(g, 1.8, 0.1, 2.6, tan, 0, postY + 0.2, -0.5).castShadow = false;
+  box(g, 1.7, 0.06, 2.5, greenD, 0, postY + 0.27, -0.5).castShadow = false; // canopy stripe
+
+  // ---- Front grille, round headlights, bumpers, spare wheel.
+  box(g, 1.5, 0.32, 0.1, mat(0x55606a, false, 'metal'), 0, 1.0, 1.92);
+  for (const s of [-1, 1]) {
+    const hl = add(g, cylZGeo(0.13, 0.08, 8), emat(0xffe3a1, 0xffb547, 0.7, true), s * 0.56, 1.06, 1.96);
+    hl.castShadow = false;
+  }
+  box(g, 1.95, 0.16, 0.16, dark, 0, 0.64, 2.0);           // front bumper
+  box(g, 1.95, 0.16, 0.16, dark, 0, 0.64, -2.0);          // rear bumper
+  add(g, cylZGeo(0.4, 0.26, 10), dark, 0, 1.1, -2.06);    // spare wheel
+  add(g, cylZGeo(0.16, 0.3, 8), green, 0, 1.1, -2.08);
+  // ---- Four off-road wheels with pale hubs.
+  for (const [x, z] of [[-0.92, 1.25], [0.92, 1.25], [-0.92, -1.3], [0.92, -1.3]]) {
+    add(g, cylXGeo(0.52, 0.38, 10), mat(0x21261d, true), x, 0.52, z);
+    add(g, cylXGeo(0.21, 0.42, 8), chrome, x, 0.52, z);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * PI2;
+      const lug = box(g, 0.42, 0.08, 0.12, dark, x, 0.52 + Math.cos(a) * 0.52, z + Math.sin(a) * 0.52);
+      lug.rotation.x = -a;
+    }
+  }
+
+  return g;
+}
+
+/* ------------------------------------------------------------------ *
+ *  createRanger — a safari park RANGER on foot (~2 tall). Khaki shirt +
+ *  shorts, a wide-brim bush hat, holding a rifle / dart-gun. THREAT model.
+ *  userData: { head, legs:[L,R], tail } — legs are 2 hip pivots so it
+ *  animates running (rotation.x), head nods, tail is a null-safe pivot for
+ *  the animator contract. Also exposes arms + gun like the farmer.
+ * ------------------------------------------------------------------ */
+
+export function createRanger() {
+  const g = new THREE.Group();
+  const khaki = mat(0xb6a878);                            // khaki shirt
+  const khakiD = mat(0x8f8358);                           // shorts / pockets
+  const skin = mat(COLORS.skin);
+  const boot = mat(0x5a4226);
+  const hatM = mat(0xa68a4e);                             // bush hat
+  const eye = mat(0x14110e);
+  const beard = mat(0x6d4c41);
+
+  // ---- Legs: pivot at the hips (y=0.98). Khaki shorts thigh + bare shin +
+  //      boot. [left(+X), right(-X)] so they swing on X for the run.
+  const legs = [];
+  for (const s of [1, -1]) {
+    const hip = pivot(g, s * 0.17, 0.98, 0);
+    box(hip, 0.27, 0.4, 0.29, khakiD, 0, -0.2, 0);         // shorts thigh
+    box(hip, 0.22, 0.4, 0.24, skin, 0, -0.6, 0);           // bare shin
+    box(hip, 0.26, 0.16, 0.4, boot, 0, -0.9, 0.05);        // boot + toe (base = world 0)
+    box(hip, 0.28, 0.08, 0.3, boot, 0, -0.82, -0.02);      // boot cuff
+    legs.push(hip);
+  }
+  const [legL, legR] = legs;
+
+  // ---- Hips + khaki shirt torso with chest pockets + a belt.
+  box(g, 0.7, 0.3, 0.44, khakiD, 0, 1.06, 0);             // shorts hips
+  box(g, 0.74, 0.62, 0.46, khaki, 0, 1.46, 0);            // shirt torso
+  box(g, 0.76, 0.1, 0.48, boot, 0, 1.18, 0);              // belt
+  box(g, 0.1, 0.1, 0.06, mat(0xc7a44a), 0, 1.18, 0.25);   // belt buckle
+  for (const s of [-1, 1]) box(g, 0.2, 0.16, 0.06, khakiD, s * 0.2, 1.5, 0.22); // chest pockets
+  box(g, 0.5, 0.12, 0.06, khakiD, 0, 1.74, 0.22);         // shoulder yoke
+
+  // ---- Arms: pivot at the shoulders, raised forward to hold the gun.
+  const arms = [];
+  for (const s of [1, -1]) {
+    const arm = pivot(g, s * 0.45, 1.68, 0);
+    arm.rotation.x = -0.7;                                  // arms forward
+    box(arm, 0.21, 0.34, 0.23, khaki, 0, -0.16, 0);        // sleeve
+    box(arm, 0.18, 0.34, 0.2, skin, 0, -0.46, 0);          // forearm
+    box(arm, 0.2, 0.14, 0.2, skin, 0, -0.64, 0);           // fist
+    arms.push(arm);
+  }
+  const [armL, armR] = arms;
+
+  // ---- RIFLE / dart-gun: built pointing +Z, parented to the right hand and
+  //      laid along the forward arm, so it reads as a levelled rifle.
+  const gun = pivot(armR, -0.02, -0.62, 0.14);
+  gun.rotation.x = Math.PI / 2 - 0.2;
+  const gunMetal = mat(0x37474f);
+  const stock = box(gun, 0.1, 0.16, 0.42, mat(COLORS.woodDark), 0, -0.04, -0.34);
+  stock.rotation.x = -0.15;
+  box(gun, 0.11, 0.13, 0.34, mat(0x546e7a), 0, 0.0, 0);    // receiver
+  add(gun, cylGeo(0.04, 0.04, 0.9, 6), gunMetal, 0, 0.04, 0.55).rotation.x = Math.PI / 2; // long barrel
+  box(gun, 0.06, 0.16, 0.06, gunMetal, 0, -0.12, 0.0);    // magazine
+  box(gun, 0.05, 0.18, 0.05, mat(0xffa726), 0, 0.12, 0.18); // scope / dart vial
+  const muzzle = box(gun, 0.06, 0.06, 0.05, emat(0xffab40, 0xff6d00, 0.9), 0, 0.04, 1.0);
+  muzzle.castShadow = false;
+  const gunTip = new THREE.Object3D();
+  gunTip.position.set(0, 0.04, 1.02);
+  gun.add(gunTip);
+
+  // ---- Head: pivot at the neck. Tanned face, stubble, a wide-brim bush hat.
+  const head = pivot(g, 0, 1.78, 0);
+  box(head, 0.44, 0.42, 0.42, skin, 0, 0.22, 0);          // head
+  box(head, 0.07, 0.1, 0.04, eye, -0.11, 0.28, 0.215);    // eyes
+  box(head, 0.07, 0.1, 0.04, eye, 0.11, 0.28, 0.215);
+  box(head, 0.09, 0.1, 0.08, mat(0xdda575), 0, 0.2, 0.24); // nose
+  box(head, 0.34, 0.12, 0.1, beard, 0, 0.08, 0.2);        // stubble jaw
+  // Wide-brim bush hat: a broad flat brim + a domed crown + a band.
+  box(head, 0.78, 0.06, 0.78, hatM, 0, 0.46, 0);          // wide brim
+  box(head, 0.46, 0.26, 0.46, hatM, 0, 0.6, 0);           // crown
+  box(head, 0.48, 0.07, 0.48, khakiD, 0, 0.5, 0);         // hat band
+  box(head, 0.14, 0.04, 0.4, mat(0x6e6338), 0.34, 0.49, 0).rotation.z = 0.4; // pinned-up side
+
+  // ---- Tail: null-safe pivot for the animator contract.
+  const tail = pivot(g, 0, 1.1, -0.2);
+
+  g.userData = { head, legs: [legL, legR], tail, arms: [armL, armR], gun, gunTip };
+  return g;
+}
+

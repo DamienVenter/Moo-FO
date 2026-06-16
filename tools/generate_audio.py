@@ -1267,6 +1267,303 @@ def make_oink():
 
 
 # ---------------------------------------------------------------------------
+# Savannah map voices / machines
+# ---------------------------------------------------------------------------
+
+def make_lion():
+    """LION ROAR: a deep, powerful growl. A very low voiced fundamental (~85->110
+    ->75 Hz) with a heavy vocal-fold rasp (slow jitter = the chesty rumble) run
+    through a buzzy FM larynx and two low formant bands so it reads as a huge
+    animal throat. The roar BUILDS — amplitude swells up to a sustained bellow
+    then falls away — with a turbulent breath/grit layer for the rough edge."""
+    dur = 1.15
+    # Pitch: a low rise into the roar then a sag as it dies away.
+    pitch = curve([(0, 85.0), (0.18 * dur, 110.0), (0.55 * dur, 100.0),
+                   (0.85 * dur, 88.0), (dur, 72.0)])
+    # Heavy vocal-fold rasp: two slow incommensurate jitters = a chesty rumble.
+    rasp = lambda t: pitch(t) * (1.0 + 0.05 * math.sin(TWO_PI * 18.0 * t)
+                                 + 0.03 * math.sin(TWO_PI * 29.0 * t))
+    # Buzzy larynx: a low FM fundamental + a brighter FM layer + saw grit.
+    idx = curve([(0, 2.4), (0.2 * dur, 4.4), (0.6 * dur, 3.6), (dur, 2.2)])
+    voiced = fm_osc(rasp, 1.0, idx, dur)
+    bright = fm_osc(rasp, 2.0, lambda t: 0.5 * idx(t), dur)
+    grit = osc('saw', rasp, dur)
+    src = [a + 0.4 * b + 0.25 * c for a, b, c in zip(voiced, bright, grit)]
+    # F1: a low formant (~250->480 Hz) that opens as the mouth widens on the roar.
+    f1hi = lowpass(src, curve([(0, 300.0), (0.4 * dur, 520.0), (dur, 320.0)]))
+    f1lo = lowpass(src, curve([(0, 150.0), (0.4 * dur, 230.0), (dur, 160.0)]))
+    f1 = [h - l for h, l in zip(f1hi, f1lo)]
+    # F2: a rough mid band (~800->1300 Hz) for the snarl edge of the roar.
+    f2hi = lowpass(src, curve([(0, 900.0), (0.4 * dur, 1400.0), (dur, 900.0)]))
+    f2lo = lowpass(src, curve([(0, 600.0), (0.4 * dur, 850.0), (dur, 600.0)]))
+    f2 = [h - l for h, l in zip(f2hi, f2lo)]
+    voice = [1.4 * a + 0.9 * b for a, b in zip(f1, f2)]
+    # The roar SWELLS in, sustains a powerful bellow, then falls away.
+    env = curve([(0, 0.0), (0.10 * dur, 0.55), (0.35 * dur, 1.0),
+                 (0.65 * dur, 0.95), (0.85 * dur, 0.6), (dur, 0.0)])
+    voice = apply_env(voice, env)
+    # Turbulent breath/grit riding the roar = the rough, building rasp.
+    breath = lowpass(noise(dur), curve([(0, 700.0), (0.4 * dur, 1300.0), (dur, 600.0)]))
+    breath = apply_env(breath, curve([(0, 0.0), (0.2 * dur, 0.7), (0.55 * dur, 1.0),
+                                      (0.85 * dur, 0.5), (dur, 0.0)]))
+    out = zeros(dur)
+    mix_at(out, voice)
+    mix_at(out, breath, g=0.18)
+    out = soft_clip(out, 1.8)               # huge throaty compression / grunt
+    return normalize(fade(out, 0.004, 0.06))
+
+
+def make_elephant():
+    """ELEPHANT TRUMPET: a brassy rising blare. A buzzy mid tone (saw + FM grit)
+    that sweeps UP sharply then breaks off at the top — the classic trumpeting
+    blast. A strong mid bandpass gives it a reedy/brassy honk, and a noisy
+    rasp on top adds the air-forced 'blare' edge."""
+    dur = 0.85
+    # Pitch: a fast brassy sweep UP, peaking near the break, then a tiny crack down.
+    pitch = curve([(0, 300.0), (0.10, 440.0), (0.45, 720.0), (0.58, 780.0),
+                   (0.66, 700.0), (dur, 520.0)])
+    rasp = lambda t: pitch(t) * (1.0 + 0.03 * math.sin(TWO_PI * 22.0 * t))
+    # Brassy buzzy source: a saw + a buzzy FM layer = harsh trumpeting overtones.
+    src = osc('saw', rasp, dur)
+    buzz = fm_osc(rasp, 1.0, curve([(0, 2.0), (0.45, 4.2), (dur, 2.6)]), dur)
+    src = [a + 0.5 * b for a, b in zip(src, buzz)]
+    # Strong brassy mid bandpass (~900->1600 Hz) sweeping up with the pitch.
+    hi = lowpass(src, curve([(0, 1100.0), (0.5, 2000.0), (dur, 1400.0)]))
+    lo = lowpass(src, curve([(0, 650.0), (0.5, 1100.0), (dur, 800.0)]))
+    voice = [h - l for h, l in zip(hi, lo)]
+    # Blare envelope: builds as the pitch sweeps up, holds the blast, breaks off.
+    env = curve([(0, 0.0), (0.04, 0.6), (0.40, 1.0), (0.60, 0.95),
+                 (0.70, 0.55), (dur, 0.0)])
+    voice = apply_env(voice, env)
+    # Air-forced rasp on top = the breathy edge of the trumpet.
+    air = lowpass(noise(dur), curve([(0, 1500.0), (0.5, 2600.0), (dur, 1600.0)]))
+    air = apply_env(air, curve([(0, 0.0), (0.1, 0.5), (0.5, 1.0), (0.66, 0.5),
+                                (dur, 0.0)]))
+    out = zeros(dur)
+    mix_at(out, voice)
+    mix_at(out, air, g=0.14)
+    out = soft_clip(out, 1.7)               # brassy honk compression
+    return normalize(fade(out, 0.003, 0.05))
+
+
+def make_flamingo():
+    """FLAMINGO / wading-bird HONK: a couple of nasal goose-like honks. Each honk
+    is a buzzy reedy voice (saw + FM) pushed through a strong nasal bandpass so it
+    reads as a pinched, honking squawk, with a quick downward pitch flick."""
+    out = zeros(0.55)
+
+    def honk(dur, f0, f1):
+        # Nasal pitch with a quick downward flick = the goose-honk inflection.
+        pitch = curve([(0, f0), (0.2 * dur, f0 * 1.02), (dur, f1)])
+        rasp = lambda t: pitch(t) * (1.0 + 0.025 * math.sin(TWO_PI * 26.0 * t))
+        # Buzzy reedy source.
+        src = osc('saw', rasp, dur)
+        buzz = fm_osc(rasp, 1.5, 3.2, dur)
+        src = [a + 0.5 * b for a, b in zip(src, buzz)]
+        # Strong nasal bandpass (~900-2000 Hz) = the honking squawk.
+        hi = lowpass(src, curve([(0, 2100.0), (dur, 1600.0)]))
+        lo = lowpass(src, curve([(0, 900.0), (dur, 700.0)]))
+        voice = [h - l for h, l in zip(hi, lo)]
+        env = curve([(0, 0.0), (0.01, 1.0), (0.5 * dur, 0.75), (dur, 0.0)])
+        voice = apply_env(voice, env)
+        voice = soft_clip(voice, 1.9)       # hard nasal buzz
+        return voice
+
+    mix_at(out, honk(0.20, 540.0, 380.0), offset=0.00, g=1.0)
+    mix_at(out, honk(0.18, 500.0, 360.0), offset=0.27, g=0.85)
+    return normalize(fade(out, 0.0015, 0.03))
+
+
+def make_croc():
+    """CROCODILE hiss + low growl: a guttural low rumble under a noisy hiss. A
+    very low buzzy growl (FM larynx with heavy rasp) sits beneath a broadband
+    hiss (bandpassed noise) that swells in — the warning hiss of a basking croc."""
+    dur = 0.6
+    out = zeros(dur)
+    # Guttural low growl: a very low buzzy larynx with a heavy slow rasp.
+    pitch = curve([(0, 70.0), (0.4 * dur, 78.0), (dur, 62.0)])
+    rasp = lambda t: pitch(t) * (1.0 + 0.06 * math.sin(TWO_PI * 24.0 * t)
+                                 + 0.04 * math.sin(TWO_PI * 13.0 * t))
+    growl = fm_osc(rasp, 1.0, curve([(0, 2.6), (0.4 * dur, 3.4), (dur, 2.2)]), dur)
+    grit = osc('saw', rasp, dur)
+    src = [a + 0.3 * b for a, b in zip(growl, grit)]
+    src = lowpass(src, 500.0)               # keep the growl low and chesty
+    genv = curve([(0, 0.0), (0.04, 0.8), (0.4 * dur, 1.0), (0.8 * dur, 0.7),
+                  (dur, 0.0)])
+    src = apply_env(src, genv)
+    mix_at(out, src, g=0.85)
+    # Noisy hiss: broadband noise through a crude bandpass that swells in then out.
+    hiss = noise(dur)
+    hi = lowpass(hiss, 5500.0)
+    lo = lowpass(hiss, 1600.0)
+    hiss = [h - l for h, l in zip(hi, lo)]
+    hiss = apply_env(hiss, curve([(0, 0.0), (0.10, 0.5), (0.45, 1.0), (0.7, 0.8),
+                                  (dur, 0.0)]))
+    mix_at(out, hiss, g=0.4)
+    out = soft_clip(out, 1.5)               # throaty compression
+    return normalize(fade(out, 0.003, 0.05))
+
+
+def make_vulture():
+    """VULTURE SCREECH/cackle: a harsh, scratchy raspy bird shriek. A bright reedy
+    voice (saw + buzzy FM) with a heavy rasp and a falling pitch, through two
+    upper formant bands so it's all harsh edge, plus a scratchy noise rasp riding
+    on top for the dry, raspy cackle."""
+    dur = 0.5
+    # Pitch: a harsh shriek that flicks up then falls (the scratchy screech).
+    pitch = curve([(0, 1300.0), (0.10, 1800.0), (0.30, 1600.0), (dur, 1000.0)])
+    # Heavy fast rasp = the scratchy, broken edge of a vulture's cackle.
+    rasp = lambda t: pitch(t) * (1.0 + 0.06 * math.sin(TWO_PI * 33.0 * t)
+                                 + 0.04 * math.sin(TWO_PI * 47.0 * t))
+    src = osc('saw', rasp, dur)
+    buzz = fm_osc(rasp, 2.0, 3.5, dur)
+    src = [a + 0.6 * b for a, b in zip(src, buzz)]
+    # Two upper formant bands so it's all harsh treble screech.
+    f1hi = lowpass(src, curve([(0, 2600.0), (0.3, 2400.0), (dur, 1700.0)]))
+    f1lo = lowpass(src, curve([(0, 1600.0), (0.3, 1500.0), (dur, 1100.0)]))
+    f1 = [h - l for h, l in zip(f1hi, f1lo)]
+    f2hi = lowpass(src, curve([(0, 4200.0), (0.3, 3800.0), (dur, 2800.0)]))
+    f2lo = lowpass(src, curve([(0, 3000.0), (0.3, 2700.0), (dur, 2000.0)]))
+    f2 = [h - l for h, l in zip(f2hi, f2lo)]
+    voice = [1.0 * a + 1.2 * b for a, b in zip(f1, f2)]
+    env = curve([(0, 0.0), (0.012, 1.0), (0.35, 0.8), (0.6, 0.5), (dur, 0.0)])
+    voice = apply_env(voice, env)
+    # Scratchy noise rasp riding on top = the dry, raspy cackle.
+    scratch = lowpass(noise(dur), curve([(0, 3500.0), (0.3, 4500.0), (dur, 2500.0)]))
+    n = len(scratch)
+    for i in range(n):                       # fast tremolo = a scratchy chatter
+        t = i / SR
+        scratch[i] *= 1.0 - 0.5 * (0.5 + 0.5 * math.sin(TWO_PI * 60.0 * t))
+    scratch = apply_env(scratch, env)
+    out = zeros(dur)
+    mix_at(out, voice)
+    mix_at(out, scratch, g=0.22)
+    out = soft_clip(out, 1.9)               # harsh, broken-up screech
+    return normalize(fade(out, 0.002, 0.04))
+
+
+def make_ranger():
+    """RANGER SHOUT: a gruff male 'OI!' holler. In the spirit of 'farmer' (a low
+    chesty male voice) but its own take — a single sharp barked command. A buzzy
+    low larynx (FM + saw grit) with vocal-fold rasp through two vowel formants,
+    a noisy consonant ONSET, and a pitch that punches up on the 'OI' then drops."""
+    dur = 0.55
+    # Pitch: a hard accented onset (the 'OI') then a firm gruff fall.
+    pitch = curve([(0, 140.0), (0.05, 185.0), (0.16, 200.0), (0.32, 172.0),
+                   (dur, 132.0)])
+    rasp = lambda t: pitch(t) * (1.0 + 0.035 * math.sin(TWO_PI * 25.0 * t)
+                                 + 0.02 * math.sin(TWO_PI * 39.0 * t))
+    idx = curve([(0, 4.4), (0.05, 3.6), (0.4 * dur, 2.6), (dur, 1.7)])
+    voiced = fm_osc(rasp, 1.0, idx, dur)
+    bright = fm_osc(rasp, 2.0, lambda t: 0.5 * idx(t), dur)
+    grit = osc('saw', rasp, dur)
+    src = [a + 0.35 * b + 0.3 * c for a, b, c in zip(voiced, bright, grit)]
+    # Two-formant 'OI' vowel: F1 ~600 Hz (the 'aw') gliding to F2 ~2000 Hz ('ee').
+    f1hi = lowpass(src, curve([(0, 700.0), (0.18, 640.0), (dur, 520.0)]))
+    f1lo = lowpass(src, curve([(0, 420.0), (0.18, 380.0), (dur, 320.0)]))
+    f1 = [h - l for h, l in zip(f1hi, f1lo)]
+    f2hi = lowpass(src, curve([(0, 1500.0), (0.18, 2200.0), (dur, 2300.0)]))
+    f2lo = lowpass(src, curve([(0, 1050.0), (0.18, 1600.0), (dur, 1700.0)]))
+    f2 = [h - l for h, l in zip(f2hi, f2lo)]
+    voice = [1.2 * a + 1.0 * b for a, b in zip(f1, f2)]
+    # Shout envelope: a hard percussive accent then a held vowel cut off firmly.
+    env = curve([(0, 0.0), (0.012, 1.0), (0.06, 0.85), (0.24, 0.92),
+                 (0.40, 0.65), (0.48, 0.4), (dur, 0.0)])
+    voice = apply_env(voice, env)
+    # Noisy consonant ONSET: a short filtered-noise burst kicks off the holler.
+    crack = lowpass(noise(0.05), xsweep(3000.0, 800.0, 0.04))
+    crack = apply_env(crack, exp_env(0.016, attack=0.001))
+    out = zeros(dur)
+    mix_at(out, voice)
+    mix_at(out, crack, g=0.38)
+    out = soft_clip(out, 1.7)               # throaty, compressed bellow
+    return normalize(fade(out, 0.002, 0.05))
+
+
+def make_jeep():
+    """Looping 4x4 JEEP ENGINE idle: a low chugging motor rumble, a bit higher and
+    rougher than the diesel tractor. Built as a seamless loop — an integer number
+    (12) of firing pulses over the loop, plus a periodic low rumble bed, so
+    finish_loop wraps cleanly. Used as a positional engine loop via startLoop."""
+    dur = 2.0
+    de = dur + 1.0 / SR
+    cyl = 12                     # 12 firing strokes over 2 s = 6 Hz chug (rougher/higher)
+    period = dur / cyl
+    out = zeros(de)
+
+    # Engine firing pulses: each 'chug' is a short low thump (fast sine pop +
+    # filtered-noise mechanical knock). Placed on the grid so the pattern is
+    # exactly periodic over the loop.
+    for k in range(cyl):
+        off = k * period
+        # Alternate strokes a touch in level/pitch -> uneven rough lope.
+        strong = (k % 2 == 0)
+        amp = 1.0 if strong else 0.7
+        f_hi = 120.0 if strong else 108.0
+        thump = osc('sine', curve([(0, f_hi), (0.04, 64.0), (period, 56.0)]),
+                    period, amp=exp_env(0.032, attack=0.0018, amp=amp))
+        # Mechanical 'knock': a short brighter noise tick on each fire (rougher).
+        knock = lowpass(noise(0.05), 1900.0)
+        knock = apply_env(knock, exp_env(0.010, attack=0.0007))
+        mix_at(out, thump, offset=off)
+        mix_at(out, knock, offset=off, g=0.32 if strong else 0.24)
+
+    # Low rumble bed: detuned sines + slowly wobbling filtered noise, all with
+    # integer cycle counts over `dur` so the bed stays seamlessly periodic. A
+    # touch higher than the tractor's bed.
+    mix_at(out, osc('sine', 52.0, de,
+                    amp=lambda t: 0.28 * (1.0 + 0.3 * math.sin(TWO_PI * 3.0 * t))))
+    mix_at(out, osc('sine', 104.0, de,
+                    amp=lambda t: 0.15 * (1.0 + 0.3 * math.sin(TWO_PI * 6.0 * t + 1.1))))
+    rumble = lowpass(noise(de), lambda t: 300.0 + 120.0 * math.sin(TWO_PI * (6.0 / dur) * t))
+    rumble = apply_env(rumble, lambda t: 0.5 * (1.0 - math.cos(TWO_PI * 6.0 * t / dur)))
+    mix_at(out, rumble, g=0.24)
+
+    out = soft_clip(out, 1.45)             # rough mechanical compression / grunt
+    out = normalize(out, peak=PEAK * 0.9)
+    return finish_loop(out, dur, 'jeep')
+
+
+def make_dustdevil():
+    """Looping DUST DEVIL: a swirling wind/dust howl. Filtered white noise with a
+    whooshing swell and a wandering bandpass = the rising-and-falling moan of a
+    desert whirlwind. Built periodically (every modulator is an integer cycle
+    count over the loop) and edge-windowed so finish_loop wraps cleanly."""
+    dur = 2.5
+    de = dur + 1.0 / SR  # one extra sample for the loop check
+    out = zeros(de)
+
+    # The howl: a wide noise bed through a wandering bandpass whose centre swings
+    # up and down (2 cycles over the loop) = the swirling whoosh. A cosine edge
+    # window keeps the aperiodic noise seamless at the loop seam.
+    bed = noise(de)
+    hi = lowpass(bed, lambda t: 1200.0 + 700.0 * math.sin(TWO_PI * (2.0 / dur) * t))
+    lo = lowpass(bed, lambda t: 500.0 + 250.0 * math.sin(TWO_PI * (2.0 / dur) * t))
+    howl = [h - l for h, l in zip(hi, lo)]
+    # Whooshing swell: rises and falls once over the loop (1 cycle), edge-windowed.
+    swell = lambda t: (0.4 + 0.6 * (0.5 - 0.5 * math.cos(TWO_PI * (1.0 / dur) * t))) \
+        * (0.5 * (1.0 - math.cos(TWO_PI * t / dur)))
+    howl = apply_env(howl, swell)
+    mix_at(out, howl, g=0.85)
+
+    # Low moaning body underneath: a low filtered-noise bed with a slow swell
+    # (1 cycle) giving the whirlwind a broad rolling rumble.
+    moan = lowpass(noise(de), lambda t: 280.0 + 120.0 * math.sin(TWO_PI * (1.0 / dur) * t))
+    moan = apply_env(moan, lambda t: 0.5 * (1.0 - math.cos(TWO_PI * t / dur)))
+    mix_at(out, moan, g=0.35)
+
+    # A faint high whistle of dust shimmer riding the swell (3 cycles of wobble).
+    whistle = lowpass(noise(de), lambda t: 3200.0 + 900.0 * math.sin(TWO_PI * (3.0 / dur) * t))
+    whistle = apply_env(whistle, lambda t: (0.5 - 0.5 * math.cos(TWO_PI * (1.0 / dur) * t)) ** 2
+                        * (0.5 * (1.0 - math.cos(TWO_PI * t / dur))))
+    mix_at(out, whistle, g=0.10)
+
+    out = soft_clip(out, 1.1)
+    out = normalize(out, peak=PEAK * 0.9)
+    return finish_loop(out, dur, 'dustdevil')
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1312,6 +1609,15 @@ SOUNDS = [
     ('horse',     make_horse),
     ('farmer',    make_farmer),
     ('oink',      make_oink),
+    # Savannah map.
+    ('lion',      make_lion),
+    ('elephant',  make_elephant),
+    ('flamingo',  make_flamingo),
+    ('croc',      make_croc),
+    ('vulture',   make_vulture),
+    ('ranger',    make_ranger),
+    ('jeep',      make_jeep),       # loopable (finish_loop) -> startLoop
+    ('dustdevil', make_dustdevil),  # loopable (finish_loop) -> startLoop
 ]
 
 

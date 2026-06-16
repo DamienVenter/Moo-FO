@@ -246,39 +246,54 @@ function farmHeight(x, z) {
   return h;
 }
 
-// The shoreline runs (roughly N–S) along z, meandering a little, at this x.
-// Left of it (smaller x) = OCEAN; right of it = BEACH sand + dunes.
-export const BEACH_SHORE_X = -30;
-export function beachShoreX(z) {
-  return BEACH_SHORE_X + Math.sin(z * 0.03) * 5 + Math.sin(z * 0.013 + 1.0) * 7;
-}
+// Savannah watering holes (carved bowls; SavannahWorld fills them with water
+// and spawns flamingos/storks/crocs around them).
+export const SAV_HOLES = [
+  { x: -84, z: -118, r: 27, depth: 2.5 },
+  { x: 126, z: 64, r: 31, depth: 2.7 },
+  { x: -146, z: 150, r: 23, depth: 2.3 },
+  { x: 64, z: 210, r: 25, depth: 2.4 },
+  { x: 210, z: -150, r: 24, depth: 2.4 },
+];
+// The savannah river follows the SAME path as the farm river but 30% thinner.
+export function savRiverHalf(z) { return (riverW(z) * 0.7) / 2; }
 
-// Beach biome height: ocean on the left (sloping down underwater), a sandy
-// shore, then gently rising sand with rolling dunes inland on the right.
-function beachHeight(x, z) {
-  const dx = x - beachShoreX(z);              // <0 sea side, >0 beach side
-  if (dx < 0) {
-    // ocean floor — slopes deeper to the left, with a soft seabed ripple.
-    let depth = -1.2 + dx * 0.05;             // dx negative → goes negative
-    depth += (fbm(x * 0.02 + 5, z * 0.02 + 5) - 0.5) * 1.2;
-    return Math.max(depth, -16);
+// Savannah biome: rolling grassland with gentle elevation, a thin meandering
+// river, and a few carved watering holes; an edge ridge on the horizon.
+function savannahHeight(x, z) {
+  let h = 1.0 + fbm(x * 0.009, z * 0.009) * 9.0 + fbm(x * 0.025 + 9, z * 0.025 + 9) * 2.2;
+  const edge = Math.max(Math.abs(x), Math.abs(z));
+  if (edge > 300) {
+    const t = clamp01((edge - 300) / (H - 300));
+    h += t * t * 46 * (0.7 + fbm(x * 0.02 + 4, z * 0.02 + 4) * 0.6);
   }
-  // wet sand near the waterline rising into the dry beach.
-  let h = 0.15 + dx * 0.03;
-  // rolling dunes further inland (fade in past the foreshore, capped so the
-  // UFO always clears them).
-  const dune = (fbm(x * 0.013 + 20, z * 0.013 + 20) - 0.45) * 16;
-  h += Math.max(0, dune) * clamp01((dx - 18) / 70);
-  return Math.min(h, 7.5);
+  // thin river valley
+  const rx = riverX(z);
+  const half = savRiverHalf(z);
+  const dr = Math.abs(x - rx);
+  if (dr < half + RIVER_BANK) {
+    const t = dr <= half ? 1 : smooth(clamp01(1 - (dr - half) / RIVER_BANK));
+    h = h + (RIVER_BED - h) * t;
+  }
+  // watering holes — carved bowls with a raised rim so water fills edge-to-edge
+  for (let i = 0; i < SAV_HOLES.length; i++) {
+    const b = SAV_HOLES[i];
+    const d = Math.hypot(x - b.x, z - b.z);
+    if (d < b.r + 6) {
+      if (d <= b.r) { const t = smooth(clamp01(1 - d / b.r)); h = h + (-b.depth - h) * t; }
+      else { const bt = smooth(clamp01(1 - (d - b.r) / 6)); h = h + (1.0 - h) * bt * 0.6; }
+    }
+  }
+  return h;
 }
 
 let _biome = 'farm';
-/** Switch the global heightfield biome ('farm' | 'beach'). */
-export function setBiome(name) { _biome = (name === 'beach') ? 'beach' : 'farm'; }
+/** Switch the global heightfield biome ('farm' | 'savannah'). */
+export function setBiome(name) { _biome = (name === 'savannah') ? 'savannah' : 'farm'; }
 export function getBiome() { return _biome; }
 
 export function terrainHeight(x, z) {
-  return _biome === 'beach' ? beachHeight(x, z) : farmHeight(x, z);
+  return _biome === 'savannah' ? savannahHeight(x, z) : farmHeight(x, z);
 }
 
 // Highest ground in a small disc — the UFO probes this so it never clips a slope.

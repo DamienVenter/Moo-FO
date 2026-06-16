@@ -127,7 +127,7 @@ export class UI {
     upgrades, cosmetics, dailyMissions, map,
     onBuyUpgrade, onBuyCosmetic, onSelectCosmetic,
   } = {}) {
-    this._mapName = map === 'beach' ? 'beach' : 'farm';
+    this._mapName = map === 'savannah' ? 'savannah' : 'farm';
     this.cb = {
       onStart: onStart || (() => {}),
       onFreePlay: typeof onFreePlay === 'function' ? onFreePlay : null,
@@ -565,12 +565,12 @@ export class UI {
       () => this.showUpgrades());
     this._modesMissionsBtn = button('mf-btn-secondary mf-modes-action', topActions, 'MISSIONS',
       () => this.showMissions());
-    // Map toggle: switch between the Farm and the Beach (persisted; reloads).
-    const onBeach = this._mapName === 'beach';
+    // Map toggle: switch between the Farm and the Savannah (persisted; reloads).
+    const onSav = this._mapName === 'savannah';
     this._modesMapBtn = button('mf-btn-secondary mf-modes-action mf-modes-map', topActions,
-      onBeach ? '\u{1F33E} FARM' : '\u{1F3D6}\u{FE0F} BEACH',
+      onSav ? '\u{1F33E} FARM' : '\u{1F981} SAVANNAH',
       () => {
-        try { localStorage.setItem('moofo-map', onBeach ? 'farm' : 'beach'); } catch (_) { /* blocked */ }
+        try { localStorage.setItem('moofo-map', onSav ? 'farm' : 'savannah'); } catch (_) { /* blocked */ }
         location.reload();
       });
 
@@ -3929,7 +3929,7 @@ export class UI {
     el('div', 'mf-fps-label', body, 'MAP');
     const maps = el('div', 'mf-fps-maps', body);
     this._fpsMapBtns = {};
-    for (const m of [{ k: 'farm', n: '\u{1F33E} Farm' }, { k: 'beach', n: '\u{1F3D6}\u{FE0F} Beach' }]) {
+    for (const m of [{ k: 'farm', n: '\u{1F33E} Farm' }, { k: 'savannah', n: '\u{1F981} Savannah' }]) {
       const b = el('button', 'mf-fps-map', maps, m.n); b.type = 'button';
       b.addEventListener('click', () => { this._fpsMap = m.k; this._fpsSyncMaps(); });
       this._fpsMapBtns[m.k] = b;

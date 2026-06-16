@@ -23,6 +23,9 @@ const SOUND_NAMES = [
   'bark', 'baa', 'quack',
   'scream', 'tractor', 'hoot',
   'horse', 'farmer', 'oink',
+  'lion', 'elephant', 'flamingo',
+  'croc', 'vulture', 'ranger',
+  'jeep', 'dustdevil',
 ];
 
 const MUTE_KEY = 'moofo-muted';

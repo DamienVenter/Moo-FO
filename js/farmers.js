@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CFG, COLORS } from './config.js';
-import { createFarmer, createLifeguard, blobShadow } from './models.js';
+import { createFarmer, createRanger, blobShadow } from './models.js';
 import { terrainHeight } from './terrain.js';
 
 const BULLET_POOL = 24;
@@ -27,7 +27,8 @@ export class FarmerManager {
     this.effects = effects;
     this.audio = audio;
     this.onHitPlayer = onHitPlayer;
-    this._variant = threatVariant;       // 'farmer' (rifle) | 'lifeguard' (water gun)
+    this._variant = threatVariant;       // 'farmer' (rifle) | 'ranger' (runs faster)
+    this._runSpeed = threatVariant === 'ranger' ? CFG.FARMER_RUN * 1.3 : CFG.FARMER_RUN;
 
     this.farmers = []; // [{ group, ... }] — read by the minimap
     this._t = 0;
@@ -36,7 +37,12 @@ export class FarmerManager {
     // Harder campaign levels add extra farmers and quicker shots.
     this._fireMul = 1 / Math.max(1, difficulty);
     const base = world.farmerSpawns;
-    const spawns = base.slice();
+    // Jitter each base post by a random offset every round so spawns vary.
+    const spawns = base.map((s) => ({
+      x: s.x + (Math.random() - 0.5) * 90,
+      z: s.z + (Math.random() - 0.5) * 90,
+      patrolRadius: s.patrolRadius,
+    }));
     const extra = Math.round((difficulty - 1) * 5);
     for (let e = 0; e < extra; e++) {
       const s = base[e % base.length];
@@ -44,7 +50,7 @@ export class FarmerManager {
     }
     for (let i = 0; i < spawns.length; i++) {
       const s = spawns[i];
-      const group = this._variant === 'lifeguard' ? createLifeguard() : createFarmer(i % 3);
+      const group = this._variant === 'ranger' ? createRanger() : createFarmer(i % 3);
       group.position.set(s.x, terrainHeight(s.x, s.z), s.z);
       group.rotation.y = Math.random() * Math.PI * 2;
       group.add(blobShadow(0.7));
@@ -86,7 +92,7 @@ export class FarmerManager {
     const bGeo = new THREE.BoxGeometry(0.16, 0.16, 1.7);
     for (let i = 0; i < BULLET_POOL; i++) {
       const mesh = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({
-        color: this._variant === 'lifeguard' ? 0x6fd8ff : 0xffd27a, transparent: true, opacity: 0.95,
+        color: this._variant === 'ranger' ? 0xff6a4a : 0xffd27a, transparent: true, opacity: 0.95,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       mesh.visible = false;
@@ -132,8 +138,8 @@ export class FarmerManager {
         f.aggroed = true;
         f.bangT = 0;
         f.bang.visible = true;
-        // farmer hollers when he spots you
-        this.audio.play('farmer', {
+        // farmer / ranger hollers when he spots you
+        this.audio.play(this._variant === 'ranger' ? 'ranger' : 'farmer', {
           volume: THREE.MathUtils.clamp(1 - d / 90, 0.2, 0.8), ratejitter: 0.14,
         });
       } else if (st === 'patrol' && f.aggroed) {
@@ -166,7 +172,7 @@ export class FarmerManager {
         this._doShoot(f, ufo, d, dx, dz, dt);
       } else if (st === 'chase') {
         this._gunRest(f, dt);
-        this._walkToward(f, up.x, up.z, CFG.FARMER_RUN, dt);
+        this._walkToward(f, up.x, up.z, this._runSpeed, dt);
         this._animRun(f, dt);
         f.fireT = Math.max(f.fireT, 0.25); // brief shoulder-up delay after closing in
       } else {
@@ -295,7 +301,7 @@ export class FarmerManager {
     b.mesh.lookAt(_v2); // stretch axis along flight
 
     this.effects.muzzleFlash(_v);
-    this.audio.play(this._variant === 'lifeguard' ? 'squirt' : 'gunshot', {
+    this.audio.play('gunshot', {
       volume: THREE.MathUtils.clamp(1 - d / 120, 0.25, 0.85),
       ratejitter: 0.12,
     });

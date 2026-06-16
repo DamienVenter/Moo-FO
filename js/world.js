@@ -2032,11 +2032,12 @@ export class World {
       { x: 30, z: 44, r: 9, count: Math.ceil(CFG.CHICKEN_COUNT * 0.6) },
       { x: 18, z: -20, r: 10, count: Math.floor(CFG.CHICKEN_COUNT * 0.4) },
     ];
+    // Three farmers, spread widely across the map (jittered per round in
+    // farmers.js so they don't always start in the same spots).
     this.farmerSpawns = [
-      { x: 58, z: 0, patrolRadius: 42 },
-      { x: 167, z: 52, patrolRadius: 38 },
-      { x: 224, z: -190, patrolRadius: 40 },
-      { x: -150, z: 230, patrolRadius: 45 },
+      { x: 70, z: -110, patrolRadius: 44 },
+      { x: 232, z: 120, patrolRadius: 42 },
+      { x: -168, z: 70, patrolRadius: 46 },
     ];
     this._goldenSpots = [
       { x: 30, z: 176 },
