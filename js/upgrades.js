@@ -26,9 +26,15 @@ const STEP  = { speed: 0.12, beam: 0.14, warpSpeed: 0.14, warpStrength: 0.16, hu
 export const MAX_CAP = MODELS.reduce((m, x) => Math.max(m, x.cap), 4);
 export const UPGRADE_COSTS = Array.from({ length: MAX_CAP }, (_, i) => 200 + i * 100);
 
-const CARRYOVER = 0.30;   // a new model starts at 30% of the previous model's cap
-const KEY = 'moofo-upgrades-v2';
+// Each model has the SAME number of purchasable upgrades (STEPS). A model of
+// tier i STARTS at level i (already i levels in — it never restarts at zero)
+// and CAPS at i + STEPS. So every next model both starts and caps one level
+// higher than the one before, while keeping an identical upgrade count.
+const STEPS = 6;
+const KEY = 'moofo-upgrades-v3';
 const byId = Object.fromEntries(MODELS.map((m) => [m.id, m]));
+const startOf = (m) => (m ? m.tier : 0);
+const capOf = (m) => (m ? m.tier + STEPS : STEPS);
 
 export class Upgrades {
   constructor() {
@@ -51,16 +57,15 @@ export class Upgrades {
     try { localStorage.setItem(KEY, JSON.stringify({ lvl: this._lvl, active: this._active })); } catch (_) { /* blocked */ }
   }
 
-  // Lazily seed a model's levels to the carryover (30% of the previous model's
-  // cap) the first time it's touched, clamped to this model's cap.
+  // Seed a model's levels to its STARTING level (= its tier) the first time
+  // it's touched — it's already `tier` levels in, never restarts at zero.
   _ensure(id) {
     const m = byId[id];
     if (!m) return;
     if (this._lvl[id]) return;
-    const prev = MODELS[m.tier - 1];
-    const carry = prev ? Math.min(m.cap, Math.round(CARRYOVER * prev.cap)) : 0;
+    const start = startOf(m);
     const lv = {};
-    for (const t of TRACKS) lv[t] = carry;
+    for (const t of TRACKS) lv[t] = start;
     this._lvl[id] = lv;
     this._save();
   }
@@ -69,15 +74,19 @@ export class Upgrades {
   activeModel() { return this._active; }
   modelName(id = this._active) { return byId[id] ? byId[id].name : ''; }
 
-  cap(id = this._active) { return byId[id] ? byId[id].cap : 0; }
+  startLevel(id = this._active) { return startOf(byId[id]); }
+  cap(id = this._active) { return capOf(byId[id]); }
   level(track, id = this._active) { this._ensure(id); return (this._lvl[id] && this._lvl[id][track]) || 0; }
   maxed(track, id = this._active) { return this.level(track, id) >= this.cap(id); }
   progress(track, id = this._active) { const c = this.cap(id); return c ? this.level(track, id) / c : 0; }
 
-  /** Coin cost of the NEXT tier for a track, or null when capped. */
+  /** Coin cost of the NEXT upgrade for a track, or null when capped. Cost is
+   *  by how many you've BOUGHT on this model (level − start), not the level. */
   cost(track, id = this._active) {
     const lv = this.level(track, id);
-    return lv >= this.cap(id) ? null : UPGRADE_COSTS[Math.min(lv, UPGRADE_COSTS.length - 1)];
+    if (lv >= this.cap(id)) return null;
+    const bought = Math.max(0, lv - startOf(byId[id]));
+    return UPGRADE_COSTS[Math.min(bought, UPGRADE_COSTS.length - 1)];
   }
 
   // Free-play LOADOUT override: temporarily run the active model's tracks at

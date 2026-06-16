@@ -102,7 +102,14 @@ export function buildBeam(def = {}, dims = {}) {
         const b = new THREE.Mesh(g2, mat(i % 2 ? color2 : color, 0.55, i % 2 === 0));
         group.add(b); bands.push(b);
       }
-      anims.push((tt) => { group.position.y = -((tt * 0.5) % (h / segs)); });
+      // flow the dashes downward via a travelling brightness wave (the bands
+      // stay attached to the craft — no drifting the whole beam away).
+      anims.push((tt) => {
+        for (let i = 0; i < bands.length; i++) {
+          const w = 0.5 + 0.5 * Math.sin(tt * 3.2 - i * 1.1);
+          bands[i].material.opacity = 0.3 + 0.5 * w;
+        }
+      });
       innerCore();
       break;
     }

@@ -27,24 +27,18 @@ const TREAT = [
 
 // Per-model config (order = unlock tier 0..14). cap = 4 + tier (later models
 // upgrade higher). hue drives the whole skin family.
+// Eight DISTINCT models (the near-duplicate disc/round shapes were trimmed).
 const MODEL_CFG = [
   { shape: 'saucer',   name: 'Saucer',  hue: 205 },
   { shape: 'orb',      name: 'Orb',     hue: 135 },
-  { shape: 'ringed',   name: 'Ringer',  hue: 280 },
-  { shape: 'bell',     name: 'Bell',    hue: 35 },
   { shape: 'delta',    name: 'Delta',   hue: 0 },
-  { shape: 'spinner',  name: 'Spinner', hue: 190 },
   { shape: 'mushroom', name: 'Shroom',  hue: 95 },
   { shape: 'cube',     name: 'Cube',    hue: 315 },
-  { shape: 'donut',    name: 'Donut',   hue: 45 },
   { shape: 'star',     name: 'Star',    hue: 58 },
   { shape: 'manta',    name: 'Manta',   hue: 170 },
-  { shape: 'tripod',   name: 'Tripod',  hue: 22 },
-  { shape: 'beetle',   name: 'Beetle',  hue: 265 },
-  { shape: 'crystal',  name: 'Crystal', hue: 150 },
   { shape: 'jelly',    name: 'Jelly',   hue: 330 },
 ];
-const UNLOCKS = [0, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500, 6600, 7800, 9100, 10500, 12000, 13600];
+const UNLOCKS = [0, 700, 1400, 2300, 3400, 4700, 6200, 8000];
 
 function buildSkins(modelId, tier, hue, unlock) {
   const skins = TREAT.map((t, i) => {
@@ -66,7 +60,7 @@ function buildSkins(modelId, tier, hue, unlock) {
 export const MODELS = MODEL_CFG.map((cfg, tier) => {
   const id = 'm_' + cfg.shape;
   return {
-    id, name: cfg.name, shape: cfg.shape, tier, cap: 4 + tier,
+    id, name: cfg.name, shape: cfg.shape, tier, cap: tier + 6,
     unlock: UNLOCKS[tier], hue: cfg.hue,
     skins: buildSkins(id, tier, cfg.hue, UNLOCKS[tier]),
   };
